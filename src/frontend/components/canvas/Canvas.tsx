@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 
-import { ArrowComponent } from "@/components/canvas/ArrowComponent";
-import { BoxComponent } from "@/components/canvas/BoxComponent";
-import { NumberComponent } from "@/components/canvas/NumberComponent";
+import { getCanvasDesign } from "@/components/canvas/designs";
 import { ReelPreviewOverlay } from "@/components/canvas/ReelPreviewOverlay";
 import {
   matrixToPercents,
@@ -15,7 +13,6 @@ import {
 } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomKey, isEditableTarget } from "@/lib/canvas-keyboard";
 import { isElementActiveAt } from "@/lib/element-visibility";
-import { isFilledTheme } from "@/lib/render-theme";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
@@ -43,6 +40,7 @@ export function Canvas({
   const selectElement = useCanvasStore((state) => state.selectElement);
   const currentTime = useCanvasStore((state) => state.currentTime);
   const renderTheme = useCanvasStore((state) => state.renderTheme);
+  const design = getCanvasDesign(renderTheme);
 
   const visible = useMemo(
     () =>
@@ -160,28 +158,9 @@ export function Canvas({
       data-exporting={exporting ? "true" : undefined}
       className={cn(
         "relative aspect-[9/16] h-full w-auto max-h-full overflow-hidden rounded-xl shadow-sm",
-        isFilledTheme(renderTheme) &&
-          "border-2 border-canvas-ink bg-canvas-surface text-canvas-ink",
-        renderTheme === "calidraw-light" &&
-          "border border-neutral-300 bg-white text-neutral-900",
-        renderTheme === "calidraw-dark" &&
-          "border border-neutral-700 bg-[#1a1a1a] text-neutral-100",
+        design.frameClassName,
       )}
-      style={
-        isFilledTheme(renderTheme)
-          ? {
-              backgroundImage:
-                renderTheme === "dark"
-                  ? exporting
-                    ? "radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px)"
-                    : "radial-gradient(circle, color-mix(in srgb, currentColor 12%, transparent) 1px, transparent 1px)"
-                  : exporting
-                    ? "radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)"
-                    : "radial-gradient(circle, color-mix(in srgb, currentColor 10%, transparent) 1px, transparent 1px)",
-              backgroundSize: "24px 24px",
-            }
-          : undefined
-      }
+      style={design.frameStyle(exporting)}
       onClick={() => selectElement(null)}
     >
       <svg
@@ -191,45 +170,11 @@ export function Canvas({
         preserveAspectRatio="none"
       >
         <defs>
-          <marker
-            id={`${markerPrefix}-arrowhead`}
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="5"
-            markerHeight="5"
-            orient="auto-start-reverse"
-            markerUnits="strokeWidth"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 Z" className="fill-canvas-ink" />
-          </marker>
-          <marker
-            id={`${markerPrefix}-arrowhead-calidraw`}
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
-            markerUnits="strokeWidth"
-          >
-            <path
-              d="M 1 1 L 9 5 L 1 9"
-              fill="none"
-              className={
-                renderTheme === "calidraw-dark"
-                  ? "stroke-neutral-100"
-                  : "stroke-canvas-ink"
-              }
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </marker>
+          <design.Markers markerPrefix={markerPrefix} />
         </defs>
 
         {arrows.map((arrow) => (
-          <ArrowComponent
+          <design.Arrow
             key={arrow.id}
             arrow={arrow}
             boxes={boxes}
@@ -242,14 +187,14 @@ export function Canvas({
       <div className="absolute inset-0">
         {htmlNodes.map((node) =>
           isBoxNode(node) ? (
-            <BoxComponent
+            <design.Box
               key={node.id}
               node={node}
               selected={!exporting && node.id === selectedId}
               canvasRef={canvasRef}
             />
           ) : (
-            <NumberComponent
+            <design.Number
               key={node.id}
               node={node}
               selected={!exporting && node.id === selectedId}

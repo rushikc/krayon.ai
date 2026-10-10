@@ -8,10 +8,19 @@ import type { RenderTheme } from "@/lib/render-theme";
 import {
   durationFromElements,
   lastVisibleTime,
+  reelDuration,
 } from "@/lib/reel-duration";
+import {
+  getStoredRenderTheme,
+  persistRenderTheme,
+} from "@/lib/workspace-chrome";
 import type { CanvasElement } from "@/types/canvas";
 
-export { durationFromElements, lastVisibleTime } from "@/lib/reel-duration";
+export {
+  durationFromElements,
+  lastVisibleTime,
+  reelDuration,
+} from "@/lib/reel-duration";
 
 import {
   popTimelineHistoryRedo,
@@ -26,11 +35,13 @@ interface CanvasState {
   elements: CanvasElement[];
   selectedId: string | null;
   duration: number;
+  previewAudioDuration: number | null;
   currentTime: number;
   isPlaying: boolean;
   trackCount: number;
   renderTheme: RenderTheme;
   setElements: (elements: CanvasElement[]) => void;
+  setPreviewAudioDuration: (duration: number | null) => void;
   selectElement: (id: string | null) => void;
   updateElement: (id: string, patch: Partial<CanvasElement>) => void;
   setCurrentTime: (time: number) => void;
@@ -72,7 +83,11 @@ function commitElements(
   elements: CanvasElement[],
   extra: Partial<CanvasState> = {},
 ): Partial<CanvasState> {
-  const duration = durationFromElements(elements);
+  const previewAudioDuration =
+    extra.previewAudioDuration !== undefined
+      ? extra.previewAudioDuration
+      : get().previewAudioDuration;
+  const duration = reelDuration(elements, previewAudioDuration);
   return {
     elements,
     duration,
@@ -85,14 +100,23 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   elements: structuredClone(seedElements),
   selectedId: null,
   duration: durationFromElements(seedElements),
+  previewAudioDuration: null,
   currentTime: 0,
   isPlaying: false,
   trackCount: DEFAULT_TRACK_COUNT,
-  renderTheme: "bright",
+  renderTheme: getStoredRenderTheme(),
 
   setElements: (elements) => {
     recordTimelineHistory(snapshotOf(get()));
     set(commitElements(get, elements));
+  },
+
+  setPreviewAudioDuration: (audioDuration) => {
+    set(
+      commitElements(get, get().elements, {
+        previewAudioDuration: audioDuration,
+      }),
+    );
   },
 
   selectElement: (id) => set({ selectedId: id }),
@@ -119,7 +143,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({ currentTime: clamp(time, 0, lastVisibleTime(duration)) });
   },
 
-  setRenderTheme: (theme) => set({ renderTheme: theme }),
+  setRenderTheme: (theme) => {
+    persistRenderTheme(theme);
+    set({ renderTheme: theme });
+  },
 
   play: () => {
     const { currentTime, duration } = get();
@@ -232,12 +259,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   reset: () => {
     resetTimelineHistory();
+    persistRenderTheme("bright");
     set({
       ...commitElements(get, structuredClone(seedElements), {
         selectedId: null,
         isPlaying: false,
         trackCount: DEFAULT_TRACK_COUNT,
         renderTheme: "bright",
+        previewAudioDuration: null,
       }),
       currentTime: 0,
     });

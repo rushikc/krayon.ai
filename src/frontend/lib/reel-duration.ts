@@ -10,6 +10,21 @@ export function durationFromElements(elements: CanvasElement[]): number {
   return Math.max(1, maxEnd);
 }
 
+/** Reel clock: uploaded audio when present, otherwise the latest JSON `time.end`. */
+export function reelDuration(
+  elements: CanvasElement[],
+  audioDuration?: number | null,
+): number {
+  if (
+    audioDuration != null &&
+    Number.isFinite(audioDuration) &&
+    audioDuration > 0
+  ) {
+    return Math.max(1, audioDuration);
+  }
+  return durationFromElements(elements);
+}
+
 /** Last timestamp that is still inside `[start, end)` for clips that end at `duration`. */
 export function lastVisibleTime(
   duration: number,

@@ -4,9 +4,9 @@ import {
   sketchArrowCurve,
   sketchCirclePath,
   sketchRoundedRectPath,
-} from "@/lib/sketch-path";
+} from "./sketch-path";
 
-describe("sketch paths", () => {
+describe("calidraw-light sketch paths", () => {
   it("is stable for the same id", () => {
     expect(sketchRoundedRectPath("box-a")).toBe(sketchRoundedRectPath("box-a"));
     expect(sketchCirclePath("n-1")).toBe(sketchCirclePath("n-1"));

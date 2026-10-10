@@ -9,6 +9,8 @@ import {
   formatRulerLabel,
   pixelToTime,
   resolveSegmentDrop,
+  segmentWidthPercent,
+  timeToPercent,
   TIMELINE_RULER_HEIGHT,
   TRACK_ROW_HEIGHT,
   VISIBLE_TRACK_ROWS,
@@ -99,5 +101,11 @@ describe("ruler and scrub math", () => {
   it("maps pointer x to time within the duration", () => {
     expect(pixelToTime(150, 0, 100, 200, 60)).toBe(15);
     expect(pixelToTime(0, 0, 100, 200, 60)).toBe(0);
+  });
+
+  it("clamps segment layout that extends past the reel", () => {
+    expect(timeToPercent(125, 88)).toBe("100%");
+    expect(segmentWidthPercent(0, 125, 88)).toBe("100%");
+    expect(segmentWidthPercent(100, 125, 88)).toBe("0%");
   });
 });

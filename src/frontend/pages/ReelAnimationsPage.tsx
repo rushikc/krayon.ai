@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { Canvas } from "@/components/canvas/Canvas";
 import { SchemaInspector } from "@/components/canvas/SchemaInspector";
 import { EditorKeyboardShortcuts } from "@/components/editor/EditorKeyboardShortcuts";
 import { ExportProgressDialog } from "@/components/editor/ExportProgressDialog";
 import { PlaybackBar } from "@/components/editor/PlaybackBar";
+import { PreviewAudioSync } from "@/components/editor/PreviewAudioSync";
 import { Timeline } from "@/components/editor/timeline/Timeline";
 import { WorkspaceToolbar } from "@/components/editor/WorkspaceToolbar";
 import {
@@ -20,6 +21,19 @@ import {
   exportReelMp4,
   sanitizeExportFilename,
 } from "@/lib/export-reel";
+import {
+  isPreviewAudioFile,
+  readAudioDuration,
+  type PreviewAudioClip,
+} from "@/lib/preview-audio";
+import {
+  getStoredShowEditor,
+  getStoredShowReelPreview,
+  getStoredShowTimeline,
+  persistShowEditor,
+  persistShowReelPreview,
+  persistShowTimeline,
+} from "@/lib/workspace-chrome";
 import { useCanvasStore } from "@/stores/canvas-store";
 import { toast } from "@/stores/toast-store";
 
@@ -46,18 +60,74 @@ export function ReelAnimationsPage() {
   const deleteTrack = useCanvasStore((state) => state.deleteTrack);
   const renderTheme = useCanvasStore((state) => state.renderTheme);
   const setRenderTheme = useCanvasStore((state) => state.setRenderTheme);
+  const setPreviewAudioDuration = useCanvasStore(
+    (state) => state.setPreviewAudioDuration,
+  );
 
   usePlaybackClock();
 
-  const [showTimeline, setShowTimeline] = useState(true);
-  const [showEditor, setShowEditor] = useState(true);
-  const [showReelPreview, setShowReelPreview] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(getStoredShowTimeline);
+  const [showEditor, setShowEditor] = useState(getStoredShowEditor);
+  const [showReelPreview, setShowReelPreview] = useState(
+    getStoredShowReelPreview,
+  );
   const [timelineHeight, setTimelineHeight] = useState(DEFAULT_TIMELINE_HEIGHT);
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportStartedAt, setExportStartedAt] = useState<number | null>(null);
   const [projectName, setProjectName] = useState("krayon-reel");
   const exportAbortRef = useRef<AbortController | null>(null);
+  const [previewAudio, setPreviewAudio] = useState<PreviewAudioClip | null>(
+    null,
+  );
+  const [previewAudioMuted, setPreviewAudioMuted] = useState(false);
+  const previewAudioUrlRef = useRef<string | null>(null);
+
+  const clearPreviewAudio = useCallback(() => {
+    if (previewAudioUrlRef.current) {
+      URL.revokeObjectURL(previewAudioUrlRef.current);
+      previewAudioUrlRef.current = null;
+    }
+    setPreviewAudio(null);
+    setPreviewAudioDuration(null);
+  }, [setPreviewAudioDuration]);
+
+  useEffect(() => {
+    return () => {
+      if (previewAudioUrlRef.current) {
+        URL.revokeObjectURL(previewAudioUrlRef.current);
+      }
+      useCanvasStore.getState().setPreviewAudioDuration(null);
+    };
+  }, []);
+
+  const onUploadAudio = useCallback(
+    async (file: File) => {
+      if (!isPreviewAudioFile(file)) {
+        toast("Choose a WAV or MP3 file");
+        return;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const audioDuration = await readAudioDuration(objectUrl);
+        if (previewAudioUrlRef.current) {
+          URL.revokeObjectURL(previewAudioUrlRef.current);
+        }
+        previewAudioUrlRef.current = objectUrl;
+        setPreviewAudio({
+          objectUrl,
+          name: file.name,
+          duration: audioDuration,
+        });
+        setPreviewAudioDuration(audioDuration);
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        toast(error instanceof Error ? error.message : "Could not load audio");
+      }
+    },
+    [setPreviewAudioDuration],
+  );
 
   const onTimelineResizeStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -151,6 +221,7 @@ export function ReelAnimationsPage() {
   return (
     <AppShell hideHeader>
       <EditorKeyboardShortcuts />
+      <PreviewAudioSync clip={previewAudio} muted={previewAudioMuted} />
       <div className="flex min-h-0 min-w-0 flex-1">
         <div className="flex h-full min-h-0 shrink-0 items-stretch p-2">
           <Canvas
@@ -167,13 +238,32 @@ export function ReelAnimationsPage() {
             showTimeline={showTimeline}
             showEditor={showEditor}
             showReelPreview={showReelPreview}
-            onToggleTimeline={() => setShowTimeline((value) => !value)}
-            onToggleEditor={() => setShowEditor((value) => !value)}
-            onToggleReelPreview={() => setShowReelPreview((value) => !value)}
+            onToggleTimeline={() =>
+              setShowTimeline((value) => {
+                const next = !value;
+                persistShowTimeline(next);
+                return next;
+              })
+            }
+            onToggleEditor={() =>
+              setShowEditor((value) => {
+                const next = !value;
+                persistShowEditor(next);
+                return next;
+              })
+            }
+            onToggleReelPreview={() =>
+              setShowReelPreview((value) => {
+                const next = !value;
+                persistShowReelPreview(next);
+                return next;
+              })
+            }
             renderTheme={renderTheme}
             onRenderThemeChange={setRenderTheme}
             exporting={exporting}
             onExport={() => void onExport()}
+            onUploadAudio={(file) => void onUploadAudio(file)}
           />
 
           <div className="flex min-h-0 min-w-0 flex-1 p-2">
@@ -185,7 +275,10 @@ export function ReelAnimationsPage() {
             ) : null}
           </div>
 
-          <PlaybackBar />
+          <PlaybackBar
+            muted={previewAudioMuted}
+            onMutedChange={setPreviewAudioMuted}
+          />
 
           {showTimeline ? (
             <div className="flex w-full shrink-0 flex-col">
@@ -207,6 +300,8 @@ export function ReelAnimationsPage() {
                   onSeek={setCurrentTime}
                   onAddTrack={addTrack}
                   onDeleteTrack={deleteTrack}
+                  previewAudio={previewAudio}
+                  onRemoveAudio={clearPreviewAudio}
                 />
               </div>
             </div>

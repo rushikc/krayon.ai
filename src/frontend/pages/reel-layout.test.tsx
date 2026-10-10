@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { act } from "react";
@@ -6,6 +6,12 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { exportReelMp4 } from "@/lib/export-reel";
+import {
+  RENDER_THEME_STORAGE_KEY,
+  SHOW_EDITOR_STORAGE_KEY,
+  SHOW_REEL_PREVIEW_STORAGE_KEY,
+  SHOW_TIMELINE_STORAGE_KEY,
+} from "@/lib/workspace-chrome";
 import { HomePage } from "@/pages/HomePage";
 import { ReelAnimationsPage } from "@/pages/ReelAnimationsPage";
 import { useCanvasStore } from "@/stores/canvas-store";
@@ -44,6 +50,14 @@ describe("home navigation", () => {
 
 describe("reel animations layout", () => {
   beforeEach(() => {
+    localStorage.removeItem(RENDER_THEME_STORAGE_KEY);
+    localStorage.removeItem(SHOW_TIMELINE_STORAGE_KEY);
+    localStorage.removeItem(SHOW_EDITOR_STORAGE_KEY);
+    localStorage.removeItem(SHOW_REEL_PREVIEW_STORAGE_KEY);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
     useCanvasStore.getState().reset();
   });
 
@@ -74,6 +88,14 @@ describe("reel animations layout", () => {
     expect(screen.getByRole("button", { name: "Config" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "JSON" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
+    const muteButton = screen.getByRole("button", { name: "Mute" });
+    expect(muteButton).toBeInTheDocument();
+    expect(muteButton).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.getByRole("button", { name: "Play" }).compareDocumentPosition(
+        muteButton,
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByText("00:00 / 00:30")).toBeInTheDocument();
     expect(screen.getAllByText("API Gateway").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: "Add track" })).toBeInTheDocument();
@@ -96,6 +118,10 @@ describe("reel animations layout", () => {
       "aria-pressed",
       "false",
     );
+    expect(screen.getByRole("button", { name: "Canary" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
     expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
       "data-render-theme",
       "bright",
@@ -103,8 +129,22 @@ describe("reel animations layout", () => {
     const canvas = document.querySelector("[data-render-theme]");
     expect(canvas).toHaveClass("h-full", "aspect-[9/16]");
     const exportButton = screen.getByRole("button", { name: "Export MP4" });
+    const uploadAudio = screen.getByRole("button", { name: "Upload audio" });
+    const viewPrompt = screen.getByRole("button", { name: "View prompt" });
     expect(exportButton).toBeInTheDocument();
     expect(exportButton).not.toHaveAttribute("aria-pressed");
+    expect(uploadAudio).toBeInTheDocument();
+    expect(
+      viewPrompt.compareDocumentPosition(uploadAudio) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      uploadAudio.compareDocumentPosition(exportButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Remove audio" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("group", { name: "Panels" }),
     ).toContainElement(screen.getByRole("button", { name: "Reel preview" }));
@@ -250,6 +290,51 @@ describe("reel animations layout", () => {
       "calidraw-dark",
     );
     expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
+
+    await user.click(screen.getByRole("button", { name: "Canary" }));
+    expect(screen.getByRole("button", { name: "Canary" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const canaryCanvas = document.querySelector("[data-render-theme]");
+    expect(canaryCanvas).toHaveAttribute("data-render-theme", "canary");
+    expect((canaryCanvas as HTMLElement).style.backgroundImage).toMatch(/url\(/);
+    expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
+  });
+
+  it("opens a view prompt dialog with copy buttons for the selected skin", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    render(
+      <MemoryRouter>
+        <ReelAnimationsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View prompt" }));
+    expect(screen.getByRole("heading", { name: "Bright prompt" })).toBeInTheDocument();
+    expect(screen.getByText(/Bright canvas/)).toBeInTheDocument();
+    const copyButtons = screen.getAllByRole("button", { name: "Copy" });
+    expect(copyButtons).toHaveLength(2);
+    fireEvent.click(copyButtons[0]);
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("Bright canvas"),
+    );
+    fireEvent.click(copyButtons[1]);
+    expect(writeText).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(document.querySelector('[data-slot="dialog-overlay"]')!);
+    fireEvent.click(screen.getByRole("button", { name: "Canary" }));
+    fireEvent.click(screen.getByRole("button", { name: "View prompt" }));
+    expect(screen.getByRole("heading", { name: "Canary prompt" })).toBeInTheDocument();
+    expect(screen.getByText(/Soft keep-out/)).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Copy" })[0]);
+    expect(writeText).toHaveBeenLastCalledWith(
+      expect.stringContaining("Soft keep-out"),
+    );
   });
 
   it("opens a blocking export dialog and cancel aborts the encoder", async () => {

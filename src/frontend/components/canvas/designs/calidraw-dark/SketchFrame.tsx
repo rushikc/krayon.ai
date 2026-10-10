@@ -1,4 +1,4 @@
-import { sketchCirclePath, sketchRoundedRectPath, sketchViewBox } from "@/lib/sketch-path";
+import { sketchCirclePath, sketchRoundedRectPath, sketchViewBox } from "./sketch-path";
 
 interface SketchFrameProps {
   id: string;

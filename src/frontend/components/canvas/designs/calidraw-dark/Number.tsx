@@ -2,61 +2,49 @@ import {
   useRef,
   type KeyboardEvent,
   type PointerEvent,
-  type RefObject,
 } from "react";
 
-import { clampNumberBounds, matrixToPercents, numberBadgeSize, percentsToNumberMatrix, scaleNumber, ZOOM_FACTOR } from "@/lib/canvas-geometry";
-import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
 import {
-  isCalidrawTheme,
-  calidrawStroke,
-} from "@/lib/render-theme";
+  clampNumberBounds,
+  matrixToPercents,
+  numberBadgeSize,
+  percentsToNumberMatrix,
+  scaleNumber,
+  ZOOM_FACTOR,
+} from "@/lib/canvas-geometry";
+import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
   beginTimelineHistoryTransaction,
   endTimelineHistoryTransaction,
 } from "@/stores/timeline-history";
-import type { ColorTheme, NumberNode } from "@/types/canvas";
+import type { ColorTheme } from "@/types/canvas";
 
+import type { DesignNumberProps } from "../types";
 import { SketchFrame } from "./SketchFrame";
 
-interface NumberComponentProps {
-  node: NumberNode;
-  selected: boolean;
-  canvasRef: RefObject<HTMLDivElement | null>;
-}
-
-const themeStyles: Record<ColorTheme, string> = {
-  ink: "bg-canvas-ink text-canvas-surface",
-  violet: "bg-canvas-violet text-canvas-ink",
-  green: "bg-canvas-green text-canvas-ink",
-  blue: "bg-canvas-blue text-canvas-ink",
-  sky: "bg-canvas-sky text-canvas-ink",
-  lavender: "bg-canvas-lavender text-canvas-ink",
-  mint: "bg-canvas-mint text-canvas-ink",
-  tan: "bg-canvas-tan text-canvas-ink",
-  yellow: "bg-canvas-yellow text-canvas-ink",
-  orange: "bg-canvas-orange text-canvas-ink",
-  pink: "bg-canvas-pink text-canvas-ink",
-  salmon: "bg-canvas-salmon text-canvas-ink",
+const themeStrokes: Record<ColorTheme, string> = {
+  ink: "var(--ds-stroke-ink)",
+  violet: "var(--ds-stroke-violet)",
+  green: "var(--ds-stroke-green)",
+  blue: "var(--ds-stroke-blue)",
+  sky: "var(--ds-stroke-sky)",
+  lavender: "var(--ds-stroke-lavender)",
+  mint: "var(--ds-stroke-mint)",
+  tan: "var(--ds-stroke-tan)",
+  yellow: "var(--ds-stroke-yellow)",
+  orange: "var(--ds-stroke-orange)",
+  pink: "var(--ds-stroke-pink)",
+  salmon: "var(--ds-stroke-salmon)",
 };
 
 const NUDGE_STEP = 1;
 const NUDGE_STEP_SHIFT = 5;
 
-export function NumberComponent({
-  node,
-  selected,
-  canvasRef,
-}: NumberComponentProps) {
+export function Number({ node, selected, canvasRef }: DesignNumberProps) {
   const selectElement = useCanvasStore((state) => state.selectElement);
   const updateElement = useCanvasStore((state) => state.updateElement);
-  const renderTheme = useCanvasStore((state) => state.renderTheme);
-  const calidraw = isCalidrawTheme(renderTheme);
-  const stroke = calidrawStroke(node.colorTheme, renderTheme);
-  const ink = renderTheme === "calidraw-dark" ? "#f0f0f0" : "#1a1a1a";
-  const fill = renderTheme === "calidraw-dark" ? "#1a1a1a" : "#ffffff";
   const rect = matrixToPercents(node.matrix);
   const badgeSize = numberBadgeSize(node);
   const dragOffset = useRef<{
@@ -66,14 +54,14 @@ export function NumberComponent({
   } | null>(null);
 
   function toPercent(event: PointerEvent<HTMLDivElement>) {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) {
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.width === 0 || bounds.height === 0) {
       return null;
     }
 
     return {
-      x: ((event.clientX - rect.left) / rect.width) * 100,
-      y: ((event.clientY - rect.top) / rect.height) * 100,
+      x: ((event.clientX - bounds.left) / bounds.width) * 100,
+      y: ((event.clientY - bounds.top) / bounds.height) * 100,
     };
   }
 
@@ -209,7 +197,7 @@ export function NumberComponent({
 
   return (
     <div
-      className="absolute cursor-grab touch-none rounded-full outline-none animate-in fade-in-0 slide-in-from-bottom-2 duration-300 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surface"
+      className="absolute cursor-grab touch-none rounded-full outline-none animate-in fade-in-0 slide-in-from-bottom-2 duration-300 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ds-surface)]"
       role="button"
       tabIndex={0}
       aria-pressed={selected}
@@ -230,21 +218,18 @@ export function NumberComponent({
     >
       <div
         className={cn(
-          "flex size-full items-center justify-center text-sm font-bold",
-          calidraw
-            ? "relative rounded-none border-0 bg-transparent font-calidraw"
-            : cn(
-                "rounded-full border-2 border-canvas-ink font-canvas",
-                themeStyles[node.colorTheme],
-              ),
+          "relative flex size-full items-center justify-center rounded-none border-0 bg-transparent text-sm font-bold",
           selected &&
-            "ring-2 ring-primary ring-offset-2 ring-offset-canvas-surface",
+            "ring-2 ring-primary ring-offset-2 ring-offset-[var(--ds-surface)]",
         )}
-        style={calidraw ? { color: ink } : undefined}
+        style={{ color: "var(--ds-ink)", fontFamily: "var(--ds-font)" }}
       >
-        {calidraw ? (
-          <SketchFrame id={node.id} kind="circle" stroke={stroke} fill={fill} />
-        ) : null}
+        <SketchFrame
+          id={node.id}
+          kind="circle"
+          stroke={themeStrokes[node.colorTheme]}
+          fill="var(--ds-surface)"
+        />
         <span className="relative z-[1]">{node.value}</span>
       </div>
     </div>

@@ -11,8 +11,10 @@ import {
   pixelToTime,
   TRACK_ROW_HEIGHT,
 } from "@/components/editor/timeline/lib/timeMath";
+import type { PreviewAudioClip } from "@/lib/preview-audio";
 import type { CanvasElement } from "@/types/canvas";
 
+import { AudioTrackRow } from "./AudioTrackRow";
 import { useSegmentDrag } from "./hooks/useSegmentDrag";
 import { useSegmentResize } from "./hooks/useSegmentResize";
 import { Playhead } from "./Playhead";
@@ -33,6 +35,8 @@ export interface TimelineProps {
   onSeek: (time: number) => void;
   onAddTrack: () => void;
   onDeleteTrack: (index: number) => void;
+  previewAudio?: PreviewAudioClip | null;
+  onRemoveAudio?: () => void;
 }
 
 export function Timeline({
@@ -46,6 +50,8 @@ export function Timeline({
   onSeek,
   onAddTrack,
   onDeleteTrack,
+  previewAudio = null,
+  onRemoveAudio,
 }: TimelineProps) {
   const labelsRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -191,6 +197,8 @@ export function Timeline({
         trackCount={trackCount}
         onAddTrack={onAddTrack}
         onDeleteTrack={onDeleteTrack}
+        hasPreviewAudio={Boolean(previewAudio)}
+        onRemoveAudio={onRemoveAudio}
       />
 
       <div
@@ -206,6 +214,9 @@ export function Timeline({
           <TimelineRuler duration={safeDuration} />
 
           <div className="relative">
+            {previewAudio ? (
+              <AudioTrackRow clip={previewAudio} duration={safeDuration} />
+            ) : null}
             {Array.from({ length: trackCount }, (_, track) => (
               <TrackRow
                 key={track}

@@ -1,4 +1,6 @@
+import { getCanvasDesign } from "@/components/canvas/designs";
 import { lastVisibleTime } from "@/lib/reel-duration";
+import { isRenderTheme } from "@/lib/render-theme";
 
 export const EXPORT_WIDTH = 1080;
 export const EXPORT_HEIGHT = 1920;
@@ -167,15 +169,13 @@ export function cssValueNeedsRgbFallback(value: string): boolean {
   return UNSAFE_CSS_COLOR.test(value);
 }
 
-function captureBackground(element: HTMLElement): string {
+function designForElement(element: HTMLElement) {
   const theme = element.getAttribute("data-render-theme");
-  if (theme === "dark") {
-    return "hsl(240 5% 12%)";
-  }
-  if (theme === "calidraw-dark") {
-    return "#1a1a1a";
-  }
-  return "#ffffff";
+  return getCanvasDesign(isRenderTheme(theme) ? theme : "bright");
+}
+
+function captureBackground(element: HTMLElement): string {
+  return designForElement(element).exportBackground;
 }
 
 function padFrame(
@@ -292,8 +292,8 @@ async function snapshotReel(
 
   const { toCanvas } = await import("html-to-image");
   const pixelRatio = Math.max(EXPORT_WIDTH / width, EXPORT_HEIGHT / height);
-  const theme = element.getAttribute("data-render-theme");
-  const backgroundColor = captureBackground(element);
+  const design = designForElement(element);
+  const backgroundColor = design.exportBackground;
 
   return withForeignObjectSafeStyles(element, () =>
     toCanvas(element, {
@@ -303,13 +303,10 @@ async function snapshotReel(
       skipAutoScale: true,
       style: {
         backgroundColor,
-        backgroundImage:
-          theme === "bright"
-            ? "radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px)"
-            : theme === "dark"
-              ? "radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px)"
-              : "none",
-        backgroundSize: "24px 24px",
+        backgroundImage: design.exportBackgroundImage,
+        backgroundSize: design.exportBackgroundSize,
+        backgroundPosition: design.exportBackgroundPosition,
+        backgroundRepeat: design.exportBackgroundRepeat,
       },
     }),
   );

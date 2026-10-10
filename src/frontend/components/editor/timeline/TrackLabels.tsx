@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import { Minus, Plus } from "lucide-react";
+import { Minus, Music, Plus, X } from "lucide-react";
 
 import {
   TIMELINE_RULER_HEIGHT,
@@ -11,10 +11,15 @@ interface TrackLabelsProps {
   trackCount: number;
   onDeleteTrack: (index: number) => void;
   onAddTrack: () => void;
+  hasPreviewAudio?: boolean;
+  onRemoveAudio?: () => void;
 }
 
 export const TrackLabels = forwardRef<HTMLDivElement, TrackLabelsProps>(
-  function TrackLabels({ trackCount, onDeleteTrack, onAddTrack }, ref) {
+  function TrackLabels(
+    { trackCount, onDeleteTrack, onAddTrack, hasPreviewAudio, onRemoveAudio },
+    ref,
+  ) {
     return (
       <div className="z-20 flex h-full min-h-0 w-10 shrink-0 flex-col border-r border-border bg-card">
         <div
@@ -25,6 +30,28 @@ export const TrackLabels = forwardRef<HTMLDivElement, TrackLabelsProps>(
             className="sticky top-0 z-10 shrink-0 border-b border-border bg-card"
             style={{ height: TIMELINE_RULER_HEIGHT }}
           />
+          {hasPreviewAudio ? (
+            <div
+              aria-label="Audio"
+              className="box-border flex shrink-0 flex-col items-center justify-center gap-0 border-b border-border/80"
+              style={{ height: TRACK_ROW_HEIGHT }}
+            >
+              <Music
+                aria-hidden
+                className="size-3 text-emerald-700"
+              />
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Remove audio"
+                className="text-muted-foreground hover:bg-transparent hover:text-foreground"
+                onClick={onRemoveAudio}
+              >
+                <X />
+              </Button>
+            </div>
+          ) : null}
           {Array.from({ length: trackCount }, (_, track) => (
             <div
               key={track}

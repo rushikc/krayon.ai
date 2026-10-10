@@ -25,7 +25,7 @@ export function timeToPercent(time: number, safeDuration: number): string {
   if (safeDuration <= 0) {
     return "0%";
   }
-  return `${(time / safeDuration) * 100}%`;
+  return `${clamp(time / safeDuration, 0, 1) * 100}%`;
 }
 
 export function segmentWidthPercent(
@@ -36,7 +36,9 @@ export function segmentWidthPercent(
   if (safeDuration <= 0) {
     return "0%";
   }
-  return `${((end - start) / safeDuration) * 100}%`;
+  const clippedStart = clamp(start, 0, safeDuration);
+  const clippedEnd = clamp(end, 0, safeDuration);
+  return `${(Math.max(0, clippedEnd - clippedStart) / safeDuration) * 100}%`;
 }
 
 export function roundTime(time: number): number {

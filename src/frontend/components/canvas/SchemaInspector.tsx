@@ -49,20 +49,20 @@ const COLOR_THEMES: ColorTheme[] = [
   "salmon",
 ];
 
-/** Swatch fills for the element list, mirroring the bright canvas palette. */
+/** Swatch fills for the element list (inspector chrome, not canvas paint). */
 const swatchStyles: Record<ColorTheme, string> = {
-  ink: "bg-canvas-ink",
-  violet: "bg-canvas-violet",
-  green: "bg-canvas-green",
-  blue: "bg-canvas-blue",
-  sky: "bg-canvas-sky",
-  lavender: "bg-canvas-lavender",
-  mint: "bg-canvas-mint",
-  tan: "bg-canvas-tan",
-  yellow: "bg-canvas-yellow",
-  orange: "bg-canvas-orange",
-  pink: "bg-canvas-pink",
-  salmon: "bg-canvas-salmon",
+  ink: "bg-neutral-950",
+  violet: "bg-[#c9a0f0]",
+  green: "bg-[#5fd69b]",
+  blue: "bg-[#5aa9f0]",
+  sky: "bg-[#a9c9f5]",
+  lavender: "bg-[#ded4f7]",
+  mint: "bg-[#a6e9c6]",
+  tan: "bg-[#e9c989]",
+  yellow: "bg-[#f4d64e]",
+  orange: "bg-[#f9c173]",
+  pink: "bg-[#f8b9d0]",
+  salmon: "bg-[#f7aaa9]",
 };
 
 const configControlClass =

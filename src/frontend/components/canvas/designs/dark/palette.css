@@ -1,0 +1,17 @@
+[data-render-theme="dark"] {
+  --ds-surface: hsl(240 5% 12%);
+  --ds-ink: hsl(0 0% 96%);
+  --ds-fill-ink: hsl(0 0% 96%);
+  --ds-fill-violet: #4b3a6d;
+  --ds-fill-green: #1f5c42;
+  --ds-fill-blue: #1d4a73;
+  --ds-fill-sky: #33486a;
+  --ds-fill-lavender: #423b63;
+  --ds-fill-mint: #2a5843;
+  --ds-fill-tan: #665132;
+  --ds-fill-yellow: #665818;
+  --ds-fill-orange: #6b4a20;
+  --ds-fill-pink: #6a384d;
+  --ds-fill-salmon: #683535;
+  --ds-font: "Geist Variable", sans-serif;
+}

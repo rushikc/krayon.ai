@@ -23,21 +23,6 @@
   --input: hsl(240 5.9% 90%);
   --ring: hsl(211 100% 50%);
   --radius: 0.5rem;
-
-  /* Infographic canvas */
-  --canvas-surface: hsl(0 0% 100%);
-  --canvas-ink: hsl(0 0% 0%);
-  --canvas-violet: #c9a0f0;
-  --canvas-green: #5fd69b;
-  --canvas-blue: #5aa9f0;
-  --canvas-sky: #a9c9f5;
-  --canvas-lavender: #ded4f7;
-  --canvas-mint: #a6e9c6;
-  --canvas-tan: #e9c989;
-  --canvas-yellow: #f4d64e;
-  --canvas-orange: #f9c173;
-  --canvas-pink: #f8b9d0;
-  --canvas-salmon: #f7aaa9;
 }
 
 .dark {
@@ -63,22 +48,6 @@
   --ring: hsl(211 100% 50%);
 }
 
-[data-render-theme="dark"] {
-  --canvas-surface: hsl(240 5% 12%);
-  --canvas-ink: hsl(0 0% 96%);
-  --canvas-violet: #4b3a6d;
-  --canvas-green: #1f5c42;
-  --canvas-blue: #1d4a73;
-  --canvas-sky: #33486a;
-  --canvas-lavender: #423b63;
-  --canvas-mint: #2a5843;
-  --canvas-tan: #665132;
-  --canvas-yellow: #665818;
-  --canvas-orange: #6b4a20;
-  --canvas-pink: #6a384d;
-  --canvas-salmon: #683535;
-}
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -99,21 +68,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-canvas-surface: var(--canvas-surface);
-  --color-canvas-ink: var(--canvas-ink);
-  --color-canvas-violet: var(--canvas-violet);
-  --color-canvas-green: var(--canvas-green);
-  --color-canvas-blue: var(--canvas-blue);
-  --color-canvas-sky: var(--canvas-sky);
-  --color-canvas-lavender: var(--canvas-lavender);
-  --color-canvas-mint: var(--canvas-mint);
-  --color-canvas-tan: var(--canvas-tan);
-  --color-canvas-yellow: var(--canvas-yellow);
-  --color-canvas-orange: var(--canvas-orange);
-  --color-canvas-pink: var(--canvas-pink);
-  --color-canvas-salmon: var(--canvas-salmon);
-  --font-canvas: "Geist Variable", sans-serif;
-  --font-calidraw: "Architects Daughter", cursive;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);

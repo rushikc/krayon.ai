@@ -2,7 +2,6 @@ import {
   useRef,
   type KeyboardEvent,
   type PointerEvent,
-  type RefObject,
 } from "react";
 
 import {
@@ -14,56 +13,38 @@ import {
   ZOOM_FACTOR,
 } from "@/lib/canvas-geometry";
 import { isZoomInKey, isZoomOutKey } from "@/lib/canvas-keyboard";
-import {
-  isCalidrawTheme,
-  calidrawStroke,
-} from "@/lib/render-theme";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvas-store";
 import {
   beginTimelineHistoryTransaction,
   endTimelineHistoryTransaction,
 } from "@/stores/timeline-history";
-import type { BoxNode, ColorTheme } from "@/types/canvas";
+import type { ColorTheme } from "@/types/canvas";
 
+import type { DesignBoxProps } from "../types";
 import { SketchFrame } from "./SketchFrame";
 
-interface BoxComponentProps {
-  node: BoxNode;
-  selected: boolean;
-  canvasRef: RefObject<HTMLDivElement | null>;
-}
-
-const themeStyles: Record<ColorTheme, string> = {
-  ink: "bg-canvas-ink",
-  violet: "bg-canvas-violet",
-  green: "bg-canvas-green",
-  blue: "bg-canvas-blue",
-  sky: "bg-canvas-sky",
-  lavender: "bg-canvas-lavender",
-  mint: "bg-canvas-mint",
-  tan: "bg-canvas-tan",
-  yellow: "bg-canvas-yellow",
-  orange: "bg-canvas-orange",
-  pink: "bg-canvas-pink",
-  salmon: "bg-canvas-salmon",
+const themeStrokes: Record<ColorTheme, string> = {
+  ink: "var(--ds-stroke-ink)",
+  violet: "var(--ds-stroke-violet)",
+  green: "var(--ds-stroke-green)",
+  blue: "var(--ds-stroke-blue)",
+  sky: "var(--ds-stroke-sky)",
+  lavender: "var(--ds-stroke-lavender)",
+  mint: "var(--ds-stroke-mint)",
+  tan: "var(--ds-stroke-tan)",
+  yellow: "var(--ds-stroke-yellow)",
+  orange: "var(--ds-stroke-orange)",
+  pink: "var(--ds-stroke-pink)",
+  salmon: "var(--ds-stroke-salmon)",
 };
 
 const NUDGE_STEP = 1;
 const NUDGE_STEP_SHIFT = 5;
 
-export function BoxComponent({
-  node,
-  selected,
-  canvasRef,
-}: BoxComponentProps) {
+export function Box({ node, selected, canvasRef }: DesignBoxProps) {
   const selectElement = useCanvasStore((state) => state.selectElement);
   const updateElement = useCanvasStore((state) => state.updateElement);
-  const renderTheme = useCanvasStore((state) => state.renderTheme);
-  const calidraw = isCalidrawTheme(renderTheme);
-  const stroke = calidrawStroke(node.colorTheme, renderTheme);
-  const ink = renderTheme === "calidraw-dark" ? "#f0f0f0" : "#1a1a1a";
-  const fill = renderTheme === "calidraw-dark" ? "#1a1a1a" : "#ffffff";
   const rect = matrixToPercents(node.matrix);
   const aspect = rect.height > 0 ? rect.width / rect.height : 1;
   const dragOffset = useRef<{
@@ -75,14 +56,14 @@ export function BoxComponent({
   const sublabelSize = labelSize * 0.75;
 
   function toPercent(event: PointerEvent<HTMLDivElement>) {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) {
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.width === 0 || bounds.height === 0) {
       return null;
     }
 
     return {
-      x: ((event.clientX - rect.left) / rect.width) * 100,
-      y: ((event.clientY - rect.top) / rect.height) * 100,
+      x: ((event.clientX - bounds.left) / bounds.width) * 100,
+      y: ((event.clientY - bounds.top) / bounds.height) * 100,
     };
   }
 
@@ -222,7 +203,7 @@ export function BoxComponent({
 
   return (
     <div
-      className="absolute cursor-grab touch-none rounded-lg outline-none animate-in fade-in-0 slide-in-from-bottom-2 duration-300 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surface"
+      className="absolute cursor-grab touch-none rounded-lg outline-none animate-in fade-in-0 slide-in-from-bottom-2 duration-300 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ds-surface)]"
       role="button"
       tabIndex={0}
       aria-pressed={selected}
@@ -243,57 +224,29 @@ export function BoxComponent({
     >
       <div
         className={cn(
-          "flex size-full flex-col justify-center gap-0.5",
-          calidraw
-            ? "relative items-start rounded-none border-0 bg-transparent px-4 py-2 text-left font-calidraw shadow-none"
-            : cn(
-                "rounded-lg border-2 border-canvas-ink px-3 font-canvas shadow-[3px_3px_0_0_var(--canvas-ink)] transition-shadow",
-                node.sublabel ? "items-start text-left" : "items-center text-center",
-                themeStyles[node.colorTheme],
-                node.colorTheme === "ink"
-                  ? "text-canvas-surface"
-                  : "text-canvas-ink",
-              ),
+          "relative flex size-full flex-col items-start justify-center gap-0.5 rounded-none border-0 bg-transparent px-4 py-2 text-left shadow-none",
           selected &&
-            "ring-2 ring-primary ring-offset-2 ring-offset-canvas-surface",
+            "ring-2 ring-primary ring-offset-2 ring-offset-[var(--ds-surface)]",
         )}
-        style={calidraw ? { color: ink } : undefined}
+        style={{ color: "var(--ds-ink)", fontFamily: "var(--ds-font)" }}
       >
-        {calidraw ? (
-          <SketchFrame
-            id={node.id}
-            kind="rect"
-            stroke={stroke}
-            fill={fill}
-            aspect={aspect}
-          />
-        ) : null}
+        <SketchFrame
+          id={node.id}
+          kind="rect"
+          stroke={themeStrokes[node.colorTheme]}
+          fill="var(--ds-surface)"
+          aspect={aspect}
+        />
         <span
-          className={cn(
-            "relative z-[1] w-full font-bold",
-            calidraw ? "whitespace-normal break-words" : "truncate",
-          )}
+          className="relative z-[1] w-full whitespace-normal break-words font-bold"
           style={{ fontSize: `${labelSize}px` }}
         >
           {node.label}
         </span>
         {node.sublabel && (
           <span
-            className={cn(
-              "relative z-[1] w-full font-medium",
-              calidraw
-                ? "whitespace-normal break-words"
-                : cn(
-                    "truncate",
-                    node.colorTheme === "ink"
-                      ? "text-canvas-surface/75"
-                      : "text-canvas-ink/75",
-                  ),
-            )}
-            style={{
-              fontSize: `${sublabelSize}px`,
-              opacity: calidraw ? 0.72 : undefined,
-            }}
+            className="relative z-[1] w-full whitespace-normal break-words font-medium"
+            style={{ fontSize: `${sublabelSize}px`, opacity: 0.72 }}
           >
             {node.sublabel}
           </span>

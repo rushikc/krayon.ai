@@ -20,6 +20,10 @@ import {
   useCanvasStore,
 } from "@/stores/canvas-store";
 import {
+  getStoredRenderTheme,
+  RENDER_THEME_STORAGE_KEY,
+} from "@/lib/workspace-chrome";
+import {
   getElementLabel,
   isArrowNode,
   isBoxNode,
@@ -107,6 +111,33 @@ describe("canvas seed scene", () => {
     );
   });
 
+  it("locks reel duration to preview audio instead of later JSON ends", () => {
+    const store = useCanvasStore.getState();
+    store.setElements([
+      {
+        id: "headline",
+        type: "box",
+        matrix: [1, 3, 16, 5],
+        label: "Headline",
+        colorTheme: "ink",
+        time: { start: 0, end: 125, track: 2 },
+      },
+    ]);
+    expect(useCanvasStore.getState().duration).toBe(125);
+
+    store.setPreviewAudioDuration(88.4);
+    expect(useCanvasStore.getState().duration).toBe(88.4);
+    expect(useCanvasStore.getState().currentTime).toBeLessThanOrEqual(
+      lastVisibleTime(88.4),
+    );
+
+    store.setElements(useCanvasStore.getState().elements);
+    expect(useCanvasStore.getState().duration).toBe(88.4);
+
+    store.setPreviewAudioDuration(null);
+    expect(useCanvasStore.getState().duration).toBe(125);
+  });
+
   it("plays from the marker and restarts at the end", () => {
     const store = useCanvasStore.getState();
     store.setCurrentTime(12);
@@ -184,6 +215,14 @@ describe("canvas seed scene", () => {
     expect(useCanvasStore.getState().renderTheme).toBe("calidraw-dark");
     store.reset();
     expect(useCanvasStore.getState().renderTheme).toBe("bright");
+  });
+
+  it("uses a stored canary value as the initial skin", () => {
+    localStorage.setItem(RENDER_THEME_STORAGE_KEY, "canary");
+    expect(getStoredRenderTheme()).toBe("canary");
+    useCanvasStore.getState().setRenderTheme(getStoredRenderTheme());
+    expect(useCanvasStore.getState().renderTheme).toBe("canary");
+    expect(localStorage.getItem(RENDER_THEME_STORAGE_KEY)).toBe("canary");
   });
 
   it("deletes the selected element without removing connected arrows", () => {

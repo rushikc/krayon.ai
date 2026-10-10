@@ -1,0 +1,17 @@
+[data-render-theme="canary"] {
+  --ds-surface: #000000;
+  --ds-ink: #000000;
+  --ds-fill-ink: #ffffff;
+  --ds-fill-violet: #c9a0f0;
+  --ds-fill-green: #5fd69b;
+  --ds-fill-blue: #5aa9f0;
+  --ds-fill-sky: #a9c9f5;
+  --ds-fill-lavender: #ded4f7;
+  --ds-fill-mint: #a6e9c6;
+  --ds-fill-tan: #e9c989;
+  --ds-fill-yellow: #f4d64e;
+  --ds-fill-orange: #f9c173;
+  --ds-fill-pink: #f8b9d0;
+  --ds-fill-salmon: #f7aaa9;
+  --ds-font: "Geist Variable", sans-serif;
+}

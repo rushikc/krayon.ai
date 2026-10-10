@@ -1,0 +1,17 @@
+[data-render-theme="calidraw-light"] {
+  --ds-surface: #ffffff;
+  --ds-ink: #1a1a1a;
+  --ds-stroke-ink: #1a1a1a;
+  --ds-stroke-violet: #6b4cbe;
+  --ds-stroke-green: #2a8f5c;
+  --ds-stroke-blue: #2b6cb0;
+  --ds-stroke-sky: #3d7eb8;
+  --ds-stroke-lavender: #7a6bb0;
+  --ds-stroke-mint: #2f8f68;
+  --ds-stroke-tan: #b07a2e;
+  --ds-stroke-yellow: #c49a14;
+  --ds-stroke-orange: #d07a28;
+  --ds-stroke-pink: #c44f7a;
+  --ds-stroke-salmon: #c24f4f;
+  --ds-font: "Architects Daughter", cursive;
+}
