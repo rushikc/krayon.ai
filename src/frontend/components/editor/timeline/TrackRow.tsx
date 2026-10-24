@@ -15,6 +15,7 @@ interface TrackRowProps {
   selectedId: string | null;
   drag: DragHandlers;
   resize: ResizeHandlers;
+  onEdit?: (id: string) => void;
 }
 
 export function TrackRow({
@@ -24,6 +25,7 @@ export function TrackRow({
   selectedId,
   drag,
   resize,
+  onEdit,
 }: TrackRowProps) {
   const trackElements = elements.filter((el) => el.time.track === track);
 
@@ -40,6 +42,7 @@ export function TrackRow({
           selected={element.id === selectedId}
           drag={drag}
           resize={resize}
+          onEdit={onEdit}
         />
       ))}
     </div>

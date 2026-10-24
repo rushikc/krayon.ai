@@ -31,7 +31,7 @@ Portrait reels only (9:16). No landscape editor.
 ┌──────────────────────────────────────────────────────────────────┐
 │  Home   project name                              theme  Export  │
 ├──────────┬───────────────────────────────────────────────────────┤
-│  9:16    │  Timeline | Chat   Canvas Takes Captions Audio JSON … │
+│  9:16    │  Timeline | Chat  │  Canvas Takes Captions Audio …    │
 │  canvas  ├───────────────────────────────────────────────────────┤
 │          │  Timeline (full width)  OR  Reel assistant chat       │
 │  playbar │                                                       │
@@ -39,10 +39,10 @@ Portrait reels only (9:16). No landscape editor.
 ```
 
 - **Top bar (~44px)** — Home, editable project name, app light/dark toggle, Export (solid primary).
-- **Far left** — 9:16 canvas, full workspace height, with a compact playbar (play, current time, duration) underneath.
-- **Right column** — remaining width. A thin tool row (~40px) holds the exclusive `Timeline | Chat` toggle, then Canvas, Takes, Captions, Audio, JSON, Zoom, Settings. Takes, Captions, and Zoom are disabled (“Coming soon”).
-- **Timeline view** — existing tracks, full width, compact rows. JSON opens the schema inspector above the timeline.
-- **Chat view** — reel assistant wired to `POST /api/reel/jobs` (script) and refine. Apply writes through `setElements` (undoable). The reel preview stays visible on the left.
+- **Far left** — 9:16 canvas, always exactly 9:16. Size is `min(stage width, stage height × 9/16, 45% of the workspace)` with a 220px preferred minimum; on a short window it scales down. Explicit pixel width/height; the left column is the fitted reel plus padding. Compact playbar underneath.
+- **Right column** — remaining width. The tool row’s primary control is a large `Timeline | Chat` tab switch (Cmd/Ctrl+K toggles). Secondary ghost tools follow: Canvas, Takes, Captions, Audio, Zoom, then Settings right-aligned. Takes, Captions, and Zoom are disabled (“Coming soon”). Below ~900px, tool labels collapse to icons.
+- **Timeline view** — existing tracks, full width, compact rows. Double-click (or Enter on a focused block) opens an **Edit element** modal with the same Config fields as before. Save is one undo step; Cancel / Escape discards; a dirty dialog ignores outside clicks. There is no Config/JSON inspector on the page.
+- **Chat view** — reel assistant wired to `POST /api/reel/jobs` (script) and refine. Apply writes through `setElements` (undoable). The reel preview stays visible on the left with the same sizing.
 - The chosen Timeline | Chat view is persisted in `localStorage` (`krayon-workspace-side-view`). Default is Timeline.
 - **Gemini key** lives in the first-party cookie `krayon_gemini_api_key` (`SameSite=Strict`, not `HttpOnly`) and is sent only as `X-Gemini-Api-Key` on create/refine. Never localStorage.
 

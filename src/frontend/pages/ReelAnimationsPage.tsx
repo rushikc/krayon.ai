@@ -1,37 +1,31 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Canvas } from "@/components/canvas/Canvas";
-import { SchemaInspector } from "@/components/canvas/SchemaInspector";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { EditorKeyboardShortcuts } from "@/components/editor/EditorKeyboardShortcuts";
+import { ElementEditDialog } from "@/components/editor/ElementEditDialog";
 import { ExportProgressDialog } from "@/components/editor/ExportProgressDialog";
 import { PlaybackBar } from "@/components/editor/PlaybackBar";
 import { PreviewAudioSync } from "@/components/editor/PreviewAudioSync";
 import { ReelTopBar } from "@/components/editor/ReelTopBar";
 import { Timeline } from "@/components/editor/timeline/Timeline";
 import { WorkspaceToolRow } from "@/components/editor/WorkspaceToolRow";
-import {
-  clamp,
-  TIMELINE_RULER_HEIGHT,
-  TRACK_ROW_HEIGHT,
-} from "@/components/editor/timeline/lib/timeMath";
 import { AppShell } from "@/components/layout/AppShell";
-import { PanelResizeHandle } from "@/components/layout/PanelResizeHandle";
+import { useFitReel } from "@/hooks/useFitReel";
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import {
   exportReelMp4,
   sanitizeExportFilename,
 } from "@/lib/export-reel";
+import { reelColumnWidth } from "@/lib/fit-reel";
 import {
   isPreviewAudioFile,
   readAudioDuration,
   type PreviewAudioClip,
 } from "@/lib/preview-audio";
 import {
-  getStoredShowEditor,
   getStoredShowReelPreview,
   getStoredWorkspaceSideView,
-  persistShowEditor,
   persistShowReelPreview,
   persistWorkspaceSideView,
   type WorkspaceSideView,
@@ -39,9 +33,6 @@ import {
 import { useCanvasStore } from "@/stores/canvas-store";
 import { useReelChatStore } from "@/stores/reel-chat-store";
 import { toast } from "@/stores/toast-store";
-
-const MIN_INSPECTOR_HEIGHT = 120;
-const MIN_TIMELINE_HEIGHT = TIMELINE_RULER_HEIGHT + TRACK_ROW_HEIGHT;
 
 function isAbortError(error: unknown) {
   return (
@@ -51,7 +42,9 @@ function isAbortError(error: unknown) {
 }
 
 export function ReelAnimationsPage() {
-  const paneRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const reelSize = useFitReel(workspaceRef, stageRef);
   const elements = useCanvasStore((state) => state.elements);
   const duration = useCanvasStore((state) => state.duration);
   const selectedId = useCanvasStore((state) => state.selectedId);
@@ -78,11 +71,10 @@ export function ReelAnimationsPage() {
   const [sideView, setSideView] = useState<WorkspaceSideView>(
     getStoredWorkspaceSideView,
   );
-  const [showEditor, setShowEditor] = useState(getStoredShowEditor);
   const [showReelPreview, setShowReelPreview] = useState(
     getStoredShowReelPreview,
   );
-  const [inspectorHeight, setInspectorHeight] = useState(280);
+  const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportStartedAt, setExportStartedAt] = useState<number | null>(null);
@@ -140,46 +132,6 @@ export function ReelAnimationsPage() {
     [setPreviewAudioDuration],
   );
 
-  const onInspectorResizeStart = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) {
-        return;
-      }
-      event.preventDefault();
-      const handle = event.currentTarget;
-      handle.setPointerCapture(event.pointerId);
-      const startY = event.clientY;
-      const startHeight = inspectorHeight;
-      const pane = paneRef.current?.clientHeight ?? 800;
-
-      function onMove(moveEvent: PointerEvent) {
-        if (moveEvent.pointerId !== event.pointerId) {
-          return;
-        }
-        const maxHeight = pane - MIN_TIMELINE_HEIGHT;
-        const next = startHeight + (moveEvent.clientY - startY);
-        setInspectorHeight(clamp(next, MIN_INSPECTOR_HEIGHT, maxHeight));
-      }
-
-      function onUp(upEvent: PointerEvent) {
-        if (upEvent.pointerId !== event.pointerId) {
-          return;
-        }
-        handle.removeEventListener("pointermove", onMove);
-        handle.removeEventListener("pointerup", onUp);
-        handle.removeEventListener("pointercancel", onUp);
-        if (handle.hasPointerCapture(upEvent.pointerId)) {
-          handle.releasePointerCapture(upEvent.pointerId);
-        }
-      }
-
-      handle.addEventListener("pointermove", onMove);
-      handle.addEventListener("pointerup", onUp);
-      handle.addEventListener("pointercancel", onUp);
-    },
-    [inspectorHeight],
-  );
-
   const onExport = useCallback(async () => {
     if (exporting) {
       return;
@@ -234,11 +186,13 @@ export function ReelAnimationsPage() {
     setSideView(view);
   };
 
-  const showInspector = sideView === "timeline" && showEditor;
-
   return (
     <AppShell hideHeader>
-      <EditorKeyboardShortcuts />
+      <EditorKeyboardShortcuts
+        onToggleSideView={() =>
+          changeSideView(sideView === "timeline" ? "chat" : "timeline")
+        }
+      />
       <PreviewAudioSync clip={previewAudio} muted={previewAudioMuted} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <ReelTopBar
@@ -247,10 +201,23 @@ export function ReelAnimationsPage() {
           exporting={exporting}
           onExport={() => void onExport()}
         />
-        <div className="flex min-h-0 min-w-0 flex-1">
-          <div className="flex h-full min-h-0 w-auto shrink-0 flex-col items-stretch border-r border-border bg-card">
-            <div className="flex min-h-0 flex-1 items-stretch p-2">
+        <div
+          ref={workspaceRef}
+          data-workspace-row
+          className="flex min-h-0 min-w-0 flex-1"
+        >
+          <div
+            className="flex h-full min-h-0 shrink-0 flex-col items-stretch border-r border-border bg-card"
+            style={{ width: reelColumnWidth(reelSize.width) }}
+          >
+            <div
+              ref={stageRef}
+              data-reel-stage
+              className="flex min-h-0 flex-1 items-center justify-center p-2"
+            >
               <Canvas
+                width={reelSize.width}
+                height={reelSize.height}
                 showReelPreview={showReelPreview}
                 exporting={exporting}
               />
@@ -262,14 +229,6 @@ export function ReelAnimationsPage() {
             <WorkspaceToolRow
               sideView={sideView}
               onSideViewChange={changeSideView}
-              showEditor={showEditor}
-              onToggleEditor={() =>
-                setShowEditor((value) => {
-                  const next = !value;
-                  persistShowEditor(next);
-                  return next;
-                })
-              }
               showReelPreview={showReelPreview}
               onToggleReelPreview={() =>
                 setShowReelPreview((value) => {
@@ -290,23 +249,7 @@ export function ReelAnimationsPage() {
                 <ChatPanel onApplied={() => changeSideView("timeline")} />
               </div>
             ) : (
-              <div ref={paneRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-                {showInspector ? (
-                  <>
-                    <div
-                      className="min-h-0 shrink-0 overflow-hidden p-2"
-                      style={{ height: inspectorHeight }}
-                    >
-                      <SchemaInspector />
-                    </div>
-                    <PanelResizeHandle
-                      orientation="horizontal"
-                      placement="bar"
-                      label="Resize inspector"
-                      onPointerDown={onInspectorResizeStart}
-                    />
-                  </>
-                ) : null}
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <div className="min-h-0 min-w-0 flex-1">
                   <Timeline
                     elements={elements}
@@ -319,6 +262,7 @@ export function ReelAnimationsPage() {
                     onSeek={setCurrentTime}
                     onAddTrack={addTrack}
                     onDeleteTrack={deleteTrack}
+                    onEditElement={setEditingElementId}
                     previewAudio={previewAudio}
                     onRemoveAudio={clearPreviewAudio}
                   />
@@ -328,6 +272,10 @@ export function ReelAnimationsPage() {
           </div>
         </div>
       </div>
+      <ElementEditDialog
+        elementId={editingElementId}
+        onClose={() => setEditingElementId(null)}
+      />
       <ExportProgressDialog
         open={exporting}
         progress={exportProgress}

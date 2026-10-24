@@ -27,6 +27,7 @@ interface SegmentBlockProps {
   selected: boolean;
   drag: DragHandlers;
   resize: ResizeHandlers;
+  onEdit?: (id: string) => void;
 }
 
 export function SegmentBlock({
@@ -35,6 +36,7 @@ export function SegmentBlock({
   selected,
   drag,
   resize,
+  onEdit,
 }: SegmentBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const segment = {
@@ -73,7 +75,23 @@ export function SegmentBlock({
           TYPE_BLOCK_CLASS[element.type],
           selected && "ring-2 ring-primary ring-offset-1 ring-offset-card",
         )}
+        tabIndex={0}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onEdit?.(element.id);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || event.repeat) {
+            return;
+          }
+          event.preventDefault();
+          onEdit?.(element.id);
+        }}
         onPointerDown={(event) => {
+          if (event.detail >= 2) {
+            return;
+          }
           if (
             event.target instanceof Element &&
             event.target.closest('[data-segment-resize-handle="true"]')

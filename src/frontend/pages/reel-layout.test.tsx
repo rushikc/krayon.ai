@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportReelMp4 } from "@/lib/export-reel";
 import {
   RENDER_THEME_STORAGE_KEY,
-  SHOW_EDITOR_STORAGE_KEY,
   SHOW_REEL_PREVIEW_STORAGE_KEY,
   WORKSPACE_SIDE_VIEW_STORAGE_KEY,
 } from "@/lib/workspace-chrome";
@@ -62,7 +61,6 @@ describe("home navigation", () => {
 describe("reel animations layout", () => {
   beforeEach(() => {
     localStorage.removeItem(RENDER_THEME_STORAGE_KEY);
-    localStorage.removeItem(SHOW_EDITOR_STORAGE_KEY);
     localStorage.removeItem(SHOW_REEL_PREVIEW_STORAGE_KEY);
     localStorage.removeItem(WORKSPACE_SIDE_VIEW_STORAGE_KEY);
     Object.defineProperty(navigator, "clipboard", {
@@ -82,19 +80,16 @@ describe("reel animations layout", () => {
         <ReelAnimationsPage />
       </MemoryRouter>,
     );
-    expect(screen.getByRole("button", { name: "Timeline" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("tab", { name: "Timeline" })).toHaveAttribute(
+      "aria-selected",
       "true",
     );
-    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute(
+      "aria-selected",
       "false",
     );
-    expect(screen.getByRole("button", { name: "Toggle inspector" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "Config" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Toggle inspector" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Config" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mute" })).not.toBeInTheDocument();
     expect(screen.getByText("00:00 / 00:30")).toBeInTheDocument();
@@ -117,7 +112,11 @@ describe("reel animations layout", () => {
     expect(screen.getByRole("button", { name: "Captions" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Zoom" })).toBeDisabled();
     const canvas = document.querySelector("[data-render-theme]");
-    expect(canvas).toHaveClass("h-full", "aspect-[9/16]");
+    expect(canvas).toBeInstanceOf(HTMLElement);
+    const width = parseFloat((canvas as HTMLElement).style.width);
+    const height = parseFloat((canvas as HTMLElement).style.height);
+    expect(width).toBeGreaterThan(0);
+    expect(height / width).toBeCloseTo(16 / 9);
   });
 
   it("switches to chat without showing the timeline", async () => {
@@ -127,23 +126,29 @@ describe("reel animations layout", () => {
         <ReelAnimationsPage />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole("button", { name: "Chat" }));
+    await user.click(screen.getByRole("tab", { name: "Chat" }));
     expect(screen.getByRole("heading", { name: "Reel assistant" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add track" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Toggle inspector" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
-  it("hides the inspector when JSON is toggled off", async () => {
-    const user = userEvent.setup();
+  it("opens the element editor from a timeline double-click", () => {
     render(
       <MemoryRouter>
         <ReelAnimationsPage />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole("button", { name: "Toggle inspector" }));
-    expect(screen.queryByRole("button", { name: "Config" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add track" })).toBeInTheDocument();
+    const block = document.querySelector(
+      '[data-segment-type="box"] [tabindex="0"]',
+    );
+    expect(block).toBeInstanceOf(HTMLElement);
+    fireEvent.doubleClick(block as HTMLElement);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
   it("shows the reel preview overlay from Settings", async () => {
@@ -206,7 +211,7 @@ describe("reel animations layout", () => {
       useCanvasStore.getState().selectElement("client");
     });
     const afterFirst = useCanvasStore.getState().elements.length;
-    await user.click(screen.getByDisplayValue("Client"));
+    await user.click(screen.getByRole("textbox", { name: "Project name" }));
     await user.keyboard("{Backspace}");
     expect(useCanvasStore.getState().elements.length).toBe(afterFirst);
     expect(useCanvasStore.getState().elements.find((el) => el.id === "client")).toBeDefined();

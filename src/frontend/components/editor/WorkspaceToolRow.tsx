@@ -1,5 +1,4 @@
 import {
-  Braces,
   Captions,
   Copy,
   Film,
@@ -13,7 +12,7 @@ import {
   ZoomIn,
   type LucideIcon,
 } from "lucide-react";
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 
 import { GeminiKeyDialog } from "@/components/chat/GeminiKeyDialog";
 import { getCanvasDesign } from "@/components/canvas/designs";
@@ -46,6 +45,8 @@ import { toast } from "@/stores/toast-store";
 import { useReelChatStore } from "@/stores/reel-chat-store";
 import { useThemeStore } from "@/stores/theme-store";
 
+const COMPACT_TOOL_ROW_PX = 900;
+
 const THEME_SWATCH: Record<RenderTheme, string> = {
   bright: "bg-[#c9a0f0]",
   dark: "bg-[#4b3a6d]",
@@ -57,8 +58,6 @@ const THEME_SWATCH: Record<RenderTheme, string> = {
 export function WorkspaceToolRow({
   sideView,
   onSideViewChange,
-  showEditor,
-  onToggleEditor,
   showReelPreview,
   onToggleReelPreview,
   renderTheme,
@@ -69,8 +68,6 @@ export function WorkspaceToolRow({
 }: {
   sideView: WorkspaceSideView;
   onSideViewChange: (view: WorkspaceSideView) => void;
-  showEditor: boolean;
-  onToggleEditor: () => void;
   showReelPreview: boolean;
   onToggleReelPreview: () => void;
   renderTheme: RenderTheme;
@@ -79,102 +76,120 @@ export function WorkspaceToolRow({
   onMutedChange: (muted: boolean) => void;
   onUploadAudio: (file: File) => void;
 }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) {
+      return;
+    }
+    const update = () => setCompact(el.clientWidth < COMPACT_TOOL_ROW_PX);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <TooltipProvider>
-      <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border bg-card px-2">
-        <SegmentGroup label="Workspace view">
+      <div
+        ref={rowRef}
+        className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-card px-2"
+      >
+        <SegmentGroup label="Workspace view" tabList prominent>
           <Segment
             label="Timeline"
             icon={Layers}
+            tab
+            prominent
             active={sideView === "timeline"}
             onClick={() => onSideViewChange("timeline")}
           />
           <Segment
             label="Chat"
             icon={MessageSquare}
+            tab
+            prominent
             active={sideView === "chat"}
             onClick={() => onSideViewChange("chat")}
           />
         </SegmentGroup>
 
-        <span aria-hidden className="h-5 w-px shrink-0 bg-border" />
+        <span aria-hidden className="mx-1 h-6 w-px shrink-0 bg-border" />
 
         <CanvasPopover
+          compact={compact}
           renderTheme={renderTheme}
           onRenderThemeChange={onRenderThemeChange}
         />
-        <ComingSoonButton label="Takes" icon={Film} />
-        <ComingSoonButton label="Captions" icon={Captions} />
+        <ComingSoonButton compact={compact} label="Takes" icon={Film} />
+        <ComingSoonButton compact={compact} label="Captions" icon={Captions} />
         <AudioPopover
+          compact={compact}
           muted={previewAudioMuted}
           onMutedChange={onMutedChange}
           onUploadAudio={onUploadAudio}
         />
-        <ToolButton
-          label="JSON"
-          icon={Braces}
-          name="Toggle inspector"
-          pressed={showEditor && sideView === "timeline"}
-          disabled={sideView !== "timeline"}
-          onClick={onToggleEditor}
-        />
-        <ComingSoonButton label="Zoom" icon={ZoomIn} />
-        <SettingsPopover
-          showReelPreview={showReelPreview}
-          onToggleReelPreview={onToggleReelPreview}
-        />
+        <ComingSoonButton compact={compact} label="Zoom" icon={ZoomIn} />
+        <div className="ml-auto shrink-0">
+          <SettingsPopover
+            compact={compact}
+            showReelPreview={showReelPreview}
+            onToggleReelPreview={onToggleReelPreview}
+          />
+        </div>
       </div>
     </TooltipProvider>
   );
 }
 
-function ToolButton({
+function WithCompactTooltip({
+  compact,
   label,
-  icon: Icon,
-  name,
-  pressed,
-  disabled,
-  onClick,
+  children,
 }: {
+  compact: boolean;
   label: string;
-  icon: LucideIcon;
-  name?: string;
-  pressed?: boolean;
-  disabled?: boolean;
-  onClick?: () => void;
+  children: ReactNode;
 }) {
+  if (!compact) {
+    return children;
+  }
   return (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      aria-label={name ?? label}
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(pressed && "border-primary/40 bg-primary/10 text-primary")}
-    >
-      <Icon />
-      {label}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex">{children}</span>} />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
 function ComingSoonButton({
   label,
   icon: Icon,
+  compact,
 }: {
   label: string;
   icon: LucideIcon;
+  compact: boolean;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <span className="inline-flex">
-            <Button type="button" size="sm" variant="outline" disabled>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled
+              aria-label={label}
+              className="text-muted-foreground"
+            >
               <Icon />
-              {label}
+              {compact ? null : (
+                <span className="text-xs font-normal">{label}</span>
+              )}
             </Button>
           </span>
         }
@@ -185,9 +200,11 @@ function ComingSoonButton({
 }
 
 function CanvasPopover({
+  compact,
   renderTheme,
   onRenderThemeChange,
 }: {
+  compact: boolean;
   renderTheme: RenderTheme;
   onRenderThemeChange: (theme: RenderTheme) => void;
 }) {
@@ -205,50 +222,62 @@ function CanvasPopover({
 
   return (
     <>
-      <Popover>
-        <PopoverTrigger
-          render={<Button type="button" size="sm" variant="outline" />}
-        >
-          <Palette />
-          Canvas
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-64">
-          <p className="text-xs font-medium text-muted-foreground">Canvas skin</p>
-          <div className="flex flex-col gap-1" role="group" aria-label="Canvas skin">
-            {RENDER_THEMES.map((theme) => (
-              <button
-                key={theme.id}
+      <WithCompactTooltip compact={compact} label="Canvas">
+        <Popover>
+          <PopoverTrigger
+            render={
+              <Button
                 type="button"
-                aria-pressed={renderTheme === theme.id}
-                onClick={() => onRenderThemeChange(theme.id)}
-                className={cn(
-                  "flex h-8 items-center gap-2 rounded-md px-2 text-xs transition-colors hover:bg-muted",
-                  renderTheme === theme.id
-                    ? "bg-primary/10 text-primary"
-                    : "text-foreground",
-                )}
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "size-2.5 rounded-full border border-border",
-                    THEME_SWATCH[theme.id],
-                  )}
-                />
-                {theme.label}
-              </button>
-            ))}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setPromptOpen(true)}
+                size="sm"
+                variant="ghost"
+                aria-label="Canvas"
+                className="text-muted-foreground"
+              />
+            }
           >
-            View prompt
-          </Button>
-        </PopoverContent>
-      </Popover>
+            <Palette />
+            {compact ? null : (
+              <span className="text-xs font-normal">Canvas</span>
+            )}
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64">
+            <p className="text-xs font-medium text-muted-foreground">Canvas skin</p>
+            <div className="flex flex-col gap-1" role="group" aria-label="Canvas skin">
+              {RENDER_THEMES.map((theme) => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  aria-pressed={renderTheme === theme.id}
+                  onClick={() => onRenderThemeChange(theme.id)}
+                  className={cn(
+                    "flex h-8 items-center gap-2 rounded-md px-2 text-xs transition-colors hover:bg-muted",
+                    renderTheme === theme.id
+                      ? "bg-primary/10 text-primary"
+                      : "text-foreground",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-2.5 rounded-full border border-border",
+                      THEME_SWATCH[theme.id],
+                    )}
+                  />
+                  {theme.label}
+                </button>
+              ))}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setPromptOpen(true)}
+            >
+              View prompt
+            </Button>
+          </PopoverContent>
+        </Popover>
+      </WithCompactTooltip>
       <Dialog open={promptOpen} onOpenChange={setPromptOpen}>
         <DialogPortal>
           <DialogBackdrop />
@@ -279,10 +308,12 @@ function CanvasPopover({
 }
 
 function AudioPopover({
+  compact,
   muted,
   onMutedChange,
   onUploadAudio,
 }: {
+  compact: boolean;
   muted: boolean;
   onMutedChange: (muted: boolean) => void;
   onUploadAudio: (file: File) => void;
@@ -298,51 +329,64 @@ function AudioPopover({
   };
 
   return (
-    <Popover>
-      <PopoverTrigger
-        render={<Button type="button" size="sm" variant="outline" />}
-      >
-        Audio
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-56">
-        <input
-          ref={audioInputRef}
-          type="file"
-          accept={PREVIEW_AUDIO_ACCEPT}
-          aria-hidden="true"
-          tabIndex={-1}
-          className="sr-only"
-          onChange={onAudioFileChange}
-        />
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => audioInputRef.current?.click()}
+    <WithCompactTooltip compact={compact} label="Audio">
+      <Popover>
+        <PopoverTrigger
+          render={
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label="Audio"
+              className="text-muted-foreground"
+            />
+          }
         >
-          <Upload />
-          Upload audio
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          aria-label={muted ? "Unmute" : "Mute"}
-          aria-pressed={muted}
-          onClick={() => onMutedChange(!muted)}
-        >
-          {muted ? <VolumeX /> : <Volume2 />}
-          {muted ? "Unmute" : "Mute"}
-        </Button>
-      </PopoverContent>
-    </Popover>
+          <Volume2 />
+          {compact ? null : <span className="text-xs font-normal">Audio</span>}
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-56">
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept={PREVIEW_AUDIO_ACCEPT}
+            aria-hidden="true"
+            tabIndex={-1}
+            className="sr-only"
+            onChange={onAudioFileChange}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => audioInputRef.current?.click()}
+          >
+            <Upload />
+            Upload audio
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-label={muted ? "Unmute" : "Mute"}
+            aria-pressed={muted}
+            onClick={() => onMutedChange(!muted)}
+          >
+            {muted ? <VolumeX /> : <Volume2 />}
+            {muted ? "Unmute" : "Mute"}
+          </Button>
+        </PopoverContent>
+      </Popover>
+    </WithCompactTooltip>
   );
 }
 
 function SettingsPopover({
+  compact,
   showReelPreview,
   onToggleReelPreview,
 }: {
+  compact: boolean;
   showReelPreview: boolean;
   onToggleReelPreview: () => void;
 }) {
@@ -356,76 +400,86 @@ function SettingsPopover({
 
   return (
     <>
-      <Popover>
-        <PopoverTrigger
-          render={
-            <Button type="button" size="sm" variant="outline" aria-label="Settings">
-              <Settings />
-              Settings
-            </Button>
-          }
-        />
-        <PopoverContent align="end" className="w-80">
-          <p className="text-xs font-medium">Reel pipeline</p>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Max rounds
-            <Input
-              type="number"
-              min={1}
-              max={4}
-              aria-label="Max rounds"
-              value={String(maxRounds)}
-              onValueChange={(value) => {
-                const next = Number(value);
-                if (Number.isFinite(next)) {
-                  setMaxRounds(next);
-                }
-              }}
-            />
-          </label>
-          <ModelField
-            label="Generate model"
-            value={models.generate}
-            onChange={(generate) => setModels({ ...models, generate })}
-          />
-          <ModelField
-            label="Review model"
-            value={models.review}
-            onChange={(review) => setModels({ ...models, review })}
-          />
-          <ModelField
-            label="Fix model"
-            value={models.fix}
-            onChange={(fix) => setModels({ ...models, fix })}
-          />
-          <Button type="button" size="sm" variant="outline" onClick={() => setKeyOpen(true)}>
-            Gemini API key
-          </Button>
-          <div className="h-px bg-border" />
-          <p className="text-xs font-medium">Appearance</p>
-          <SegmentGroup label="App theme">
-            <Segment
-              label="Light"
-              active={theme === "light"}
-              onClick={() => setTheme("light")}
-            />
-            <Segment
-              label="Dark"
-              active={theme === "dark"}
-              onClick={() => setTheme("dark")}
-            />
-          </SegmentGroup>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-pressed={showReelPreview}
-            onClick={onToggleReelPreview}
+      <WithCompactTooltip compact={compact} label="Settings">
+        <Popover>
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label="Settings"
+                className="text-muted-foreground"
+              />
+            }
           >
-            Reel preview
-          </Button>
-        </PopoverContent>
-      </Popover>
+            <Settings />
+            {compact ? null : (
+              <span className="text-xs font-normal">Settings</span>
+            )}
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80">
+            <p className="text-xs font-medium">Reel pipeline</p>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Max rounds
+              <Input
+                type="number"
+                min={1}
+                max={4}
+                aria-label="Max rounds"
+                value={String(maxRounds)}
+                onValueChange={(value) => {
+                  const next = Number(value);
+                  if (Number.isFinite(next)) {
+                    setMaxRounds(next);
+                  }
+                }}
+              />
+            </label>
+            <ModelField
+              label="Generate model"
+              value={models.generate}
+              onChange={(generate) => setModels({ ...models, generate })}
+            />
+            <ModelField
+              label="Review model"
+              value={models.review}
+              onChange={(review) => setModels({ ...models, review })}
+            />
+            <ModelField
+              label="Fix model"
+              value={models.fix}
+              onChange={(fix) => setModels({ ...models, fix })}
+            />
+            <Button type="button" size="sm" variant="outline" onClick={() => setKeyOpen(true)}>
+              Gemini API key
+            </Button>
+            <div className="h-px bg-border" />
+            <p className="text-xs font-medium">Appearance</p>
+            <SegmentGroup label="App theme">
+              <Segment
+                label="Light"
+                active={theme === "light"}
+                onClick={() => setTheme("light")}
+              />
+              <Segment
+                label="Dark"
+                active={theme === "dark"}
+                onClick={() => setTheme("dark")}
+              />
+            </SegmentGroup>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-pressed={showReelPreview}
+              onClick={onToggleReelPreview}
+            >
+              Reel preview
+            </Button>
+          </PopoverContent>
+        </Popover>
+      </WithCompactTooltip>
       <GeminiKeyDialog open={keyOpen} onOpenChange={setKeyOpen} />
     </>
   );
@@ -452,4 +506,3 @@ function ModelField({
     </label>
   );
 }
-

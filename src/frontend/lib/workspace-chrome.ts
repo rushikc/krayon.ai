@@ -2,7 +2,6 @@ import { isRenderTheme, type RenderTheme } from "@/lib/render-theme";
 
 export const RENDER_THEME_STORAGE_KEY = "krayon-render-theme";
 export const SHOW_TIMELINE_STORAGE_KEY = "krayon-show-timeline";
-export const SHOW_EDITOR_STORAGE_KEY = "krayon-show-editor";
 export const SHOW_REEL_PREVIEW_STORAGE_KEY = "krayon-show-reel-preview";
 export const WORKSPACE_SIDE_VIEW_STORAGE_KEY = "krayon-workspace-side-view";
 
@@ -48,20 +47,12 @@ export function getStoredShowTimeline(): boolean {
   return getStoredFlag(SHOW_TIMELINE_STORAGE_KEY, true);
 }
 
-export function getStoredShowEditor(): boolean {
-  return getStoredFlag(SHOW_EDITOR_STORAGE_KEY, true);
-}
-
 export function getStoredShowReelPreview(): boolean {
   return getStoredFlag(SHOW_REEL_PREVIEW_STORAGE_KEY, false);
 }
 
 export function persistShowTimeline(value: boolean): void {
   writeItem(SHOW_TIMELINE_STORAGE_KEY, String(value));
-}
-
-export function persistShowEditor(value: boolean): void {
-  writeItem(SHOW_EDITOR_STORAGE_KEY, String(value));
 }
 
 export function persistShowReelPreview(value: boolean): void {

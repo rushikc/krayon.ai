@@ -10,6 +10,13 @@ function isUndoRedoShortcut(event: KeyboardEvent): boolean {
   return event.code === "KeyZ";
 }
 
+function isToggleSideViewShortcut(event: KeyboardEvent): boolean {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+    return false;
+  }
+  return event.code === "KeyK";
+}
+
 function isTimelineFocused(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
     return false;
@@ -17,7 +24,11 @@ function isTimelineFocused(target: EventTarget | null): boolean {
   return Boolean(target.closest("[data-timeline-root]"));
 }
 
-export function EditorKeyboardShortcuts() {
+export function EditorKeyboardShortcuts({
+  onToggleSideView,
+}: {
+  onToggleSideView?: () => void;
+}) {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.repeat) {
@@ -34,6 +45,15 @@ export function EditorKeyboardShortcuts() {
         } else {
           useCanvasStore.getState().undo();
         }
+        return;
+      }
+
+      if (isToggleSideViewShortcut(event)) {
+        if (isEditableTarget(event.target) || !onToggleSideView) {
+          return;
+        }
+        event.preventDefault();
+        onToggleSideView();
         return;
       }
 
@@ -70,7 +90,7 @@ export function EditorKeyboardShortcuts() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [onToggleSideView]);
 
   return null;
 }
