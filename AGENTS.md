@@ -19,7 +19,7 @@ Vite proxies `/api/reel` → `:8788` and `/api` → `:8000`.
 
 ## Layout
 
-- `src/frontend/` — UI. Shared chrome: editor, timeline, inspector, `components/canvas/Canvas.tsx` (9:16 frame only).
+- `src/frontend/` — UI. Reel workspace chrome: top bar, far-left 9:16 canvas, Timeline | Chat right pane, inspector, `components/canvas/Canvas.tsx` (9:16 frame only). Chat talks to `/api/reel` through the Vite proxy. The Gemini key is a first-party cookie (`krayon_gemini_api_key`), never localStorage.
 - `src/frontend/components/canvas/designs/` — five canvas skins. Each folder owns paint for that skin (box, number, arrow, markers, background, palette, fonts). Duplicate files across folders on purpose; do not share paint code between skins.
   - `bright/`, `dark/`, `calidraw-light/`, `calidraw-dark/`, `canary/`
   - Switch via `getCanvasDesign(renderTheme)` in `designs/index.ts`.

@@ -4,6 +4,9 @@ export const RENDER_THEME_STORAGE_KEY = "krayon-render-theme";
 export const SHOW_TIMELINE_STORAGE_KEY = "krayon-show-timeline";
 export const SHOW_EDITOR_STORAGE_KEY = "krayon-show-editor";
 export const SHOW_REEL_PREVIEW_STORAGE_KEY = "krayon-show-reel-preview";
+export const WORKSPACE_SIDE_VIEW_STORAGE_KEY = "krayon-workspace-side-view";
+
+export type WorkspaceSideView = "timeline" | "chat";
 
 function readItem(key: string): string | null {
   try {
@@ -63,4 +66,17 @@ export function persistShowEditor(value: boolean): void {
 
 export function persistShowReelPreview(value: boolean): void {
   writeItem(SHOW_REEL_PREVIEW_STORAGE_KEY, String(value));
+}
+
+export function isWorkspaceSideView(value: string | null): value is WorkspaceSideView {
+  return value === "timeline" || value === "chat";
+}
+
+export function getStoredWorkspaceSideView(): WorkspaceSideView {
+  const stored = readItem(WORKSPACE_SIDE_VIEW_STORAGE_KEY);
+  return isWorkspaceSideView(stored) ? stored : "timeline";
+}
+
+export function persistWorkspaceSideView(value: WorkspaceSideView): void {
+  writeItem(WORKSPACE_SIDE_VIEW_STORAGE_KEY, value);
 }

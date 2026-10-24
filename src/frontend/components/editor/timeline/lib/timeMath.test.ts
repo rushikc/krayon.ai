@@ -19,7 +19,10 @@ import {
 
 describe("timeline layout", () => {
   it("defaults to five visible rows", () => {
+    expect(TRACK_ROW_HEIGHT).toBe(32);
+    expect(TIMELINE_RULER_HEIGHT).toBe(24);
     expect(VISIBLE_TRACK_ROWS).toBe(5);
+    expect(DEFAULT_TIMELINE_HEIGHT).toBe(184);
     expect(DEFAULT_TIMELINE_HEIGHT).toBe(
       TIMELINE_RULER_HEIGHT + VISIBLE_TRACK_ROWS * TRACK_ROW_HEIGHT,
     );

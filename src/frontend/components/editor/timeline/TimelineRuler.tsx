@@ -39,7 +39,7 @@ export function TimelineRuler({ duration }: TimelineRulerProps) {
           {tick.major ? (
             <span
               className={cn(
-                "absolute top-1/2 -translate-y-1/2 font-mono text-[11px] tabular-nums text-muted-foreground",
+                "absolute top-1/2 -translate-y-1/2 font-mono text-[10px] tabular-nums text-muted-foreground",
                 rulerLabelAlignClass(tick.time, duration),
               )}
             >
@@ -48,7 +48,7 @@ export function TimelineRuler({ duration }: TimelineRulerProps) {
           ) : null}
           <span
             className="absolute bottom-0 block w-px bg-border"
-            style={{ height: tick.major ? 10 : 5 }}
+            style={{ height: tick.major ? 8 : 4 }}
           />
         </div>
       ))}

@@ -1,6 +1,6 @@
 # UI Design
 
-Krayon uses a home screen with two product tiles, then an **audio library** for browsing videos and an **editor** for processing a single video. Reel animations is a placeholder route for later work.
+Krayon uses a home screen with two product tiles, then an **audio library** for browsing videos and an **editor** for processing a single video. **Reel animations** is a 9:16 teaching-canvas workspace with a Timeline | Chat split.
 
 ## Pages
 
@@ -8,7 +8,7 @@ Krayon uses a home screen with two product tiles, then an **audio library** for 
 |-------|------|---------|
 | `/` | Home | Two tiles: Audio analysis, Reel animations |
 | `/audio` | Dashboard | Folder + video library, preview, metadata |
-| `/reel-animations` | Reel animations | Placeholder (coming soon) |
+| `/reel-animations` | Reel animations | 9:16 canvas, compact timeline, and reel-assistant chat |
 | `/editor/:mediaId` | Editor | Single-video processing workspace |
 
 ```mermaid
@@ -21,7 +21,45 @@ flowchart LR
 
 ## Home layout
 
-Two equal tiles centered in the shell: **Audio analysis** (silence removal & clip grouping) and **Reel animations** (coming soon).
+Two equal tiles centered in the shell: **Audio analysis** (silence removal & clip grouping) and **Reel animations** (9:16 teaching canvas).
+
+## Reel animations layout
+
+Portrait reels only (9:16). No landscape editor.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Home   project name                              theme  Export  │
+├──────────┬───────────────────────────────────────────────────────┤
+│  9:16    │  Timeline | Chat   Canvas Takes Captions Audio JSON … │
+│  canvas  ├───────────────────────────────────────────────────────┤
+│          │  Timeline (full width)  OR  Reel assistant chat       │
+│  playbar │                                                       │
+└──────────┴───────────────────────────────────────────────────────┘
+```
+
+- **Top bar (~44px)** — Home, editable project name, app light/dark toggle, Export (solid primary).
+- **Far left** — 9:16 canvas, full workspace height, with a compact playbar (play, current time, duration) underneath.
+- **Right column** — remaining width. A thin tool row (~40px) holds the exclusive `Timeline | Chat` toggle, then Canvas, Takes, Captions, Audio, JSON, Zoom, Settings. Takes, Captions, and Zoom are disabled (“Coming soon”).
+- **Timeline view** — existing tracks, full width, compact rows. JSON opens the schema inspector above the timeline.
+- **Chat view** — reel assistant wired to `POST /api/reel/jobs` (script) and refine. Apply writes through `setElements` (undoable). The reel preview stays visible on the left.
+- The chosen Timeline | Chat view is persisted in `localStorage` (`krayon-workspace-side-view`). Default is Timeline.
+- **Gemini key** lives in the first-party cookie `krayon_gemini_api_key` (`SameSite=Strict`, not `HttpOnly`) and is sent only as `X-Gemini-Api-Key` on create/refine. Never localStorage.
+
+### App chrome tokens (Velo-like)
+
+Defined on `:root` and `.dark` in [`src/frontend/index.css`](../src/frontend/index.css). Canvas skins (`components/canvas/designs/*`) are a separate `RenderTheme`.
+
+| Token | Light | Dark |
+| --- | --- | --- |
+| background | `#F6F7F9` | `#0A0A0C` |
+| panels / card | `#FFFFFF` | `#101014` |
+| raised | `#FFFFFF` | `#16161B` |
+| border | `#E4E6EB` | `#23232A` |
+| muted text | `#6B6B76` | `#8B8B96` |
+| primary | `#2563EB` | `#3B82F6` |
+
+Sans: Geist Variable. Timeline type blocks use tinted fill + 1px border + coloured text (`--timeline-box-*`, `--timeline-number-*`, `--timeline-arrow-*`). Row height 32px, ruler 24px, track labels ~96px.
 
 ## Dashboard layout
 
@@ -82,7 +120,7 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 |------|------|
 | `src/frontend/pages/HomePage.tsx` | Two-tile product home |
 | `src/frontend/pages/DashboardPage.tsx` | Audio library dashboard |
-| `src/frontend/pages/ReelAnimationsPage.tsx` | Reel animations placeholder |
+| `src/frontend/pages/ReelAnimationsPage.tsx` | 9:16 reel editor (timeline + chat) |
 | `src/frontend/pages/EditorPage.tsx` | Single-video editor |
 | `src/frontend/components/layout/LibrarySidebar.tsx` | Video list |
 | `src/frontend/components/layout/ClipsSidebar.tsx` | Grouped clips + all-segments timeline |

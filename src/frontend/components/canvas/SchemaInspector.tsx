@@ -11,7 +11,6 @@ import {
 
 import { clampElementTime } from "@/components/editor/timeline/lib/timeMath";
 import { FieldLabel } from "@/components/ui/field-label";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { clampBoxBounds, clampNumberBounds, clampBoxFontSize, clampNumberSize, DEFAULT_BOX_FONT_SIZE, matrixToPercents, MAX_BOX_FONT_SIZE, MAX_NUMBER_SIZE, MIN_BOX_FONT_SIZE, MIN_BOX_SIZE, MIN_NUMBER_SIZE, numberBadgeSize, percentsToMatrix, percentsToNumberMatrix } from "@/lib/canvas-geometry";
 import { isElementActiveAt } from "@/lib/element-visibility";
@@ -564,13 +563,7 @@ function SliderNumberField({
   );
 }
 
-export function SchemaInspector({
-  projectName = "krayon-reel",
-  onProjectNameChange,
-}: {
-  projectName?: string;
-  onProjectNameChange?: (name: string) => void;
-}) {
+export function SchemaInspector() {
   const elements = useCanvasStore((state) => state.elements);
   const selectedId = useCanvasStore((state) => state.selectedId);
   const selectElement = useCanvasStore((state) => state.selectElement);
@@ -604,21 +597,6 @@ export function SchemaInspector({
           onClick={() => setTab("json")}
           icon={Braces}
         />
-        <div className="ml-auto flex min-w-0 max-w-[18rem] items-center gap-2">
-          <label
-            htmlFor="project-name"
-            className="shrink-0 text-[16px] font-medium text-muted-foreground"
-          >
-            Project name
-          </label>
-          <Input
-            id="project-name"
-            placeholder="krayon-reel"
-            value={projectName}
-            onValueChange={(value) => onProjectNameChange?.(value)}
-            className="h-8 min-w-0 border-transparent bg-transparent px-2 text-sm font-semibold tracking-tight shadow-none hover:border-border focus-visible:border-ring"
-          />
-        </div>
       </nav>
 
       {tab === "config" && selected ? (

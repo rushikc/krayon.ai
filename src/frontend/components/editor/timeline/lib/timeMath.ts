@@ -4,8 +4,8 @@ export { clamp };
 
 export const MIN_SEGMENT_DURATION = 0.5;
 export const TIMELINE_TIME_STEP_SECONDS = 0.1;
-export const TRACK_ROW_HEIGHT = 44;
-export const TIMELINE_RULER_HEIGHT = 28;
+export const TRACK_ROW_HEIGHT = 32;
+export const TIMELINE_RULER_HEIGHT = 24;
 export const VISIBLE_TRACK_ROWS = 5;
 export const DEFAULT_TIMELINE_HEIGHT =
   TIMELINE_RULER_HEIGHT + VISIBLE_TRACK_ROWS * TRACK_ROW_HEIGHT;

@@ -50,7 +50,7 @@ src/
 
 **Editor (`/editor/:mediaId`)** — single-video workspace with processing controls; clips sidebar appears after generation
 
-**Reel animations (`/reel-animations`)** — 9:16 teaching canvas. Scene JSON can be pasted in the inspector, or produced by the local reel pipeline (see [docs/reel-pipeline.md](docs/reel-pipeline.md)).
+**Reel animations (`/reel-animations`)** — 9:16 teaching canvas pinned to the left, with Timeline | Chat on the right. Scene JSON can be pasted in the inspector, or generated from a script in Chat (local reel pipeline; Gemini key is a first-party cookie). See [docs/reel-pipeline.md](docs/reel-pipeline.md) and [docs/ui-design.md](docs/ui-design.md).
 
 ## Debugging / logs
 

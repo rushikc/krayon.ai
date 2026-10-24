@@ -29,7 +29,7 @@ export function TrackRow({
 
   return (
     <div
-      className="relative box-border shrink-0 border-b border-border/80 bg-muted/20"
+      className="relative box-border shrink-0 border-b border-border/60 bg-muted/10"
       style={{ height: TRACK_ROW_HEIGHT }}
     >
       {trackElements.map((element) => (
