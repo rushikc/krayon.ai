@@ -6,12 +6,16 @@ Local talking-head editor: Whisper transcription, silence cuts, retake grouping,
 
 ```bash
 pnpm install
-pnpm dev          # frontend http://localhost:5173
-pnpm backend      # FastAPI
-pnpm dev:all      # both
+pnpm dev            # frontend + Python audio + reel Fastify
+pnpm dev:all        # same as pnpm dev
+pnpm frontend       # Vite only, http://localhost:5173
+pnpm backend        # FastAPI audio only
+pnpm reel-backend   # Fastify reel pipeline, 127.0.0.1:8788
 ```
 
-Backend logs: `src/backend/logs/` (gitignored). Config: `src/backend/krayon.toml`.
+Audio logs: `src/backend/logs/` (gitignored). Audio config: `src/backend/krayon.toml`.
+Reel logs: `src/reel-backend/logs/` (gitignored). Reel config: `src/reel-backend/krayon-reel.toml`.
+Vite proxies `/api/reel` → `:8788` and `/api` → `:8000`.
 
 ## Layout
 
@@ -20,6 +24,7 @@ Backend logs: `src/backend/logs/` (gitignored). Config: `src/backend/krayon.toml
   - `bright/`, `dark/`, `calidraw-light/`, `calidraw-dark/`, `canary/`
   - Switch via `getCanvasDesign(renderTheme)` in `designs/index.ts`.
 - `src/backend/` — FastAPI + ffmpeg/Whisper pipeline.
+- `src/reel-backend/` — Fastify generate → render keyframes → Gemini review → fix. Key via `X-Gemini-Api-Key` (never persisted). See `docs/reel-pipeline.md`.
 
 App chrome theme (`lib/theme.ts`, light/dark OS UI) is separate from canvas `RenderTheme`.
 
@@ -27,4 +32,4 @@ Each skin folder has a `SKILL.md` (look, font, background, composition). A chang
 
 ## Docs
 
-`README.md`, `install.md`, `docs/` (UI, ffmpeg, silence removal, reel JSON).
+`README.md`, `install.md`, `docs/` (UI, ffmpeg, silence removal, reel JSON, reel pipeline).
