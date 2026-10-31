@@ -117,6 +117,38 @@ export async function saveMeta(dir: string, meta: Meta): Promise<void> {
   await writeJson(path.join(dir, "meta.json"), meta);
 }
 
+export function recoveredStatus(meta: Meta, cuts: Cuts): ProjectStatus {
+  if (meta.revision > 0 && cuts.clips.length > 0) return "ready";
+  return "error";
+}
+
+export async function recoverStuckProjects(
+  root: string,
+  message = "Interrupted by server restart",
+): Promise<number> {
+  const projects = await listProjects(root);
+  let count = 0;
+  for (const meta of projects) {
+    if (meta.status !== "analyzing" && meta.status !== "rendering") continue;
+    const dir = projectDir(root, meta.slug);
+    const cuts = await readCuts(dir);
+    meta.status = recoveredStatus(meta, cuts);
+    meta.statusMessage = message;
+    await saveMeta(dir, meta);
+    count += 1;
+  }
+  return count;
+}
+
+export async function resetProjectStatus(dir: string, meta: Meta, cuts: Cuts, message = "Reset by operator"): Promise<Meta> {
+  if (meta.status === "analyzing" || meta.status === "rendering") {
+    meta.status = recoveredStatus(meta, cuts);
+    meta.statusMessage = message;
+    await saveMeta(dir, meta);
+  }
+  return meta;
+}
+
 export async function readHistory(dir: string, revision: number): Promise<HistoryEntry> {
   return JSON.parse(await readFile(historyPath(dir, revision), "utf8")) as HistoryEntry;
 }

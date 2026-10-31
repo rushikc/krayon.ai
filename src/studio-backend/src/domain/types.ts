@@ -84,6 +84,20 @@ export class BusyError extends Error {
   }
 }
 
+export class NotFoundError extends Error {
+  readonly status = 404;
+
+  constructor(message = "not_found") {
+    super(message);
+    this.name = "NotFoundError";
+  }
+}
+
+export function throwIfBusy(status: string): void {
+  if (status === "analyzing") throw new BusyError("Project is analyzing");
+  if (status === "rendering") throw new BusyError("Project is rendering");
+}
+
 export function emptyCuts(): Cuts {
   return {
     revision: 0,
