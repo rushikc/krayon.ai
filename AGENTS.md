@@ -13,6 +13,7 @@ pnpm backend        # FastAPI audio only
 pnpm reel-backend   # Fastify reel pipeline, 127.0.0.1:8788
 pnpm studio-backend # Fastify studio API, 127.0.0.1:8789
 pnpm krayon         # studio CLI (status, clips, op, render, …)
+pnpm studio:doctor  # studio + python + ffmpeg + av + Whisper checks
 ```
 
 Audio logs: `src/backend/logs/` (gitignored). Audio config: `src/backend/krayon.toml`.
@@ -37,6 +38,8 @@ A project is `studio/<slug>/`: `meta.json`, `cuts.json`, `analysis/` (WAV + `wor
 Clip ids look like `c-0007` and group ids like `g-0001`. They are never reused in that project. Split and merge mint new ids and set `parentIds`. Re-analysis keeps an id when the new span overlaps the old one with IoU ≥ 0.7.
 
 Grok loop, all local: `krayon status` → `krayon lint` → `krayon clip <id>` and `play-info` (audio with padding) → `reanalyze` / `split` / `merge` / `trim` → `select` → `render --preview` → check → `render --final`. Send `X-Krayon-Actor: grok` (the CLI does this by default). Ops need `baseRevision` from status.
+
+Never ask the human to confirm Studio edits in chat. Write a confirmation with `krayon ask confirm|choice … --wait` (run it as a background shell command) and continue when it finishes. The Studio UI shows the question; the answer is stored on the project.
 
 `canvasDraft` on `cuts.json` is reserved and unused. Do not edit the Gemini reel pipeline or the existing audio editor as part of Studio work.
 

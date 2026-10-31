@@ -11,11 +11,12 @@ export class CliExit extends Error {
   }
 }
 
-type Flags = { positionals: string[]; map: Map<string, string | true> };
+type FlagValue = string | true | string[];
+type Flags = { positionals: string[]; map: Map<string, FlagValue> };
 
 function parseArgv(argv: string[]): Flags {
   const positionals: string[] = [];
-  const map = new Map<string, string | true>();
+  const map = new Map<string, FlagValue>();
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index]!;
     if (!token.startsWith("--")) {
@@ -24,18 +25,29 @@ function parseArgv(argv: string[]): Flags {
     }
     const key = token.slice(2);
     const next = argv[index + 1];
-    if (next == null || next.startsWith("--")) map.set(key, true);
-    else {
-      map.set(key, next);
-      index += 1;
-    }
+    const value: FlagValue = next == null || next.startsWith("--") ? true : next;
+    if (value !== true) index += 1;
+    const previous = map.get(key);
+    if (previous == null) map.set(key, value);
+    else if (previous === true) map.set(key, value);
+    else if (Array.isArray(previous)) map.set(key, value === true ? previous : [...previous, value]);
+    else map.set(key, value === true ? previous : [previous, value]);
   }
   return { positionals, map };
 }
 
 function flag(flags: Flags, name: string): string | undefined {
   const value = flags.map.get(name);
-  return typeof value === "string" ? value : undefined;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value[value.length - 1];
+  return undefined;
+}
+
+function flagList(flags: Flags, name: string): string[] {
+  const value = flags.map.get(name);
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value;
+  return [];
 }
 
 async function request(
@@ -84,8 +96,27 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
   const finish = async (pathname: string, method = "GET", body?: unknown) =>
     request(base, actor, method, pathname, body);
 
+  const confirmationExit = (item: Record<string, unknown>) => {
+    if (item.timedOut || item.status === "pending") throw new CliExit(4, item, pretty);
+    if (item.status === "stale") throw new CliExit(5, item, pretty);
+    if (item.status === "cancelled" || item.status === "expired") throw new CliExit(6, item, pretty);
+    const result = item.result as { applied?: boolean } | null;
+    if (result?.applied) return item;
+    throw new CliExit(3, item, pretty);
+  };
+
+  const waitConfirmation = async (pathname: string, timeoutSec?: string) => {
+    const timeoutMs = Math.min(Number(timeoutSec ?? "600") * 1000, 780000);
+    const item = (await finish(`${pathname}?timeoutMs=${timeoutMs}`)) as Record<string, unknown>;
+    return confirmationExit(item);
+  };
+
   try {
     if (command === "schema") return finish("/api/studio/schema");
+    if (command === "doctor") {
+      const { runDoctor } = await import("./doctor.js");
+      return runDoctor(env);
+    }
     if (command === "projects" && sub === "list") return finish("/api/studio/projects");
     if (command === "projects" && sub === "new") {
       return finish("/api/studio/projects", "POST", { title: rest[0] ?? flag(flags, "title") ?? "Untitled", slug: flag(flags, "slug") });
@@ -218,10 +249,78 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
         language: flag(flags, "language"),
       });
     }
+    if (command === "reset-status") return finish(`${project}/reset-status`, "POST", {});
+    if (command === "confirmations") {
+      const status = flag(flags, "status") ?? "pending";
+      return finish(`${project}/confirmations?status=${encodeURIComponent(status)}`);
+    }
+    if (command === "confirmation") {
+      if (!sub) throw new CliExit(1, { error: "validation", message: "confirmation <id>" }, pretty);
+      return finish(`${project}/confirmations/${sub}`);
+    }
+    if (command === "confirm-wait") {
+      if (!sub) throw new CliExit(1, { error: "validation", message: "confirm-wait <id>" }, pretty);
+      return waitConfirmation(`${project}/confirmations/${sub}/wait`, flag(flags, "timeout"));
+    }
+    if (command === "cancel-ask") {
+      if (!sub) throw new CliExit(1, { error: "validation", message: "cancel-ask <id>" }, pretty);
+      return finish(`${project}/confirmations/${sub}/cancel`, "POST", {});
+    }
+    if (command === "ask") {
+      const filePath = flag(flags, "file");
+      let body: Record<string, unknown>;
+      if (filePath) {
+        body = JSON.parse(await (await import("node:fs/promises")).readFile(filePath, "utf8")) as Record<string, unknown>;
+      } else if (sub === "confirm") {
+        const title = rest[0];
+        if (!title) throw new CliExit(1, { error: "validation", message: "ask confirm <title>" }, pretty);
+        const opsRaw = flag(flags, "ops-file")
+          ? (JSON.parse(await (await import("node:fs/promises")).readFile(flag(flags, "ops-file")!, "utf8")) as
+              | { ops?: unknown[]; baseRevision?: number }
+              | unknown[])
+          : null;
+        const ops = Array.isArray(opsRaw) ? opsRaw : opsRaw?.ops;
+        const baseRevision =
+          opsRaw && !Array.isArray(opsRaw) && opsRaw.baseRevision != null
+            ? Number(opsRaw.baseRevision)
+            : await revisionOf(base, actor, slug);
+        body = {
+          kind: "confirm",
+          title,
+          message: flag(flags, "message") ?? "",
+          clipIds: (flag(flags, "clips") ?? "").split(",").filter(Boolean),
+          allowNote: flags.map.has("note"),
+          proposedOps: ops ? { baseRevision, ops } : null,
+          options: [
+            { id: "accept", label: "Accept", style: "primary", applyOps: Boolean(ops) },
+            { id: "decline", label: "Decline", style: "danger", applyOps: false },
+          ],
+        };
+      } else if (sub === "choice") {
+        const title = rest[0];
+        if (!title) throw new CliExit(1, { error: "validation", message: "ask choice <title>" }, pretty);
+        body = {
+          kind: "choice",
+          title,
+          message: flag(flags, "message") ?? "",
+          clipIds: (flag(flags, "clips") ?? "").split(",").filter(Boolean),
+          options: flagList(flags, "option").map((raw) => {
+            const eq = raw.indexOf("=");
+            if (eq < 1) throw new CliExit(1, { error: "validation", message: "--option id=label" }, pretty);
+            return { id: raw.slice(0, eq), label: raw.slice(eq + 1), style: "default" };
+          }),
+        };
+      } else {
+        throw new CliExit(1, { error: "validation", message: "ask confirm|choice|--file" }, pretty);
+      }
+      const created = (await finish(`${project}/confirmations`, "POST", body)) as { id: string };
+      if (!flags.map.has("wait")) return created;
+      return waitConfirmation(`${project}/confirmations/${created.id}/wait`, flag(flags, "timeout"));
+    }
     throw new CliExit(1, {
       error: "validation",
       message: "Unknown command",
-      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "schema"],
+      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "schema", "reset-status", "doctor", "ask", "confirmations", "confirmation", "confirm-wait", "cancel-ask"],
     }, pretty);
   } catch (error) {
     if (error instanceof CliExit) {
@@ -254,7 +353,8 @@ if (invoked) {
   } catch (error) {
     if (error instanceof CliExit) {
       const text = error.pretty ? JSON.stringify(error.payload, null, 2) : JSON.stringify(error.payload);
-      process.stderr.write(`${text}\n`);
+      const stream = error.code === 1 || error.code === 2 ? process.stderr : process.stdout;
+      stream.write(`${text}\n`);
       process.exit(error.code);
     }
     process.stderr.write(`${JSON.stringify({ error: "internal", message: error instanceof Error ? error.message : "CLI failed" })}\n`);

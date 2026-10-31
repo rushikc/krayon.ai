@@ -56,6 +56,32 @@ export type StudioProject = {
 
 export type StudioOp = Record<string, unknown>;
 
+export type ConfirmationOption = {
+  id: string;
+  label: string;
+  style?: "primary" | "danger" | "default";
+  applyOps?: boolean;
+};
+
+export type ConfirmationItem = {
+  id: string;
+  seq: number;
+  kind: "confirm" | "choice";
+  title: string;
+  message: string;
+  clipIds: string[];
+  options: ConfirmationOption[];
+  defaultOptionId: string | null;
+  proposedOps: { baseRevision: number; ops: StudioOp[] } | null;
+  allowNote: boolean;
+  status: "pending" | "answered" | "expired" | "cancelled" | "stale";
+  answer: { optionId: string; note: string; by: Actor; at: string } | null;
+  result: { applied: boolean; revision: number | null; error: string | null } | null;
+  createdBy: Actor;
+  createdAt: string;
+  expiresAt: string | null;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API}${path}`, {
     ...init,
@@ -171,4 +197,15 @@ export function eventsUrl(slug: string) {
 
 export function audioUrl(slug: string, id: string, pad = 0.5) {
   return `${API}/projects/${slug}/clips/${id}/audio.wav?pad=${pad}`;
+}
+
+export function listConfirmations(slug: string, status: "pending" | "answered" | "all" = "all") {
+  return request<{ items: ConfirmationItem[] }>(`/projects/${slug}/confirmations?status=${status}`);
+}
+
+export function answerConfirmation(slug: string, id: string, optionId: string, note?: string) {
+  return request<ConfirmationItem>(`/projects/${slug}/confirmations/${id}/answer`, {
+    method: "POST",
+    body: JSON.stringify({ optionId, note, actor: "human" }),
+  });
 }

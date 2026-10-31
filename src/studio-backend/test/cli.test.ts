@@ -165,4 +165,16 @@ describe("studio http and cli", () => {
       await writeFile(metaPath, JSON.stringify(meta));
     }
   });
+
+  it("reports doctor checks and reset-status", async () => {
+    const doctor = (await runCli(["doctor"], env())) as {
+      studio: { ok: boolean };
+      python: { ok: boolean; hint?: string };
+    };
+    expect(doctor.studio.ok).toBe(true);
+    expect(doctor.python.ok).toBe(false);
+    expect(doctor.python.hint).toContain("backend");
+    const reset = (await runCli(["reset-status"], env())) as { status: string };
+    expect(reset.status).toMatch(/ready|error|empty/);
+  });
 });

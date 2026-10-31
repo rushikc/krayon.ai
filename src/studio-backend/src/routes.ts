@@ -7,6 +7,14 @@ import { z } from "zod";
 import type { StudioConfig } from "./config.js";
 import { adoptAnalysis, type AnalysisPayload } from "./domain/adopt.js";
 import { lintCuts, type AudioEdgeStats } from "./domain/lint.js";
+import { notifyConfirmation, waitForConfirmation } from "./confirm-waiters.js";
+import {
+  type ConfirmationItem,
+  mintConfirmation,
+  readConfirmations,
+  validateConfirmationInput,
+  writeConfirmations,
+} from "./domain/confirmations.js";
 import { applyOps, type Op } from "./domain/ops.js";
 import { studioSchema } from "./domain/schema.js";
 import {
@@ -14,8 +22,10 @@ import {
   type Clip,
   BusyError,
   ConflictError,
+  NotFoundError,
   OpError,
   playRanges,
+  throwIfBusy,
 } from "./domain/types.js";
 import { EventHub } from "./events.js";
 import { pythonJson, startAndWait } from "./python.js";
@@ -30,6 +40,7 @@ import {
   readCuts,
   readHistory,
   readMeta,
+  resetProjectStatus,
   saveMeta,
   useProject,
   withLock,
@@ -111,7 +122,7 @@ export function registerRoutes(
   async function claimAnalysis(slug: string, baseRevision: number | undefined, message: string) {
     return withLock(slug, async () => {
       const loaded = await load(root, slug);
-      if (loaded.meta.status === "analyzing") throw new BusyError();
+      throwIfBusy(loaded.meta.status);
       if (baseRevision != null && baseRevision !== loaded.meta.revision) {
         throw new ConflictError(loaded.meta.revision, baseRevision);
       }
@@ -148,6 +159,86 @@ export function registerRoutes(
     if (!response || !response.ok) return null;
     return (await response.json()) as AudioEdgeStats;
   }
+
+  const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function timerKey(slug: string, id: string) {
+    return `${slug}:${id}`;
+  }
+
+  function clearExpiry(slug: string, id: string) {
+    const key = timerKey(slug, id);
+    const timer = expiryTimers.get(key);
+    if (timer) clearTimeout(timer);
+    expiryTimers.delete(key);
+  }
+
+  async function postCallback(item: ConfirmationItem) {
+    if (!item.callbackUrl) return;
+    try {
+      await fetch(item.callbackUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(item),
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch (error) {
+      console.error("confirmation callback failed", item.id, error instanceof Error ? error.message : error);
+    }
+  }
+
+  function publishConfirmation(slug: string, type: "confirmation_created" | "confirmation_resolved" | "confirmation_cancelled", item: ConfirmationItem) {
+    deps.hub.publish(slug, {
+      type,
+      id: item.id,
+      status: item.status,
+      optionId: item.answer?.optionId,
+      result: item.result,
+    });
+    if (type !== "confirmation_created") notifyConfirmation(item);
+    if (type !== "confirmation_created") void postCallback(item);
+  }
+
+  async function expireItem(slug: string, id: string) {
+    await withLock(slug, async () => {
+      const { dir } = await load(root, slug);
+      const file = await readConfirmations(dir);
+      const item = file.items.find((entry) => entry.id === id);
+      if (!item || item.status !== "pending") return;
+      item.status = "expired";
+      item.result = { applied: false, revision: null, error: "expired" };
+      await writeConfirmations(dir, file);
+      publishConfirmation(slug, "confirmation_resolved", item);
+    });
+  }
+
+  function armExpiry(slug: string, item: ConfirmationItem) {
+    if (item.status !== "pending" || !item.expiresAt) return;
+    const due = Date.parse(item.expiresAt) - Date.now();
+    if (due <= 0) {
+      void expireItem(slug, item.id);
+      return;
+    }
+    clearExpiry(slug, item.id);
+    expiryTimers.set(
+      timerKey(slug, item.id),
+      setTimeout(() => {
+        void expireItem(slug, item.id);
+      }, due),
+    );
+  }
+
+  void listProjects(root).then(async (projects) => {
+    for (const meta of projects) {
+      const file = await readConfirmations(projectDir(root, meta.slug));
+      for (const item of file.items) armExpiry(meta.slug, item);
+    }
+  });
+
+  app.addHook("onClose", async () => {
+    for (const timer of expiryTimers.values()) clearTimeout(timer);
+    expiryTimers.clear();
+  });
 
   app.get("/api/studio/health", async () => ({ status: "ok" }));
   app.get("/api/studio/schema", async () => studioSchema);
@@ -219,6 +310,15 @@ export function registerRoutes(
       await saveMeta(dir, meta);
       deps.hub.publish(slug, { type: "status", status: meta.status, message: meta.statusMessage });
       return { sourcePath };
+    });
+  });
+
+  app.post("/api/studio/projects/:slug/reset-status", async (request) => {
+    const { slug } = request.params as { slug: string };
+    return withLock(slug, async () => {
+      const { dir, meta, cuts } = await load(root, slug);
+      await resetProjectStatus(dir, meta, cuts);
+      return { status: meta.status, statusMessage: meta.statusMessage, revision: meta.revision };
     });
   });
 
@@ -517,13 +617,140 @@ export function registerRoutes(
     return { revision: meta.revision, order: cuts.order };
   }
 
+  app.post("/api/studio/projects/:slug/confirmations", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const createdBy = actorOf(request.headers["x-krayon-actor"] as string | undefined, request.body);
+    return withLock(slug, async () => {
+      const { dir, meta, cuts } = await load(root, slug);
+      const input = validateConfirmationInput(request.body ?? {}, cuts, {
+        nextClipSeq: meta.nextClipSeq,
+        nextGroupSeq: meta.nextGroupSeq,
+      });
+      const file = await readConfirmations(dir);
+      const item = mintConfirmation(file, input, createdBy);
+      await writeConfirmations(dir, file);
+      armExpiry(slug, item);
+      publishConfirmation(slug, "confirmation_created", item);
+      return item;
+    });
+  });
+
+  app.get("/api/studio/projects/:slug/confirmations/wait-any", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const query = request.query as { timeoutMs?: string; since?: string };
+    const timeoutMs = Number(query.timeoutMs ?? 600000);
+    const since = Number(query.since ?? 0);
+    const { dir } = await load(root, slug);
+    const file = await readConfirmations(dir);
+    const already = file.items.find((item) => item.seq > since && item.status !== "pending");
+    if (already) return already;
+    return waitForConfirmation({
+      since,
+      timeoutMs,
+      onAbort: (listener) => request.raw.on("close", listener),
+    });
+  });
+
+  app.get("/api/studio/projects/:slug/confirmations", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const status = (request.query as { status?: string }).status ?? "pending";
+    const { dir } = await load(root, slug);
+    const file = await readConfirmations(dir);
+    const items =
+      status === "all"
+        ? file.items
+        : status === "answered"
+          ? file.items.filter((item) => item.status !== "pending")
+          : file.items.filter((item) => item.status === "pending");
+    return { items, nextSeq: file.nextSeq };
+  });
+
+  app.get("/api/studio/projects/:slug/confirmations/:id/wait", async (request) => {
+    const { slug, id } = request.params as { slug: string; id: string };
+    const timeoutMs = Number((request.query as { timeoutMs?: string }).timeoutMs ?? 600000);
+    const { dir } = await load(root, slug);
+    const file = await readConfirmations(dir);
+    const item = file.items.find((entry) => entry.id === id);
+    if (!item) throw new NotFoundError(`Unknown confirmation ${id}`);
+    if (item.status !== "pending") return item;
+    return waitForConfirmation({
+      id,
+      timeoutMs,
+      onAbort: (listener) => request.raw.on("close", listener),
+    });
+  });
+
+  app.get("/api/studio/projects/:slug/confirmations/:id", async (request) => {
+    const { slug, id } = request.params as { slug: string; id: string };
+    const { dir } = await load(root, slug);
+    const file = await readConfirmations(dir);
+    const item = file.items.find((entry) => entry.id === id);
+    if (!item) throw new NotFoundError(`Unknown confirmation ${id}`);
+    return item;
+  });
+
+  app.post("/api/studio/projects/:slug/confirmations/:id/answer", async (request) => {
+    const { slug, id } = request.params as { slug: string; id: string };
+    const body = z.object({ optionId: z.string(), note: z.string().optional(), actor: actorSchema.optional() }).parse(request.body ?? {});
+    const actor = actorOf(request.headers["x-krayon-actor"] as string | undefined, { actor: body.actor ?? "human" });
+    return withLock(slug, async () => {
+      const { dir, meta, cuts } = await load(root, slug);
+      const file = await readConfirmations(dir);
+      const item = file.items.find((entry) => entry.id === id);
+      if (!item) throw new NotFoundError(`Unknown confirmation ${id}`);
+      if (item.status !== "pending") throw new BusyError("Confirmation is not pending");
+      const option = item.options.find((entry) => entry.id === body.optionId);
+      if (!option) throw new OpError([{ clipId: null, field: "optionId", message: "Unknown option", allowed: item.options.map((entry) => entry.id) }]);
+      item.answer = { optionId: option.id, note: body.note ?? "", by: actor, at: new Date().toISOString() };
+      clearExpiry(slug, item.id);
+      if (option.applyOps && item.proposedOps) {
+        if (meta.revision !== item.proposedOps.baseRevision) {
+          item.status = "stale";
+          item.result = { applied: false, revision: meta.revision, error: "stale_revision" };
+        } else {
+          const ids = { nextClipSeq: meta.nextClipSeq, nextGroupSeq: meta.nextGroupSeq };
+          const applied = applyOps(cuts, ids, item.proposedOps.ops, "human");
+          meta.nextClipSeq = ids.nextClipSeq;
+          meta.nextGroupSeq = ids.nextGroupSeq;
+          const entry = await commitRevision(dir, meta, applied.doc, "human", "confirmation", applied.summary);
+          item.status = "answered";
+          item.result = { applied: true, revision: entry.revision, error: null };
+          deps.hub.publish(slug, { type: "revision", revision: entry.revision, actor: "human", label: "confirmation", summary: applied.summary });
+        }
+      } else {
+        item.status = "answered";
+        item.result = { applied: false, revision: meta.revision, error: null };
+      }
+      await writeConfirmations(dir, file);
+      publishConfirmation(slug, "confirmation_resolved", item);
+      return item;
+    });
+  });
+
+  app.post("/api/studio/projects/:slug/confirmations/:id/cancel", async (request) => {
+    const { slug, id } = request.params as { slug: string; id: string };
+    return withLock(slug, async () => {
+      const { dir } = await load(root, slug);
+      const file = await readConfirmations(dir);
+      const item = file.items.find((entry) => entry.id === id);
+      if (!item) throw new NotFoundError(`Unknown confirmation ${id}`);
+      if (item.status !== "pending") throw new BusyError("Confirmation is not pending");
+      item.status = "cancelled";
+      item.result = { applied: false, revision: null, error: "cancelled" };
+      clearExpiry(slug, item.id);
+      await writeConfirmations(dir, file);
+      publishConfirmation(slug, "confirmation_cancelled", item);
+      return item;
+    });
+  });
+
   const renders = new Map<string, { id: string; status: string; ratio: number; message: string; outputName?: string }>();
 
   app.post("/api/studio/projects/:slug/render", async (request) => {
     const { slug } = request.params as { slug: string };
     const body = z.object({ quality: z.enum(["preview", "final"]).default("final") }).parse(request.body ?? {});
     const { dir, meta, cuts } = await load(root, slug);
-    if (meta.status === "analyzing") throw new BusyError();
+    throwIfBusy(meta.status);
     if (!meta.sourcePath) throw new OpError([{ clipId: null, field: "source", message: "Import a video first" }]);
     const selected = cuts.order
       .map((id) => cuts.clips.find((clip) => clip.id === id))
@@ -581,10 +808,17 @@ export function registerRoutes(
   });
 
   app.get("/api/studio/projects/:slug/render/:id", async (request) => {
-    const { id } = request.params as { id: string };
+    const { slug, id } = request.params as { slug: string; id: string };
     const job = renders.get(id);
-    if (!job) throw new OpError([{ clipId: null, field: "renderId", message: `Unknown render ${id}` }]);
-    return job;
+    if (job) return job;
+    const outputName = `${id}.mp4`;
+    const filePath = path.join(projectDir(root, slug), "output", outputName);
+    try {
+      await stat(filePath);
+      return { id, status: "done", ratio: 1, outputName, message: "Render complete" };
+    } catch {
+      throw new NotFoundError(`Unknown render ${id}`);
+    }
   });
 
   app.get("/api/studio/projects/:slug/output", async (request) => {
@@ -655,6 +889,9 @@ async function sendFile(request: FastifyRequest, reply: FastifyReply, filePath: 
 }
 
 export function errorBody(error: unknown): { status: number; body: unknown } | null {
+  if (error instanceof NotFoundError) {
+    return { status: 404, body: { error: "not_found", message: error.message } };
+  }
   if (error instanceof OpError) {
     return { status: 400, body: { error: "validation", message: error.message, errors: error.errors } };
   }

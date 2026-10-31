@@ -18,7 +18,7 @@ export const studioSchema = {
       decidedBy: "algorithm | grok | human",
       note: "free-form note",
       audioStats:
-        "On clip detail: start/end/before/after 150 ms { rmsDbfs, peakDbfs } plus longestSilenceSeconds",
+        "On clip detail: start/end/before/after 150 ms and startEdge/endEdge 20 ms { rmsDbfs, peakDbfs } plus longestSilenceSeconds",
     },
   },
   order: "Ordered list of selected clip ids. Default is first appearance of each group's recommended take.",
@@ -42,7 +42,24 @@ export const studioSchema = {
     "Merge requires clips whose source gap is at most 1 second and that do not overlap.",
     "Split retires the old id and both halves keep the parent's status. A selected clip is replaced in the order by both halves. Untouched clips keep their ids across re-analysis when overlap (IoU) is at least 0.7.",
     "Ids are never reused, including after undo.",
+    "Confirmations live in confirmations.json and are not part of undo. Answering with applyOps commits a human revision.",
   ],
+  confirmations: {
+    id: "q-0003 never reused",
+    kinds: ["confirm", "choice"],
+    statuses: ["pending", "answered", "expired", "cancelled", "stale"],
+    wait: "GET .../confirmations/:id/wait?timeoutMs= holds until resolved. Exit: 0 applied, 3 declined, 4 timeout, 5 stale, 6 cancelled/expired.",
+    example: {
+      kind: "confirm",
+      title: "Reject 3 retakes?",
+      clipIds: ["c-0003"],
+      options: [
+        { id: "accept", label: "Accept", style: "primary", applyOps: true },
+        { id: "decline", label: "Decline", style: "danger", applyOps: false },
+      ],
+      proposedOps: { baseRevision: 12, ops: [{ op: "reject", clipId: "c-0003" }] },
+    },
+  },
   exampleError: {
     error: "validation",
     message: "wordIndex must leave words on both sides",

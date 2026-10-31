@@ -27,6 +27,8 @@ pnpm krayon history
 pnpm krayon undo
 pnpm krayon redo
 pnpm krayon schema
+pnpm krayon doctor
+pnpm krayon reset-status
 ```
 
 `play-info` returns `audioUrl` and an `afplay` hint. It does not open a window.
@@ -97,3 +99,19 @@ pnpm krayon render
 ```
 
 Read `GET /api/studio/schema` (or `krayon schema`) for the field list and op examples.
+
+### Confirmations
+
+Grok should run `krayon ask … --wait` as a **background** shell command and continue when it finishes. Do not ask the human in chat.
+
+```bash
+pnpm krayon ask confirm "Reject c-0003?" --message "weak take" --clips c-0003 --ops-file edit.json --wait
+pnpm krayon ask choice "Keep which take?" --option keep=Keep c-0007 --option drop=Drop c-0007 --wait
+pnpm krayon ask --file question.json --wait
+pnpm krayon confirmations --status pending
+pnpm krayon confirmation q-0003
+pnpm krayon confirm-wait q-0003 --timeout 600
+pnpm krayon cancel-ask q-0003
+```
+
+`--wait` blocks on the long-poll endpoint. Exit codes: `0` applied, `3` declined or other non-apply answer, `4` timed out, `5` stale, `6` cancelled or expired, `2` conflict, `1` other error.

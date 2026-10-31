@@ -1,7 +1,14 @@
 import { EventEmitter } from "node:events";
 
 export type StudioEvent = {
-  type: "progress" | "revision" | "render" | "status";
+  type:
+    | "progress"
+    | "revision"
+    | "render"
+    | "status"
+    | "confirmation_created"
+    | "confirmation_resolved"
+    | "confirmation_cancelled";
   phase?: string;
   message?: string;
   ratio?: number;
@@ -12,6 +19,9 @@ export type StudioEvent = {
   renderId?: string;
   status?: string;
   outputName?: string;
+  id?: string;
+  optionId?: string;
+  result?: unknown;
 };
 
 export class EventHub {

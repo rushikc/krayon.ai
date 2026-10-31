@@ -3,14 +3,17 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import {
+  type ConfirmationItem,
   type StudioClip,
   type StudioProject,
   analyze,
+  answerConfirmation,
   applyOps,
   audioUrl,
   eventsUrl,
   getProject,
   lintProject,
+  listConfirmations,
   outputUrl,
   redo,
   renderStatus,
@@ -21,6 +24,7 @@ import {
 } from "@/lib/api/studio-client";
 import { describeClips, describeIds } from "@/lib/studio-copy";
 import { formatTimestamp } from "@/lib/format";
+import { ConfirmationTray, pendingLabel } from "@/pages/studio/ConfirmationTray";
 
 type PlayTarget =
   | { kind: "clip"; start: number; end: number }
@@ -41,6 +45,9 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   const [play, setPlay] = useState<PlayTarget | null>(null);
   const [render, setRender] = useState<{ id: string; message: string; ratio: number; outputName?: string } | null>(null);
   const [note, setNote] = useState("");
+  const [asks, setAsks] = useState<ConfirmationItem[]>([]);
+  const [highlightAsk, setHighlightAsk] = useState<string | null>(null);
+  const [busyAsk, setBusyAsk] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const started = useRef(false);
 
@@ -49,6 +56,8 @@ export function StudioWorkspace({ slug }: { slug: string }) {
     setProject(next);
     const lint = await lintProject(slug).catch(() => ({ warnings: [] }));
     setWarnings(lint.warnings);
+    const listed = await listConfirmations(slug, "all").catch(() => ({ items: [] as ConfirmationItem[] }));
+    setAsks(listed.items);
     return next;
   }
 
@@ -63,9 +72,18 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         renderId?: string;
         outputName?: string;
         phase?: string;
+        id?: string;
       };
       if (data.type === "progress") {
         setProgress({ message: data.message ?? "", ratio: data.ratio ?? 0 });
+      }
+      if (data.type === "confirmation_created" && data.id) {
+        setHighlightAsk(data.id);
+        void refresh().catch(() => undefined);
+      }
+      if (data.type === "confirmation_resolved" || data.type === "confirmation_cancelled") {
+        setBusyAsk(null);
+        void refresh().catch(() => undefined);
       }
       if (data.type === "revision" || data.type === "snapshot") {
         void refresh().catch(() => undefined);
@@ -160,6 +178,9 @@ export function StudioWorkspace({ slug }: { slug: string }) {
           </Link>
           <span className="text-muted-foreground">rev {project?.revision ?? "–"}</span>
           <span className="text-muted-foreground">{project?.status}</span>
+          {asks.filter((item) => item.status === "pending").length > 0 ? (
+            <span className="rounded bg-primary/15 px-2 py-0.5">{pendingLabel(asks.filter((item) => item.status === "pending").length)}</span>
+          ) : null}
           {progress ? (
             <span className="text-muted-foreground">
               {progress.message} {Math.round(progress.ratio * 100)}%
@@ -240,6 +261,25 @@ export function StudioWorkspace({ slug }: { slug: string }) {
           </section>
           <section className="flex min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-auto p-3">
+              <ConfirmationTray
+                items={asks}
+                highlightId={highlightAsk}
+                busyId={busyAsk}
+                onDismiss={() => setHighlightAsk(null)}
+                onSelectClip={(id) => {
+                  const clip = project?.clips.find((item) => item.id === id);
+                  setChecked([id]);
+                  document.getElementById(`clip-${id}`)?.scrollIntoView({ block: "nearest" });
+                  if (clip) setPlay({ kind: "clip", start: clip.sourceStart, end: clip.sourceEnd });
+                }}
+                onAnswer={(item, optionId, askNote) => {
+                  setBusyAsk(item.id);
+                  void answerConfirmation(slug, item.id, optionId, askNote)
+                    .then(() => refresh())
+                    .catch((err: unknown) => setError(err instanceof Error ? err.message : "Answer failed"))
+                    .finally(() => setBusyAsk(null));
+                }}
+              />
               {project?.groups.map((group) => (
                 <div key={group.id} className="mb-4">
                   <h3 className="mb-1 text-xs font-medium text-muted-foreground">
@@ -251,7 +291,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
                       const clip = project.clips.find((item) => item.id === id);
                       if (!clip) return null;
                       return (
-                        <li key={clip.id} className="rounded-md border border-border px-2 py-1.5 text-xs">
+                        <li id={`clip-${clip.id}`} key={clip.id} className="rounded-md border border-border px-2 py-1.5 text-xs">
                           <div className="flex items-center gap-2">
                             <input
                               type="checkbox"
