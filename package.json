@@ -4,19 +4,24 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n fe,be,reel -c blue,green,magenta \"pnpm frontend\" \"pnpm backend\" \"pnpm reel-backend\"",
+    "dev": "concurrently -n fe,be,reel,studio -c blue,green,magenta,yellow \"pnpm frontend\" \"pnpm backend\" \"pnpm reel-backend\" \"pnpm studio-backend\"",
     "dev:all": "pnpm dev",
     "frontend": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "backend": "bash src/backend/bash.sh",
     "reel-backend": "pnpm --filter @krayon/reel-backend dev",
-    "lint": "pnpm --filter @krayon/reel-backend lint",
-    "typecheck": "tsc --noEmit && pnpm --filter @krayon/reel-backend typecheck",
-    "test": "vitest run && pnpm --filter @krayon/reel-backend test",
+    "studio-backend": "pnpm --filter @krayon/studio-backend dev",
+    "krayon": "pnpm --filter @krayon/studio-backend krayon",
+    "studio:doctor": "pnpm --filter @krayon/studio-backend krayon doctor",
+    "lint": "pnpm --filter @krayon/reel-backend lint && pnpm --filter @krayon/studio-backend lint",
+    "typecheck": "tsc --noEmit && pnpm --filter @krayon/reel-backend typecheck && pnpm --filter @krayon/studio-backend typecheck",
+    "test": "vitest run && pnpm --filter @krayon/reel-backend test && pnpm --filter @krayon/studio-backend test",
     "test:watch": "vitest",
     "test:backend": "bash src/backend/test.sh",
-    "test:reel": "pnpm --filter @krayon/reel-backend test"
+    "test:reel": "pnpm --filter @krayon/reel-backend test",
+    "test:e2e": "playwright test -c test/playwright.config.ts",
+    "test:e2e:report": "playwright show-report tmp/playwright-report"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -39,6 +44,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",

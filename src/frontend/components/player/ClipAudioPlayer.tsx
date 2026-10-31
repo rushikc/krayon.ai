@@ -1,12 +1,10 @@
-import { Copy, Loader2, Pause, Play, Volume2 } from "lucide-react";
+import { Volume2 } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ClipPlayerCard } from "@/components/player/ClipPlayerCard";
 import { clipAudioUrl } from "@/lib/api/client";
 import { clipIssueLabel } from "@/lib/delivery-issue";
 import { formatDuration } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { useMediaStore } from "@/stores/media-store";
 import { usePlayerStore } from "@/stores/player-store";
 import { useSilenceStore } from "@/stores/silence-store";
@@ -152,57 +150,26 @@ export function ClipAudioPlayer() {
   }
 
   const displayDuration = selectedClip?.duration ?? duration;
-  const scrubValue = Number.isFinite(currentTime)
-    ? Math.min(currentTime, displayDuration || 0)
-    : 0;
   const issueLabel = clipIssueLabel(selectedClip);
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
       <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-        <div className="flex w-full max-w-3xl flex-col gap-4">
-          <div
-            className={cn(
-              "rounded-xl border p-8",
-              issueLabel
-                ? "border-yellow-500/50 bg-yellow-500/10"
-                : "border-border bg-card/50",
-            )}
-          >
-            <div className="mb-4 flex items-center gap-3">
-              <Volume2 className="size-8 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="flex items-baseline gap-2 text-sm font-medium">
-                  Take {(selectedClip?.index ?? 0) + 1}
-                  {issueLabel && (
-                    <span className="text-[11px] font-medium uppercase tracking-wide text-yellow-400">
-                      {issueLabel}
-                    </span>
-                  )}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">{selectedClip?.text}</p>
-              </div>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Copy sentence"
-                        disabled={!selectedClip?.text?.trim()}
-                        onClick={() => void copySentence()}
-                      />
-                    }
-                  >
-                    <Copy className="size-4" />
-                  </TooltipTrigger>
-                  <TooltipContent>Copy sentence</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            {src ? (
+        <ClipPlayerCard
+          takeLabel={`Take ${(selectedClip?.index ?? 0) + 1}`}
+          issueLabel={issueLabel}
+          text={selectedClip?.text}
+          copyDisabled={!selectedClip?.text?.trim()}
+          onCopy={() => void copySentence()}
+          srcReady={Boolean(src)}
+          loading={!src}
+          currentTime={currentTime}
+          duration={displayDuration}
+          isPlaying={isPlaying}
+          onSeek={onSeek}
+          onTogglePlay={() => void togglePlay()}
+          audio={
+            src ? (
               <audio
                 ref={audioRef}
                 key={src}
@@ -214,44 +181,9 @@ export function ClipAudioPlayer() {
                 onPause={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
               />
-            ) : (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Loading clip audio…
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-border bg-card/60 p-4 backdrop-blur">
-            <div className="flex items-center gap-4">
-              <div className="min-w-0 flex-1">
-                <input
-                  type="range"
-                  min={0}
-                  max={displayDuration || 0}
-                  step={0.01}
-                  value={scrubValue}
-                  disabled={!src}
-                  onChange={(e) => onSeek(Number(e.target.value))}
-                  className={cn("h-1.5 w-full cursor-pointer accent-primary")}
-                />
-                <div className="mt-1 flex justify-between text-xs tabular-nums text-muted-foreground">
-                  <span>{formatTime(currentTime)}</span>
-                  <span>{formatTime(displayDuration)}</span>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                size="icon-lg"
-                className="size-14 shrink-0 rounded-full"
-                disabled={!src}
-                onClick={() => void togglePlay()}
-              >
-                {isPlaying ? <Pause className="size-7" /> : <Play className="size-7" />}
-              </Button>
-            </div>
-          </div>
-        </div>
+            ) : null
+          }
+        />
       </div>
     </main>
   );

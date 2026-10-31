@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clipHasIssue, clipIssueLabel } from "@/lib/delivery-issue";
+import { clipHasIssue, clipIssueLabel, studioClipIssueLabel } from "@/lib/delivery-issue";
 import type { ClipItem } from "@/types/api";
 
 function clip(overrides: Partial<ClipItem> = {}): ClipItem {
@@ -32,5 +32,15 @@ describe("clipIssueLabel", () => {
     expect(clipIssueLabel(clip())).toBeNull();
     expect(clipHasIssue(clip())).toBe(false);
     expect(clipHasIssue(clip({ deliveryIssue: "cut_off" }))).toBe(true);
+  });
+});
+
+describe("studioClipIssueLabel", () => {
+  it("maps studio labels and ignores none", () => {
+    expect(studioClipIssueLabel("none")).toBeNull();
+    expect(studioClipIssueLabel(null)).toBeNull();
+    expect(studioClipIssueLabel("falseStart")).toBe("False start");
+    expect(studioClipIssueLabel("missing_words")).toBe("Missing words");
+    expect(studioClipIssueLabel("cut_off")).toBe("Cut off");
   });
 });

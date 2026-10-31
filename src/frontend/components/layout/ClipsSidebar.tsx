@@ -1,7 +1,7 @@
-import { ChevronDown, ChevronRight, Play, Scissors } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Scissors } from "lucide-react";
+import { useMemo } from "react";
 
-import { Button } from "@/components/ui/button";
+import { ClipGroups, ClipListPlayButton } from "@/components/layout/clip-list";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import { clipIssueLabel } from "@/lib/delivery-issue";
@@ -10,134 +10,6 @@ import { buildTimeline, isTimelineEntrySelected } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useMediaStore } from "@/stores/media-store";
 import { useSilenceStore } from "@/stores/silence-store";
-import type { ClipGroup, ClipItem } from "@/types/api";
-
-function PlayButton({
-  onClick,
-}: {
-  onClick: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      className="shrink-0 text-muted-foreground hover:text-primary"
-      onClick={onClick}
-      aria-label="Play"
-    >
-      <Play className="size-3.5" />
-    </Button>
-  );
-}
-
-function SpeechClipRow({
-  clip,
-  selected,
-  isBest,
-  onPreview,
-  onPlay,
-}: {
-  clip: ClipItem;
-  selected: boolean;
-  isBest?: boolean;
-  onPreview: () => void;
-  onPlay: () => void;
-}) {
-  const issueLabel = clipIssueLabel(clip);
-  return (
-    <div
-      className={cn(
-        "flex items-start gap-1 rounded-md border px-2 py-1.5 text-left text-xs",
-        issueLabel
-          ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
-          : selected
-            ? "border-transparent bg-primary/15 text-primary"
-            : "border-transparent hover:bg-muted/60",
-      )}
-    >
-      <button type="button" className="min-w-0 flex-1 text-left" onClick={onPreview}>
-        <span className="flex items-baseline gap-1.5">
-          <span className="font-medium">Take {clip.index + 1}</span>
-          {isBest && !issueLabel && (
-            <span className="text-[10px] font-medium uppercase tracking-wide text-primary">
-              Best
-            </span>
-          )}
-          {issueLabel && (
-            <span className="text-[10px] font-medium uppercase tracking-wide text-yellow-400">
-              {issueLabel}
-            </span>
-          )}
-        </span>
-        <TruncatedText text={clip.text} className="text-muted-foreground" />
-        <span className="text-muted-foreground">{formatDuration(clip.duration)}</span>
-      </button>
-      <PlayButton onClick={(e) => { e.stopPropagation(); onPlay(); }} />
-    </div>
-  );
-}
-
-function ClipGroups({
-  groups,
-  clips,
-  selectedClipId,
-  onPreviewClip,
-  onPlayClip,
-}: {
-  groups: ClipGroup[];
-  clips: ClipItem[];
-  selectedClipId: string | null;
-  onPreviewClip: (clipId: string) => void;
-  onPlayClip: (clipId: string) => void;
-}) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-
-  const clipsById = useMemo(() => {
-    const map = new Map<string, ClipItem>();
-    for (const clip of clips) map.set(clip.id, clip);
-    return map;
-  }, [clips]);
-
-  return (
-    <div className="space-y-2">
-      {groups.map((group) => {
-        const isOpen = expanded[group.id] ?? true;
-        const groupClips = group.clipIds
-          .map((id) => clipsById.get(id))
-          .filter(Boolean) as ClipItem[];
-
-        return (
-          <div key={group.id} className="rounded-lg border border-border/60 bg-background/40">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium"
-              onClick={() => setExpanded((s) => ({ ...s, [group.id]: !isOpen }))}
-            >
-              {isOpen ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
-              <TruncatedText text={group.label} className="min-w-0 flex-1" />
-              <span className="ml-auto shrink-0 text-xs text-muted-foreground">{groupClips.length}</span>
-            </button>
-            {isOpen && (
-              <div className="space-y-1 border-t border-border/60 p-2">
-                {groupClips.map((clip) => (
-                  <SpeechClipRow
-                    key={clip.id}
-                    clip={clip}
-                    selected={selectedClipId === clip.id}
-                    isBest={group.referenceClipId === clip.id}
-                    onPreview={() => onPreviewClip(clip.id)}
-                    onPlay={() => onPlayClip(clip.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function TimelineList({
   entries,
@@ -211,7 +83,7 @@ function TimelineList({
                 </>
               )}
             </button>
-            <PlayButton
+            <ClipListPlayButton
               onClick={(e) => {
                 e.stopPropagation();
                 if (entry.kind === "speech") {

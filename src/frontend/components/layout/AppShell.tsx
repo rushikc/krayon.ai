@@ -11,6 +11,8 @@ interface AppShellProps {
   backLabel?: string;
   subtitle?: string;
   hideHeader?: boolean;
+  afterTitle?: ReactNode;
+  actions?: ReactNode;
 }
 
 export function AppShell({
@@ -20,6 +22,8 @@ export function AppShell({
   backLabel = "Back to library",
   subtitle = "local video editor",
   hideHeader = false,
+  afterTitle,
+  actions,
 }: AppShellProps) {
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-background text-foreground selection:bg-primary/30">
@@ -37,8 +41,10 @@ export function AppShell({
             )}
             <h1 className="text-sm font-semibold tracking-tight">Krayon</h1>
             <span className="ml-2 text-xs text-muted-foreground">{subtitle}</span>
+            {afterTitle}
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            {actions}
             <ThemeToggle />
           </div>
         </header>
