@@ -28,6 +28,7 @@ import {
   updateSettings,
 } from "@/lib/api/studio-client";
 import { formatTimestamp } from "@/lib/format";
+import { studioClipIssueLabel } from "@/lib/delivery-issue";
 import { clipMatchesFilter, type ClipStatusFilter } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
 import { toast } from "@/stores/toast-store";
@@ -173,10 +174,6 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   );
 
   const selected = clips.find((clip) => clip.id === selectedClipId) ?? null;
-  const warningClipIds = useMemo(
-    () => new Set(warnings.map((warning) => warning.clipId).filter((id): id is string => Boolean(id))),
-    [warnings],
-  );
 
   function selectClip(id: string, play = false) {
     setSelectedClipId(id);
@@ -303,7 +300,6 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         groups={groups}
         selectedClipId={selectedClipId}
         filter={filter}
-        warningClipIds={warningClipIds}
         onFilterChange={setFilter}
         onSelect={(id) => selectClip(id, false)}
         onPlay={(id) => selectClip(id, true)}
@@ -402,6 +398,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         clipCount={clips.length}
         hasTranscript={Boolean(project?.hasTranscript)}
         hasSource={Boolean(project?.meta.sourcePath)}
+        issueLabel={studioClipIssueLabel(selected?.label)}
         analysisBusy={Boolean(analysisBusy)}
         analysisMessage={analysisProgress ?? (project?.status === "analyzing" ? project.meta.statusMessage : null)}
         onAnalyze={() => void runAnalyze()}

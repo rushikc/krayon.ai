@@ -7,6 +7,7 @@ import { Dialog, DialogBackdrop, DialogPopup, DialogPortal, DialogTitle } from "
 import type { StudioClip, StudioGroup } from "@/lib/api/studio-client";
 import { audioUrl, getClipPeaks, outputUrl, sourceUrl } from "@/lib/api/studio-client";
 import { formatDuration, formatSize, formatTimestamp } from "@/lib/format";
+import { studioClipIssueLabel } from "@/lib/delivery-issue";
 import { playheadToSource, sourceToPlayhead, takeLabelFromId, validateCut } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
 import { StudioWaveform } from "@/pages/studio/StudioWaveform";
@@ -250,9 +251,10 @@ export function StudioPreviewPanel({
         {tab === "clip" ? (
           <div className="flex w-full min-w-0 flex-1 flex-col items-center gap-4 p-6">
             {clip ? (
-              <>
+              <div className="flex w-full max-w-3xl min-w-0 flex-col gap-4">
                 <ClipPlayerCard
                   takeLabel={takeLabelFromId(clip.id)}
+                  issueLabel={studioClipIssueLabel(clip.label)}
                   text={clip.text}
                   copyDisabled={!clip.text.trim()}
                   onCopy={() => void copyClip()}
@@ -367,7 +369,7 @@ export function StudioPreviewPanel({
                     />
                   }
                 />
-                <div className="flex w-full max-w-3xl flex-col gap-3">
+                <div className="flex w-full flex-col gap-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
@@ -462,7 +464,7 @@ export function StudioPreviewPanel({
                     </Button>
                   </section>
                 </div>
-              </>
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-3 p-8 text-center" data-testid="studio-empty">
                 {projectStatus === "analyzing" ? (

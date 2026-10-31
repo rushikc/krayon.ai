@@ -17,3 +17,9 @@ export function clipIssueLabel(clip: ClipItem | null | undefined): string | null
 export function clipHasIssue(clip: ClipItem | null | undefined): boolean {
   return clipIssueLabel(clip) != null;
 }
+
+export function studioClipIssueLabel(label: string | null | undefined): string | null {
+  if (!label || label === "none") return null;
+  if (label === "falseStart") return "False start";
+  return DELIVERY_ISSUE_LABELS[label as DeliveryIssue] ?? label;
+}

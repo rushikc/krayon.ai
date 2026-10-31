@@ -1,4 +1,4 @@
-import { AlertTriangle, Scissors } from "lucide-react";
+import { Scissors } from "lucide-react";
 import { useMemo } from "react";
 
 import { ClipGroups } from "@/components/layout/clip-list";
@@ -51,7 +51,6 @@ export function StudioClipsPanel({
   groups,
   selectedClipId,
   filter,
-  warningClipIds,
   onFilterChange,
   onSelect,
   onPlay,
@@ -60,7 +59,6 @@ export function StudioClipsPanel({
   groups: StudioGroup[];
   selectedClipId: string | null;
   filter: ClipStatusFilter;
-  warningClipIds: Set<string>;
   onFilterChange: (filter: ClipStatusFilter) => void;
   onSelect: (clipId: string) => void;
   onPlay: (clipId: string) => void;
@@ -142,21 +140,7 @@ export function StudioClipsPanel({
                   {clip.id}
                 </span>
               )}
-              trailing={(clip) => {
-                const full = visible.find((item) => item.id === clip.id);
-                return (
-                  <>
-                    {full && full.label !== "none" ? (
-                      <span className="rounded bg-yellow-500/15 px-1 text-[10px] uppercase tracking-wide text-yellow-400">
-                        {full.label}
-                      </span>
-                    ) : null}
-                    {warningClipIds.has(clip.id) ? (
-                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-400" aria-label="lint warning" />
-                    ) : null}
-                  </>
-                );
-              }}
+              issueLabel={() => null}
               onPreviewClip={onSelect}
               onPlayClip={onPlay}
             />

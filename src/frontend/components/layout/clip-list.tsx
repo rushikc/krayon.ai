@@ -55,51 +55,52 @@ export function SpeechClipRow({
   const resolvedIssue = issueLabel === undefined ? clipIssueLabel(clip as ClipItem) : issueLabel;
   const label = takeLabel ?? `Take ${clip.index + 1}`;
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={cn(
-        "flex cursor-pointer items-start gap-1 rounded-md border px-2 py-1.5 text-left text-xs",
-        resolvedIssue
-          ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
-          : selected
-            ? "border-transparent bg-primary/15 text-primary"
-            : "border-transparent hover:bg-muted/60",
-      )}
-      onClick={onPreview}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onPreview();
-        }
-      }}
-    >
-      {leading}
-      <div className={cn("min-w-0 flex-1 text-left", dimmed && "opacity-60")}>
-        <span className="flex items-baseline gap-1.5">
-          <span className="whitespace-nowrap font-medium">{label}</span>
-          {extraTitle}
-          {isBest && !resolvedIssue && (
-            <span className="text-[10px] font-medium uppercase tracking-wide text-primary">
-              Best
-            </span>
-          )}
-          {resolvedIssue && (
-            <span className="text-[10px] font-medium uppercase tracking-wide text-yellow-400">
-              {resolvedIssue}
-            </span>
-          )}
-        </span>
-        <TruncatedText text={clip.text} className="text-muted-foreground" />
-        <span className="text-muted-foreground">{formatDuration(clip.duration)}</span>
-      </div>
-      {trailing}
-      <ClipListPlayButton
-        onClick={(e) => {
-          e.stopPropagation();
-          onPlay();
-        }}
+    <div className="group relative -my-0.5 py-2">
+      <button
+        type="button"
+        className="absolute inset-0 z-0 cursor-pointer"
+        aria-label={label}
+        onClick={onPreview}
       />
+      <div
+        className={cn(
+          "relative z-10 pointer-events-none flex items-start gap-1 rounded-md border px-2 py-1.5 text-left text-xs",
+          resolvedIssue
+            ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
+            : selected
+              ? "border-transparent bg-primary/15 text-primary"
+              : "border-transparent group-hover:bg-muted/60",
+        )}
+      >
+        {leading}
+        <div className={cn("min-w-0 flex-1 text-left", dimmed && "opacity-60")}>
+          <span className="flex items-baseline gap-1.5">
+            <span className="whitespace-nowrap font-medium">{label}</span>
+            {extraTitle ? <span className="pointer-events-auto">{extraTitle}</span> : null}
+            {isBest && !resolvedIssue && (
+              <span className="text-[10px] font-medium uppercase tracking-wide text-primary">
+                Best
+              </span>
+            )}
+            {resolvedIssue && (
+              <span className="text-[10px] font-medium uppercase tracking-wide text-yellow-400">
+                {resolvedIssue}
+              </span>
+            )}
+          </span>
+          <TruncatedText text={clip.text} className="pointer-events-none text-muted-foreground" />
+          <span className="text-muted-foreground">{formatDuration(clip.duration)}</span>
+        </div>
+        {trailing}
+        <span className="pointer-events-auto">
+          <ClipListPlayButton
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlay();
+            }}
+          />
+        </span>
+      </div>
     </div>
   );
 }
@@ -114,6 +115,7 @@ export function ClipGroups({
   leading,
   extraTitle,
   trailing,
+  issueLabel,
   headerExtra,
   dimmed,
   recommendedId,
@@ -127,6 +129,7 @@ export function ClipGroups({
   leading?: (clip: Pick<ClipItem, "id" | "index" | "text" | "duration">) => ReactNode;
   extraTitle?: (clip: Pick<ClipItem, "id" | "index" | "text" | "duration">) => ReactNode;
   trailing?: (clip: Pick<ClipItem, "id" | "index" | "text" | "duration">) => ReactNode;
+  issueLabel?: (clip: Pick<ClipItem, "id" | "index" | "text" | "duration">) => string | null;
   headerExtra?: (
     group: ClipGroup & { recommendedClipId?: string | null },
     groupClips: Array<Pick<ClipItem, "id" | "index" | "text" | "duration">>,
@@ -172,6 +175,7 @@ export function ClipGroups({
                     selected={selectedClipId === clip.id}
                     isBest={bestId === clip.id}
                     takeLabel={takeLabel?.(clip)}
+                    issueLabel={issueLabel ? issueLabel(clip) : undefined}
                     leading={leading?.(clip)}
                     extraTitle={extraTitle?.(clip)}
                     trailing={trailing?.(clip)}

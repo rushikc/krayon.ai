@@ -55,7 +55,7 @@ export function ClipPlayerCard({
 }) {
   const scrubValue = Number.isFinite(currentTime) ? Math.min(currentTime, duration || 0) : 0;
   return (
-    <div className="flex w-full max-w-3xl min-w-0 flex-col gap-4 self-stretch">
+    <div className="flex w-full max-w-3xl min-w-0 flex-col gap-4">
       <div
         className={cn(
           "rounded-xl border p-8",

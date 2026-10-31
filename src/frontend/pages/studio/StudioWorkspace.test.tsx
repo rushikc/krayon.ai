@@ -165,13 +165,32 @@ describe("StudioWorkspace", () => {
     );
     await screen.findByText("Take 7");
     expect(screen.getByTestId("status-dot").getAttribute("data-tone")).toBe("not-accepted");
-    await userEvent.click(screen.getByText("open me"));
+    await userEvent.click(screen.getByRole("button", { name: "Take 7" }));
     expect(screen.getByTestId("clip-data")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
 
     getProject.mockResolvedValue(project([clip({ id: "c-0007", status: "selected", text: "open me" })]));
     emit({ type: "revision", revision: 2 });
     await waitFor(() => expect(screen.getByTestId("status-dot").getAttribute("data-tone")).toBe("accepted"));
+  });
+
+  it("keeps issue badges off the clip list and shows them on the open clip", async () => {
+    getProject.mockResolvedValue(
+      project([clip({ id: "c-0007", status: "undecided", text: "open me", label: "missing_words" })]),
+    );
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByText("Take 7");
+    expect(screen.getByTestId("studio-clips")).not.toHaveTextContent("Missing words");
+    expect(screen.getByTestId("studio-clips")).not.toHaveTextContent("missing_words");
+    await userEvent.click(screen.getByRole("button", { name: "Take 7" }));
+    expect(screen.getByTestId("clip-data")).toBeTruthy();
+    expect(screen.getByTestId("controls-issue")).toHaveTextContent("Missing words");
+    expect(screen.getAllByText("Missing words").length).toBeGreaterThanOrEqual(2);
   });
 
   it("sends accept and reject ops and keeps all clips when segments open", async () => {
@@ -183,7 +202,7 @@ describe("StudioWorkspace", () => {
         <StudioWorkspace slug="real" />
       </MemoryRouter>,
     );
-    await userEvent.click(await screen.findByText("open me"));
+    await userEvent.click(await screen.findByRole("button", { name: "Take 7" }));
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     expect(applyOps).toHaveBeenCalledWith("real", 1, [{ op: "select", clipId: "c-0007" }], "select");
     await userEvent.click(screen.getByRole("button", { name: "Reject" }));
@@ -252,7 +271,7 @@ describe("StudioWorkspace", () => {
         <StudioWorkspace slug="real" />
       </MemoryRouter>,
     );
-    await userEvent.click(await screen.findByText("open me"));
+    await userEvent.click(await screen.findByRole("button", { name: "Take 7" }));
     expect(screen.getByTestId("studio-waveform").getAttribute("data-editing")).toBe("false");
     await userEvent.click(screen.getByTestId("waveform-edit"));
     expect(screen.getByTestId("editing-badge")).toBeTruthy();

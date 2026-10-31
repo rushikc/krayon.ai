@@ -49,6 +49,7 @@ export function StudioControlsPanel({
   clipCount,
   hasTranscript,
   hasSource,
+  issueLabel,
   analysisBusy,
   analysisMessage,
   onAnalyze,
@@ -77,6 +78,7 @@ export function StudioControlsPanel({
   clipCount: number;
   hasTranscript: boolean;
   hasSource: boolean;
+  issueLabel?: string | null;
   analysisBusy: boolean;
   analysisMessage?: string | null;
   onAnalyze: () => void;
@@ -117,6 +119,11 @@ export function StudioControlsPanel({
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{studioCopy.controls}</h2>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+        {issueLabel ? (
+          <span className="w-fit rounded bg-yellow-500/15 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-yellow-400" data-testid="controls-issue">
+            {issueLabel}
+          </span>
+        ) : null}
         {empty ? null : (
         <ConfirmationTray
           items={asks}
