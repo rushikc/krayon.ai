@@ -2,7 +2,7 @@
 
 This document describes how Krayon’s `/reel-animations` page turns a **JSON array of scene elements** into on-screen UI. It is meant to be loaded into Gemini so later conversation can stay grounded in the real mapping.
 
-**In scope:** element JSON schema, config field names (JSON keys vs inspector labels), and how those objects become boxes, numbered badges, and arrows on the 9:16 reel frame.
+**In scope:** element JSON schema, config field names (JSON keys vs Edit element labels), and how those objects become boxes, numbered badges, and arrows on the 9:16 reel frame.
 
 **Out of scope:** timeline UI, playback, export, reel-preview chrome, and canvas skins (filled vs sketch). `colorTheme` is documented only as a **per-element fill palette**, not as an app-wide skin.
 
@@ -51,7 +51,7 @@ flowchart TD
 
 **Boxes and numbers are HTML**, not SVG shapes. **Arrows are SVG**. JSON layout is an **18×32 cell grid** (`matrix`). At render time `matrixToPercents` converts cells to **percent of the reel (0–100)**. The SVG uses `preserveAspectRatio="none"` so percent `left/top` on HTML matches SVG user units.
 
-You edit the same array in the inspector **JSON** tab. On blur or Cmd/Ctrl+Enter, `parseCanvasElementsJson` replaces `elements`. Invalid JSON or an invalid object is rejected; the canvas is not updated.
+Chat apply runs `parseCanvasElementsJson` and then `setElements`. Invalid JSON or an invalid object is rejected; the canvas is not updated. Double-click a timeline block to edit one element. There is no JSON inspector on the page.
 
 ---
 
@@ -314,7 +314,7 @@ When proposing or rewriting scene JSON:
 5. Arrows need `sourceId` and `targetId` that match **existing box `id`s**. Optional `variant`: `"solid"` or `"dashed"`.
 6. Do not emit `x`, `y`, `width`, or `height`. Optional `size` is **only** valid on `number`. `label` / `sublabel` are the only user-facing strings on a box; `value` is the badge glyph.
 7. Prefer the seed packing: badges in cols 0–1, main boxes in cols 2–15, callouts in cols 10–16.
-8. Use inspector **labels** only when talking to a human about the Config form. In JSON, use the **camelCase keys** in the tables above.
+8. Use the Config form **labels** only when talking to a human about the Edit element modal. In JSON, use the **camelCase keys** in the tables above.
 
 ---
 

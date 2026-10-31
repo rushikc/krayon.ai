@@ -10,7 +10,7 @@ Projects live in `studio/<slug>/` (gitignored):
 
 | Path | Role |
 |---|---|
-| `meta.json` | Title, source path, revision pointer, id counters, status, `pipeline` (`auto` / `transcript` / `scripted`), `lastPipeline`, `scriptLineCount` |
+| `meta.json` | Title, source path, revision pointer, id counters, status, `pipeline` (`auto` / `transcript` / `scripted`), `lastPipeline`, `scriptLineCount`, `needsRebuild` |
 | `script.txt` | Optional spoken script (one sentence per line). Source of truth for the scripted pipeline |
 | `cuts.json` | Clips, groups, selected order, `canvasDraft` |
 | `analysis/source.wav` | 16 kHz mono cache. Reused if present |
@@ -34,7 +34,8 @@ Re-analysis keeps an existing id when the new time span overlaps it with interse
 | `words` | `{ text, start, end }` on the source timeline |
 | `groupId` | Retake group |
 | `label` | `falseStart`, `cut_off`, `starts_late`, `missing_words`, `misstatement`, or `none` |
-| `score` / `reasons` | From the existing reference-take ranking |
+| `score` / `reasons` | Take ranking. Transcript runs use the reference-take score. Scripted runs store the match score and reasons |
+| `script` | Scripted takes only: `{ line, text, score }` for the script line this take was matched to |
 | `status` | `selected`, `rejected`, or `undecided` |
 | `decidedBy` | `algorithm`, `grok`, or `human` |
 | `statusReason` | Optional string from whoever last changed status |
@@ -42,9 +43,76 @@ Re-analysis keeps an existing id when the new time span overlaps it with interse
 | `note` | Free text |
 | `llm` | Free-form JSON object (max 8 KB) for per-clip model notes. Missing files load as `{}` |
 
-`order` is the selected clip ids in cut order. The first pass selects the clip whose reasons include `reference take`, otherwise the group's recommended clip, otherwise the only take. Non-reference takes with a flaw label (`falseStart`, `cut_off`, `starts_late`, `missing_words`, `misstatement`) are rejected; clean alternates stay undecided. Order follows the first appearance of each group.
+`order` is the selected clip ids in cut order. On a transcript first pass, the selected clip is the one whose reasons include `reference take`, otherwise the group's recommended clip, otherwise the only take. Non-reference takes with a flaw label (`falseStart`, `cut_off`, `starts_late`, `missing_words`, `misstatement`) are rejected; clean alternates stay undecided. Order follows the first appearance of each group. A scripted run selects one take per script line and orders groups by `scriptLine`.
 
-Lint `edge_loud` uses the 150 ms windows *outside* the clip (`before` / `after`) and fires when RMS is louder than **-40 dBFS** (the cut landed in speech). `edge_clipped` fires when the clip's own first or last **20 ms** is louder than **-30 dBFS** *and* that neighbor window is also above -40 dBFS. Clip detail still reports 150 ms `start`/`end` plus 20 ms `startEdge`/`endEdge`.
+## Pipelines
+
+`meta.pipeline` defaults to `auto`. `lastPipeline` is the pipeline that last finished (`transcript` or `scripted`). `auto` runs scripted when `script.txt` has at least one line, otherwise transcript. An explicit `transcript` run stays transcript. An explicit `scripted` run with an empty script falls back to transcript.
+
+Shared helpers are in `src/backend/app/services/studio/common/`.
+
+### Transcript (pipeline 1)
+
+`analyze.py` and range `reanalyze.py` build segments from words, extend each tail, group retakes, then snap boundaries when `snapToAudio` is true (the default).
+
+Tail extension walks 20 ms RMS windows. It keeps the tail while the audio stays quiet for 0.18 s (`TAIL_QUIET_HOLD_S`). Studio stops at `silence.tail_max_extend_s` (0.3 s in `krayon.toml`) and 0.02 s before the next segment (`TAIL_NEIGHBOR_GUARD_S`). The legacy audio editor still extends up to 2 s with no neighbor guard.
+
+Snapping builds an RMS envelope (10 ms hops) and moves each shared or per-clip edge to a quiet point inside `snapSearchSeconds` (default 0.3 s), using `pad` (default 0.05 s). It runs on a full analyze and on `resegment` / `retranscribe` when `source.wav` exists. It does not run on `regroup`. Manual `split`, `splitMany`, `merge`, and `trim` are not snapped. Trim still snaps to word edges unless `sampleAccurate` is set. That word snap is not the RMS envelope.
+
+### Scripted (pipeline 2)
+
+`scripted_pipeline.py` aligns the recording to `script.txt` (one sentence per line), then snaps the same way when `snapToAudio` is on. Each take gets `score` and `reasons`. The matched take stores `script.line`, `script.text`, and `script.score`. A script line with no take is a group whose `clipIds` are empty. After a scripted analyze or reanalyze, each selected take whose `script.score` is below `scriptConfirmThreshold` (default 0.85) opens a confirmation.
+
+`PUT /projects/:slug/script` writes `script.txt` and sets `needsRebuild` without analyzing. A successful analyze or reanalyze clears `needsRebuild`.
+
+## Workspace
+
+`/studio` is the landing page: project name, video path, an optional Script box, and recent projects.
+
+`/studio/:slug` is the workspace.
+
+- Single click a clip row to open it. Double click a row to collapse that group. Collapse all / Expand all toggles every visible group.
+- The preview tabs row is clip audio, rendered video, and full source, plus Undo and Redo.
+- The waveform draws a playhead on the padded clip audio.
+- When `needsRebuild` is set, the controls panel says “Script changed. Rebuild to apply.” Rebuild is a full `resegment` with `reset`. If the project has a script, the dialog offers **Rebuild without script** (`pipeline: transcript`) and **Rebuild with script** (`pipeline: scripted`). With no script there is one confirm.
+- View transcript opens one wrapping, scrollable dialog. Search highlights matches. Click a word to open its clip.
+- The confirmation tray shows the oldest pending ask.
+
+## Settings
+
+`GET` and `PATCH /projects/:slug/settings` return this object. Analyze uses these values when the request omits them.
+
+| Field | Default |
+|---|---|
+| `silenceThreshold` | 0.4 |
+| `pad` | 0.05 |
+| `similarityThreshold` | 0.7 |
+| `snapToAudio` | true |
+| `snapSearchSeconds` | 0.3 |
+| `scriptMatchThreshold` | 0.7 |
+| `scriptConfirmThreshold` | 0.85 |
+| `scriptPreferLastTakes` | true |
+| `scriptWhisperPrompt` | true |
+
+## Lint
+
+`GET /projects/:slug/lint`. Thresholds are the constants in `src/studio-backend/src/domain/lint.ts`.
+
+| Code | Fires when |
+|---|---|
+| `short_clip` | `duration` under 0.35 s |
+| `selected_weak` | `status` is `selected` and `label` is not `none` |
+| `mid_word` | A cut falls inside a word, more than 0.02 s from either word edge |
+| `bad_word_timing` | Any word is shorter than 0.02 s or longer than 1.0 s |
+| `edge_loud` | The 150 ms window just outside the clip (`before` or `after`) is louder than −40 dBFS |
+| `edge_clipped` | The clip's first or last 20 ms is louder than −30 dBFS and that neighbor window is also above −40 dBFS |
+| `script_line_missing` | A group has `scriptLine` and no clips |
+| `group_unselected` | The group has clips and none are selected |
+| `duplicate_line` | More than one selected clip in the group |
+| `gap` | In `order`, the source gap before a clip is over 2 s |
+| `overlap` | In `order`, a clip starts more than 0.05 s before the previous clip ends |
+
+Clip detail still reports 150 ms `start`/`end` plus 20 ms `startEdge`/`endEdge`.
 
 ## Setup
 
@@ -66,7 +134,7 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `GET/POST /api/studio/projects`, `POST /api/studio/projects/use`
 - `GET /projects/:slug` — clips, groups, order, revision, history, `hasTranscript` when `analysis/words.json` exists
 - `POST /projects/:slug/import` — `{ "path" }` or a multipart file streamed to `imported/`
-- `POST /projects/:slug/analyze` — Studio Analyze audio. Creating a project and importing a video auto-starts this once the project screen opens
+- `POST /projects/:slug/analyze` — Studio Analyze audio. Optional `pipeline`: `auto` (default), `transcript`, or `scripted`. Creating a project and importing a video auto-starts this once the project screen opens
 - `GET /projects/:slug/clips?group=&label=&status=`
 - `GET /projects/:slug/clips/:id` — words, neighbours, group mates, reasons
 - `GET /projects/:slug/clips/:id/audio.wav?pad=0.5`
@@ -76,7 +144,7 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `POST /projects/:slug/ops` — `{ baseRevision, ops, label }`. Mismatch is HTTP 409. Validation errors include `clipId`, `field`, `message`, `allowed`.
 - `POST /projects/:slug/reanalyze` — `mode` is `retranscribe`, `resegment`, or `regroup`. Omit the range for a full-file `resegment`. `reset: true` mints new clip ids and reruns the algorithm cut (Studio Rebuild). Optional `pipeline`: `scripted` or `transcript` for that run only
 - `PUT /projects/:slug/script` — `{ baseRevision, script }` sets or clears `script.txt`, commits a history revision, and sets `needsRebuild` without analyzing
-- `GET/PATCH /projects/:slug/settings` — `{ silenceThreshold, pad, similarityThreshold }` (defaults 0.4 / 0.05 / 0.7). Analyze uses these when the request omits them
+- `GET/PATCH /projects/:slug/settings` — the settings object in the Settings section above
 - `GET /projects/:slug/segments`, `GET /projects/:slug/transcript`
 - `POST /projects/:slug/render` — `{ "quality": "preview" \| "final" }`
 - `GET /projects/:slug/render/:id`, `POST /projects/:slug/render/:id/cancel`, `GET /projects/:slug/output`

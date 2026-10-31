@@ -1,12 +1,12 @@
 # Krayon
 
-Local talking-head editor and 9:16 teaching canvas. Recordings stay on the machine. React + Vite in the browser, Python FastAPI for audio, a TypeScript Fastify reel pipeline for generate → review → fix, ffmpeg and faster-whisper on the same computer. Scene generation talks to Gemini only when the UI sends a Google AI Studio key; that key is not stored on disk.
+Local talking-head editor, take picker, and 9:16 teaching canvas. Recordings stay on the machine. React + Vite in the browser, Python FastAPI for audio, a TypeScript Fastify studio API for projects and cuts, a TypeScript Fastify reel pipeline for generate → review → fix, ffmpeg and faster-whisper on the same computer. Scene generation talks to Gemini only when the UI sends a Google AI Studio key; that key is not stored on disk.
 
 Share this with the team as the map of what the code already does, and as a list of techniques worth researching if you want to build something adjacent.
 
 ## What it does
 
-Krayon has two workspaces.
+Krayon has three workspaces. The home page is three tiles.
 
 **Audio analysis** (`/audio`, then `/editor/:mediaId`) takes a long talking-head recording and turns it into speech clips you can compare.
 
@@ -15,9 +15,11 @@ Krayon has two workspaces.
 3. Similar lines are grouped as retakes. A restart in the middle of a sentence is split off and marked as a false start. Other takes in the same group can be flagged when the wording is incomplete or wrong.
 4. Each speech clip gets its own audio preview. Every run is saved next to the video, so you can switch runs or rebuild the grouping from the transcript you already have.
 
-**Reel animations** (`/reel-animations`) is the teaching canvas. Spoken ideas become boxes, numbered step badges, and arrows on a portrait 9:16 frame. The reel stays on the far left; the right pane is either a compact timeline or a chat assistant. Each shape has a start and end on a timeline, so it appears when the line is said and leaves when it no longer matters. You paste a JSON array, edit it in the inspector, generate a scene from a script in Chat, play it with optional narration audio, and export an MP4 of the canvas. Chat calls the local Fastify generate → review → fix service. The Google AI Studio key is stored only as the first-party cookie `krayon_gemini_api_key` and sent as `X-Gemini-Api-Key`; it is never written to localStorage or the server disk (see `docs/reel-pipeline.md`).
+**Reel animations** (`/reel-animations`) is the teaching canvas. Spoken ideas become boxes, numbered step badges, and arrows on a portrait 9:16 frame. The reel stays on the far left; the right pane is either a compact timeline or a chat assistant. Each shape has a start and end on a timeline, so it appears when the line is said and leaves when it no longer matters. You paste a JSON array, edit a block from the timeline, generate a scene from a script in Chat, play it with optional narration audio, and export an MP4 of the canvas. Chat calls the local Fastify generate → review → fix service. The Google AI Studio key is stored only as the first-party cookie `krayon_gemini_api_key` and sent as `X-Gemini-Api-Key`; it is never written to localStorage or the server disk (see `docs/reel-pipeline.md`).
 
-The two workspaces are separate today. Audio analysis does not draw the canvas, and the canvas export does not cut the talking-head video. They share the same app and the same idea: a long explanation becomes a short, timed visual.
+**Studio** (`/studio`, then `/studio/:slug`) picks the best takes from one long recording and renders them as a single video. The landing page asks for a project name, a video path, and an optional script. The workspace is a clip list, a waveform editor, and controls. With no script, the transcript pipeline groups retakes and snaps cuts to quiet audio. With a script, the scripted pipeline lines each sentence up to a take. Projects live in `studio/<slug>/` on disk. The browser talks to the studio Fastify API; that API calls Python for Whisper, segmentation, and the final encode. See `docs/studio.md`.
+
+The three workspaces share one app. Audio analysis does not draw the canvas. The canvas export does not cut the talking-head video. Studio does not draw the canvas (`canvasDraft` on `cuts.json` is unused). They share the same idea: a long explanation becomes a short, timed piece.
 
 ## Text tags
 
@@ -34,7 +36,7 @@ A labeled rectangle. This is the only shape that holds free text.
 | `matrix` | `[X1, Y1, X2, Y2]` on an 18×32 grid. Inclusive cells, integers only. Columns 0–17, rows 0–31. |
 | `label` | Primary text inside the box. |
 | `sublabel` | Optional second line. Drawn smaller than the label. |
-| `fontSize` | Label size in CSS pixels. Default 14. The inspector clamps 10–48. |
+| `fontSize` | Label size in CSS pixels. Default 14. The Edit element form clamps 10–48. |
 | `colorTheme` | Fill token. Listed below. |
 | `time` | `{ start, end, track }` in seconds. `track` 0 is in front. |
 
@@ -170,7 +172,8 @@ This is the product surface in the repo. Sample scripts in `docs/` that talk thr
 | --- | --- |
 | React 19, Vite, Tailwind v4, Zustand, React Router | UI, editor state, routes |
 | FastAPI, uvicorn, Pydantic | Local audio API |
-| Fastify, Zod, better-sqlite3, `@resvg/resvg-js`, `@google/genai` | Local reel generate/review/fix API (Gemini Developer API) |
+| Fastify, Zod, better-sqlite3, `@resvg/resvg-js`, `@google/genai` | Local reel generate/review/fix API (Gemini Developer API), `127.0.0.1:8788` |
+| Fastify, Zod | Studio project store, ops, and the `krayon` CLI, `127.0.0.1:8789` |
 | faster-whisper | Local speech-to-text with word times and VAD |
 | ffmpeg / ffprobe | Probe, audio extract, range slice fallback |
 | Python `wave` | Slice the cached WAV into clip previews |
@@ -178,4 +181,4 @@ This is the product surface in the repo. Sample scripts in `docs/` that talk thr
 | HTTP Range + `<video>` | Library playback of the original file |
 | WebCodecs, `mp4-muxer`, `html-to-image` | Canvas-to-MP4 export |
 
-Nearby projects this code can support: a retake picker for lecture recordings, a silence-cut preprocessor before any editor, a transcript-timed diagram tool, or a browser-only explainer exporter that never sends the picture off the machine. The audio pipeline and the canvas pipeline are independent, so either one can be lifted on its own.
+Nearby projects this code can support: a retake picker for lecture recordings, a silence-cut preprocessor before any editor, a transcript-timed diagram tool, or a browser-only explainer exporter that never sends the picture off the machine. The audio editor, Studio, and the canvas pipeline are separate code paths.

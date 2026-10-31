@@ -10,7 +10,7 @@ When investigating **backend-related issues** (API errors, silence analysis, cli
 
 ## Log location
 
-Logs live in [`src/backend/logs/`](src/backend/logs/) (`@logs`):
+Logs live in [`src/backend/logs/`](../../../src/backend/logs/) (`@logs`):
 
 - Files: `krayon_YYYY-MM-DDTHH-MM-SS.log` (one file per ~5-minute window)
 - Max 30 files; oldest are pruned automatically

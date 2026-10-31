@@ -9,11 +9,11 @@ Nothing is stored in the cloud except the script, scene JSON, and keyframe image
 ```bash
 pnpm install
 pnpm reel-backend          # http://127.0.0.1:8788
-pnpm dev                   # frontend :5173 + Python :8000 + reel :8788
+pnpm dev                   # frontend :5173 + Python :8000 + reel :8788 + studio :8789
 pnpm dev:all               # same as pnpm dev
 ```
 
-Vite proxies `/api/reel` to `127.0.0.1:8788` and `/api` to the Python app on port 8000.
+Vite proxies `/api/reel` to `127.0.0.1:8788`, `/api/studio` to `127.0.0.1:8789`, and `/api` to the Python app on port 8000.
 
 Package: [`src/reel-backend/`](../src/reel-backend/) (`@krayon/reel-backend`). Bind address is **127.0.0.1 only**. CORS origins: `http://localhost:5173`, `http://127.0.0.1:5173`.
 
@@ -80,7 +80,7 @@ Use the official `@google/genai` SDK against the **Gemini Developer API** (not V
 
 ## Scene validation
 
-Stricter than inspector paste: unique ids; 18×32 integer `matrix`; arrows only between **box** ids; `colorTheme` allowlist; `time.end > time.start`; `track` 0–9; no `x`/`y`/`width`/`height`; optional number `size` 4–40; optional box `fontSize` 10–48.
+The job schema requires unique ids; 18×32 integer `matrix`; arrows only between **box** ids; `colorTheme` allowlist; `time.end > time.start`; `track` 0–9; no `x`/`y`/`width`/`height`; optional number `size` 4–40; optional box `fontSize` 10–48.
 
 ## API contract
 

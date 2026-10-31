@@ -1,27 +1,41 @@
 # UI Design
 
-Krayon uses a home screen with two product tiles, then an **audio library** for browsing videos and an **editor** for processing a single video. **Reel animations** is a 9:16 teaching-canvas workspace with a Timeline | Chat split.
+Krayon uses a home screen with three product tiles: an **audio library** and **editor**, a **reel animations** canvas, and **Studio**.
 
 ## Pages
 
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/` | Home | Two tiles: Audio analysis, Reel animations |
+| `/` | Home | Three tiles: Audio analysis, Reel animations (“Coming soon”), Studio |
 | `/audio` | Dashboard | Folder + video library, preview, metadata |
 | `/reel-animations` | Reel animations | 9:16 canvas, compact timeline, and reel-assistant chat |
 | `/editor/:mediaId` | Editor | Single-video processing workspace |
+| `/studio` | Studio landing | Project name, video path, optional Script box, recent projects |
+| `/studio/:slug` | Studio workspace | Clip list, waveform editor, preview tabs, controls, confirmation tray |
 
 ```mermaid
 flowchart LR
   Home["/ Home"] -->|"Audio analysis"| Audio["/audio library"]
   Home -->|"Reel animations"| Reels["/reel-animations"]
+  Home -->|"Studio"| Studio["/studio"]
   Audio -->|"Open in editor"| Editor["/editor/:mediaId"]
   Editor -->|"Back to library"| Audio
+  Studio -->|"Open project"| Workspace["/studio/:slug"]
+  Workspace -->|"Back to library"| Studio
 ```
+
+## Chrome
+
+`AppShell` is the shared header.
+
+- The word **Krayon** on the left links to `/`.
+- A back button shows only when the page sets `showBack`. Studio landing goes Home. The editor and a Studio project go Back to library (`/audio` and `/studio`).
+- The page title is centered. A Studio project also centers the project name as a subtitle.
+- The light/dark toggle is in the header. Default is dark. The choice is `localStorage` key `krayon-theme` (`src/frontend/lib/theme.ts`). That chrome theme is separate from canvas `RenderTheme`.
 
 ## Home layout
 
-Two equal tiles centered in the shell: **Audio analysis** (silence removal & clip grouping) and **Reel animations** (9:16 teaching canvas).
+Three tiles in a row from `sm` up: **Audio analysis** (silence removal & clip grouping), **Reel animations** (subtitle “Coming soon”), **Studio** (pick the best takes from a long recording).
 
 ## Reel animations layout
 
@@ -46,6 +60,16 @@ Portrait reels only (9:16). No landscape editor.
 - The chosen Timeline | Chat view is persisted in `localStorage` (`krayon-workspace-side-view`). Default is Timeline.
 - **Gemini key** lives in the first-party cookie `krayon_gemini_api_key` (`SameSite=Strict`, not `HttpOnly`) and is sent only as `X-Gemini-Api-Key` on create/refine. Never localStorage.
 
+## Studio layout
+
+`/studio` is a single column: project name, video path (typed or Choose file), an optional Script box, and the recent project list.
+
+`/studio/:slug` is three columns: clip list, preview, controls.
+
+- **Clip list** — single click opens the clip. Double click collapses that group. Collapse all / Expand all toggles every visible group.
+- **Preview** — tabs for clip audio, rendered video, and full source. Undo and Redo sit on that tabs row. The waveform playhead (`waveform-playhead`) tracks the padded clip audio.
+- **Controls** — Analyze, Rebuild (with script / without script when a script exists), View transcript (one scrollable wrapping dialog; click a word to open its clip), and the confirmation tray for the oldest pending ask.
+
 ### App chrome tokens (Velo-like)
 
 Defined on `:root` and `.dark` in [`src/frontend/index.css`](../src/frontend/index.css). Canvas skins (`components/canvas/designs/*`) are a separate `RenderTheme`.
@@ -55,7 +79,7 @@ Defined on `:root` and `.dark` in [`src/frontend/index.css`](../src/frontend/ind
 | background | `#F6F7F9` | `#0A0A0C` |
 | panels / card | `#FFFFFF` | `#101014` |
 | raised | `#FFFFFF` | `#16161B` |
-| border | `#E4E6EB` | `#23232A` |
+| border | `#CFD3DB` | `#32323A` |
 | muted text | `#6B6B76` | `#8B8B96` |
 | primary | `#2563EB` | `#3B82F6` |
 
@@ -86,7 +110,7 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 ┌─────────────────────────────────────────────────────────────┐
 │  ← Back to library   Krayon                    video.mov    │
 ├──────────┬──────────────────────────────┬───────────────────┤
-│ Clips    │  Video player OR pipeline    │     Controls      │
+│ Clips    │  Clip audio OR pipeline      │     Controls      │
 │ (after   │  stepper while running       │ Analyze silence,  │
 │ analysis)│                              │ list toggle, tools│
 └──────────┴──────────────────────────────┴───────────────────┘
@@ -103,13 +127,13 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 
 | Action | Behavior |
 |--------|----------|
-| Click row | Preview in center — seeks source video to segment range (paused) |
-| Click play icon | Preview and start playback within segment range |
-| Silence row | Seeks source video to gap range |
+| Click row | Select the clip. Center plays its extracted WAV (paused until play) |
+| Click play icon | Select the clip and start the WAV |
+| Silence row | Selects the gap. Metadata only; no WAV |
 
 ## Stack
 
-- **React Router** — `/`, `/audio`, `/reel-animations`, `/editor/:mediaId`
+- **React Router** — `/`, `/audio`, `/reel-animations`, `/editor/:mediaId`, `/studio`, `/studio/:slug`
 - **Zustand** — shared `media-store` and `silence-store` across routes
 - **SSE** — `/api/clips/generate/async` + `/api/clips/progress/{jobId}` for pipeline progress
 - **Tailwind CSS v4** — tokens in [`src/frontend/index.css`](../src/frontend/index.css)
@@ -118,7 +142,14 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 
 | Path | Role |
 |------|------|
-| `src/frontend/pages/HomePage.tsx` | Two-tile product home |
+| `src/frontend/pages/HomePage.tsx` | Three-tile product home |
+| `src/frontend/pages/studio/StudioLanding.tsx` | Studio landing |
+| `src/frontend/pages/studio/StudioWorkspace.tsx` | Studio workspace |
+| `src/frontend/pages/studio/StudioClipsPanel.tsx` | Studio clip list |
+| `src/frontend/pages/studio/StudioPreviewPanel.tsx` | Preview tabs, Undo/Redo |
+| `src/frontend/pages/studio/StudioWaveform.tsx` | Waveform and playhead |
+| `src/frontend/pages/studio/StudioControlsPanel.tsx` | Rebuild, transcript dialog |
+| `src/frontend/pages/studio/ConfirmationTray.tsx` | Oldest pending ask |
 | `src/frontend/pages/DashboardPage.tsx` | Audio library dashboard |
 | `src/frontend/pages/ReelAnimationsPage.tsx` | 9:16 reel editor (timeline + chat) |
 | `src/frontend/pages/EditorPage.tsx` | Single-video editor |

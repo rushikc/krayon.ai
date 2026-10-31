@@ -26,7 +26,7 @@ brew install python@3.12
 python3.12 --version
 ```
 
-Krayon’s backend venv prefers `python3.12`, then `python3.11`. After upgrading, delete `src/backend/.krayonenv` and re-run `pnpm backend`.
+Krayon’s backend venv prefers `python3.12`, then `python3.11`. After upgrading, delete `src/backend/.krayonenv` and re-run `pnpm backend`. The venv installs `av>=11,<17` from [`src/backend/requirements.txt`](src/backend/requirements.txt). PyAV 17 is not supported.
 
 ### 4. FFmpeg
 
@@ -51,7 +51,7 @@ pnpm backend
 
 ## Run locally
 
-**Both together**
+**All four together**
 
 ```bash
 pnpm dev
@@ -63,11 +63,15 @@ pnpm dev
 pnpm frontend        # Vite, http://localhost:5173
 pnpm backend         # FastAPI audio, :8000
 pnpm reel-backend    # Fastify reel pipeline, 127.0.0.1:8788
+pnpm studio-backend  # Fastify studio API, 127.0.0.1:8789
+pnpm studio:doctor   # studio + python + ffmpeg + av + Whisper checks
 ```
 
-`pnpm dev:all` is the same as `pnpm dev`. Open **http://localhost:5173**. Vite proxies `/api/reel` to the reel backend on port 8788 and `/api` to the FastAPI server on port 8000.
+`pnpm dev:all` is the same as `pnpm dev`. Open **http://localhost:5173**. Vite proxies `/api/reel` to port 8788, `/api/studio` to port 8789, and `/api` to the FastAPI server on port 8000.
 
 ## First use
+
+The home page has three tiles. These steps are Audio analysis.
 
 1. Click **Open** in the left sidebar — the native macOS folder picker appears.
 2. Select a folder with `.mov` or `.mp4` files.

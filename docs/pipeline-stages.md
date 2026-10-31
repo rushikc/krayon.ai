@@ -1,6 +1,6 @@
 # Pipeline Stages
 
-This document describes each stage of the **Analyze silence** pipeline — the four steps shown in the editor's `PipelineStepper` while processing runs. For the underlying silence-removal algorithm, API endpoints, and persisted state layout, see [silence-removal.md](./silence-removal.md).
+This document describes each stage of the **Analyze silence** pipeline — the four steps shown in the editor's `PipelineStepper` while processing runs. For the underlying silence-removal algorithm, API endpoints, and persisted state layout, see [silence-removal.md](./silence-removal.md). Studio uses a shorter tail and then snaps cuts; see [studio.md](./studio.md).
 
 ## Overview
 
@@ -193,7 +193,8 @@ Turns the word list into contiguous **speech segments** — time ranges to keep.
 1. **Pad each word** — Expand start/end by `pad` seconds (default 0.05s), clamped to `[0, sourceDuration]`.
 2. **Merge adjacent words** — Walk words in order. If the gap between the previous word's padded end and the current word's padded start is ≤ `silence_threshold` (default 0.4s), merge into one span. Otherwise, start a new segment.
 3. **Drop short segments** — Segments shorter than `min_segment_seconds` (default 0.05s) are discarded.
-4. **Compute stats** — `removedSeconds = sourceDuration − sum(segment durations)`.
+4. **Extend the tail** — [`extend_segment_tails()`](../src/backend/app/services/segments.py) walks 20 ms RMS windows. The cut waits until the tail has been quiet for 0.18 s (`TAIL_QUIET_HOLD_S`). This editor caps that walk at 2 s (`LEGACY_TAIL_MAX_EXTEND_S`), with `neighbor_guard_s=0` and `stop_on_reloud=False`. Studio uses the same function with a 0.3 s cap and a 0.02 s neighbor guard.
+5. **Compute stats** — `removedSeconds = sourceDuration − sum(segment durations)`.
 
 **Example:**
 

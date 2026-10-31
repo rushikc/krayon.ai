@@ -1,6 +1,6 @@
 # Silence Removal Pipeline
 
-Krayon removes dead air from talking-head recordings using **faster-whisper** word timestamps and gap-based segment building. Ported from [`krayon-reel/scripts/transcribe_and_cut.py`](../../krayon-reel/scripts/transcribe_and_cut.py).
+Krayon removes dead air from talking-head recordings using **faster-whisper** word timestamps and gap-based segment building. This page is the legacy audio editor (**Analyze silence** on `/editor/:mediaId`). Studio uses the same segment builder with a shorter tail and an extra snap step. See [studio.md](./studio.md).
 
 For a stage-by-stage breakdown of the **Analyze silence** stepper (what each step does, progress weighting, inputs/outputs, and disk artifacts), see [pipeline-stages.md](./pipeline-stages.md).
 
@@ -11,7 +11,8 @@ flowchart LR
   Video[Source video] --> Extract[ffmpeg: 16kHz mono WAV]
   Extract --> Whisper[faster-whisper transcription]
   Whisper --> Segments[Gap-based segment builder]
-  Segments --> Preview[UI: source-range playback]
+  Segments --> Tail[Extend tails up to 2s]
+  Tail --> Preview[UI: extracted clip audio]
 ```
 
 ## Algorithm
@@ -22,6 +23,13 @@ flowchart LR
    - Expand each word by `pad` (default **0.05s**)
    - Merge when gap ≤ `silence_threshold` (default **0.4s**)
    - Drop spans shorter than **0.05s**
+4. Extend each segment tail on the PCM RMS (`extend_segment_tails` in [`segments.py`](../src/backend/app/services/segments.py)):
+   - Windows are 20 ms (`TAIL_WINDOW_S`)
+   - The tail must stay quiet for 0.18 s (`TAIL_QUIET_HOLD_S`) before the cut
+   - This editor caps the extension at **2 s** (`LEGACY_TAIL_MAX_EXTEND_S`), with no neighbor guard and no stop-on-reloud
+   - Studio caps the same walk at `silence.tail_max_extend_s` (**0.3 s**) and stops 0.02 s before the next segment
+
+Similar lines are grouped later by normalized text (`group_clips_by_text` in [`clips.py`](../src/backend/app/services/clips.py)), default similarity **0.7**.
 
 ## Configuration
 
@@ -38,7 +46,7 @@ flowchart LR
 src/backend/app/services/
 ├── ffmpeg.py       # audio extraction, probing
 ├── transcribe.py   # faster-whisper wrapper
-├── segments.py     # build_segments_from_words
+├── segments.py     # build_segments_from_words, extend_segment_tails
 ├── analysis.py     # orchestrates full pipeline
 └── clips.py        # segment metadata + fuzzy grouping
 ```

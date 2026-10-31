@@ -5,7 +5,7 @@ Browser and API tests for Krayon Studio. They run against your **real running de
 ## Run
 
 ```bash
-pnpm dev              # terminal 1: Vite, Studio backend (8789) and Python API
+pnpm dev              # terminal 1: Vite, Python :8000, reel :8788, studio :8789
 pnpm test:e2e         # terminal 2: whole suite (about 20 s)
 pnpm test:e2e:report  # open the HTML report from the last run
 ```
@@ -17,7 +17,7 @@ pnpm test:e2e test/e2e/studio-ui.spec.ts
 pnpm test:e2e -g "waveform"
 ```
 
-If the dev servers are down, the suite stops immediately with a message telling you to start `pnpm dev`.
+If Vite or the Studio API is down, the suite stops immediately with a message telling you to start `pnpm dev`. Global setup checks those two. Python and the reel backend start with `pnpm dev`; the Studio specs that analyze or render need Python.
 
 ## Layout
 
