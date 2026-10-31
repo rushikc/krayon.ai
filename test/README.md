@@ -27,6 +27,7 @@ If the dev servers are down, the suite stops immediately with a message telling 
 - `helpers/studio-page.ts`: page helpers (`openStudio`, `selectClip`, `clickWaveform`).
 - `e2e/studio-api.spec.ts`: API checks (fields, peaks, wav Range support, 409 on stale revision).
 - `e2e/studio-empty.spec.ts`: a project with no clips shows only Analyze and Rebuild.
+- `e2e/studio-script.spec.ts`: optional script field on the landing form, Rebuild dialog choice when a script exists (`e2e-script-*` folder, deleted afterwards).
 - `e2e/studio-ui.spec.ts`: left list, filters, controls, clip selection, accept/reject, transcript dialog, group expand/collapse, playhead contrast and motion, waveform editor and cuts, console errors.
 
 ## Data safety

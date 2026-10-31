@@ -36,3 +36,12 @@ export function formatResolution(width?: number | null, height?: number | null):
   if (!width || !height) return "—";
   return `${width}×${height}`;
 }
+
+/** Progress text: keep a percent already in `message`, otherwise append one from `ratio`. */
+export function formatProgressLabel(message?: string | null, ratio?: number | null): string {
+  const text = (message ?? "").trim();
+  if (text.includes("%")) return text;
+  if (ratio == null || !Number.isFinite(ratio)) return text;
+  const percent = `${Math.round(ratio * 100)}%`;
+  return text ? `${text} ${percent}` : percent;
+}

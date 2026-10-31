@@ -22,9 +22,10 @@ import {
   renderStatus,
   startRender,
   undo,
+  updateScript,
   updateSettings,
 } from "@/lib/api/studio-client";
-import { formatTimestamp } from "@/lib/format";
+import { formatProgressLabel, formatTimestamp } from "@/lib/format";
 import { studioClipIssueLabel } from "@/lib/delivery-issue";
 import { clipMatchesFilter, type ClipStatusFilter } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
@@ -122,7 +123,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         void refresh().catch(() => undefined);
       }
       if (data.type === "progress") {
-        setAnalysisProgress([data.message, data.ratio != null ? `${Math.round(data.ratio * 100)}%` : null].filter(Boolean).join(" "));
+        setAnalysisProgress(formatProgressLabel(data.message, data.ratio));
         void refresh().catch(() => undefined);
       }
       if (data.type === "status") {
@@ -388,9 +389,26 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         analysisBusy={Boolean(analysisBusy)}
         analysisMessage={analysisProgress ?? (project?.status === "analyzing" ? project.meta.statusMessage : null)}
         onAnalyze={() => void runAnalyze()}
-        onRebuild={() => {
+        script={project?.script ?? ""}
+        onSaveScript={(next) => {
           if (!project) return;
-          void reanalyze(slug, project.revision, { mode: "resegment", reset: true })
+          void updateScript(slug, project.revision, next)
+            .then(() => refresh())
+            .catch((err: unknown) => setError(err instanceof Error ? err.message : "Save script failed"));
+        }}
+        lastPipeline={project?.meta.lastPipeline}
+        scriptLineCount={project?.meta.scriptLineCount ?? 0}
+        needsRebuild={project?.meta.needsRebuild}
+        matchedLines={(project?.groups ?? []).filter((group) => group.scriptLine != null && group.clipIds.length > 0).length}
+        missingLines={(project?.groups ?? []).filter((group) => group.scriptLine != null && group.clipIds.length === 0).length}
+        onRebuild={(pipeline) => {
+          if (!project) return;
+          const scripted = pipeline === "scripted";
+          void reanalyze(slug, project.revision, {
+            mode: "resegment",
+            reset: scripted ? false : true,
+            ...(pipeline ? { pipeline } : {}),
+          })
             .then(() => refresh())
             .catch((err: unknown) => setError(err instanceof Error ? err.message : "Rebuild failed"));
         }}

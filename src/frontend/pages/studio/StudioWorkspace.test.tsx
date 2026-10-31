@@ -222,10 +222,35 @@ describe("StudioWorkspace", () => {
       </MemoryRouter>,
     );
     await screen.findByText("Take 1");
-    emit({ type: "render", renderId: "preview-1", phase: "rendering", ratio: 0.4, message: "Rendering…" });
-    await waitFor(() => expect(screen.getByTestId("render-progress")).toHaveTextContent("40%"));
+    emit({ type: "render", renderId: "preview-1", phase: "rendering", ratio: 0.4, message: "Rendering… 40%" });
+    await waitFor(() => {
+      const label = screen.getByTestId("render-progress");
+      expect(label).toHaveTextContent("Rendering… 40%");
+      expect(label.textContent?.match(/%/g)).toEqual(["%"]);
+    });
     emit({ type: "render", renderId: "preview-1", phase: "done", ratio: 1, message: "Render complete", outputName: "preview-1.mp4" });
     await waitFor(() => expect(screen.getByTestId("rendered-video")).toBeTruthy());
+  });
+
+  it("shows a single percent for analysis progress", async () => {
+    getProject.mockResolvedValue({
+      ...project([]),
+      status: "analyzing",
+      hasTranscript: false,
+      meta: { ...project([]).meta, status: "analyzing", statusMessage: "Analyzing…" },
+    });
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("button", { name: "Analyze audio" });
+    emit({ type: "progress", message: "Transcribing… 2%", ratio: 0.03 });
+    await waitFor(() => {
+      expect(screen.getAllByText("Transcribing… 2%").length).toBeGreaterThan(0);
+      expect(screen.queryByText(/2%\s+3%/)).toBeNull();
+    });
   });
 
   it("hides render and segment buttons when there are no clips", async () => {
@@ -241,6 +266,43 @@ describe("StudioWorkspace", () => {
     expect(screen.queryByRole("button", { name: "Show all segments" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Render preview" })).toBeNull();
     expect(screen.getByRole("button", { name: "Rebuild" })).toBeDisabled();
+  });
+
+  it("offers rebuild with and without script only when a script exists", async () => {
+    getProject.mockResolvedValue({
+      ...project([clip({ id: "c-0001", status: "selected" })]),
+      script: "hello world\nsecond",
+      meta: { ...project([]).meta, scriptLineCount: 2, lastPipeline: "scripted" },
+    });
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("button", { name: "Rebuild" });
+    await userEvent.click(screen.getByRole("button", { name: "Rebuild" }));
+    expect(screen.getByTestId("rebuild-with-script")).toBeTruthy();
+    expect(screen.getByTestId("rebuild-without-script")).toBeTruthy();
+  });
+
+  it("labels scripted groups as Line N with take counts", async () => {
+    getProject.mockResolvedValue({
+      ...project([
+        clip({ id: "c-0001", status: "selected", groupId: "g-0001" }),
+        clip({ id: "c-0002", status: "rejected", groupId: "g-0001" }),
+      ]),
+      groups: [{ id: "g-0001", label: "hello", clipIds: ["c-0001", "c-0002"], recommendedClipId: "c-0001", scriptLine: 4 }],
+      script: "hello",
+      meta: { ...project([]).meta, lastPipeline: "scripted", scriptLineCount: 4 },
+    });
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByText("Line 4 · 2 takes");
   });
 
   it("disables Analyze when the project has no source video", async () => {
@@ -332,13 +394,13 @@ describe("StudioWorkspace", () => {
     );
     await screen.findByText("Take 1");
     const toggle = screen.getByTestId("toggle-all-groups");
-    expect(toggle).toHaveTextContent("Collapse all");
+    expect(toggle).toHaveAttribute("aria-label", "Collapse all");
     await userEvent.click(toggle);
     expect(screen.queryByRole("button", { name: "Take 1" })).toBeNull();
-    expect(toggle).toHaveTextContent("Expand all");
+    expect(toggle).toHaveAttribute("aria-label", "Expand all");
     await userEvent.click(toggle);
     expect(screen.getByRole("button", { name: "Take 1" })).toBeTruthy();
-    expect(toggle).toHaveTextContent("Collapse all");
+    expect(toggle).toHaveAttribute("aria-label", "Collapse all");
   });
 
   it("collapses only the double-clicked group and keeps the clip selected", async () => {

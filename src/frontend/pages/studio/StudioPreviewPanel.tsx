@@ -46,7 +46,6 @@ export function StudioPreviewPanel({
   statusMessage,
   onRetryAnalyze,
   onEditingChange,
-  onStayOnClip,
   onSaveCuts,
   onUndo,
   onRedo,
@@ -161,17 +160,11 @@ export function StudioPreviewPanel({
     waveformRef.current?.setPlayheadTime(0);
     handledAutoPlay.current = 0;
     if (clip?.id === activeClipId.current) return;
-    if (cutsRef.current.length > 0 && activeClipId.current) {
-      if (!window.confirm(studioCopy.discardCuts)) {
-        onStayOnClip?.(activeClipId.current);
-        return;
-      }
-    }
     activeClipId.current = clip?.id ?? null;
     setEditing(false);
     setCuts([]);
     setCutError(null);
-  }, [clip?.id, onStayOnClip]);
+  }, [clip?.id]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -383,11 +376,16 @@ export function StudioPreviewPanel({
                           className="w-full"
                           disabled={cuts.length === 0}
                           onClick={() => {
-                            void onSaveCuts?.(clip.id, cuts).then((ok) => {
+                            const at = cuts;
+                            cutsRef.current = [];
+                            setCuts([]);
+                            void onSaveCuts?.(clip.id, at).then((ok) => {
                               if (ok) {
                                 setEditing(false);
-                                setCuts([]);
                                 setCutError(null);
+                              } else {
+                                cutsRef.current = at;
+                                setCuts(at);
                               }
                             });
                           }}
@@ -502,6 +500,16 @@ export function StudioPreviewPanel({
                       <dd>{clip.decidedBy}</dd>
                       <dt className="text-muted-foreground">statusReason</dt>
                       <dd>{clip.statusReason || "—"}</dd>
+                      {clip.script ? (
+                        <>
+                          <dt className="text-muted-foreground">script line</dt>
+                          <dd data-testid="clip-script-line">
+                            {clip.script.line}: {clip.script.text}
+                          </dd>
+                          <dt className="text-muted-foreground">match</dt>
+                          <dd data-testid="clip-script-score">{clip.script.score.toFixed(2)}</dd>
+                        </>
+                      ) : null}
                       <dt className="text-muted-foreground">source</dt>
                       <dd>
                         {formatTimestamp(clip.sourceStart)}–{formatTimestamp(clip.sourceEnd)}

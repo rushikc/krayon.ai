@@ -30,6 +30,7 @@ export type Clip = {
   statusAt: string;
   note: string;
   llm: Record<string, unknown>;
+  script?: { line: number; text: string; score: number };
 };
 
 export type Group = {
@@ -37,6 +38,7 @@ export type Group = {
   label: string;
   clipIds: string[];
   recommendedClipId: string | null;
+  scriptLine?: number;
 };
 
 export type Cuts = {
@@ -114,6 +116,14 @@ export function normalizeClip(clip: Clip): Clip {
     statusAt: typeof clip.statusAt === "string" ? clip.statusAt : "",
     note: typeof clip.note === "string" ? clip.note : "",
     llm: clip.llm && typeof clip.llm === "object" && !Array.isArray(clip.llm) ? clip.llm : {},
+    script:
+      clip.script && typeof clip.script === "object"
+        ? {
+            line: Number(clip.script.line) || 0,
+            text: typeof clip.script.text === "string" ? clip.script.text : "",
+            score: Number(clip.script.score) || 0,
+          }
+        : clip.script,
     parentIds: Array.isArray(clip.parentIds) ? clip.parentIds : [],
     ranges: Array.isArray(clip.ranges) ? clip.ranges : [],
     words: Array.isArray(clip.words) ? clip.words : [],
@@ -125,7 +135,10 @@ export function normalizeCuts(doc: Cuts): Cuts {
   return {
     ...doc,
     clips: (doc.clips ?? []).map(normalizeClip),
-    groups: doc.groups ?? [],
+    groups: (doc.groups ?? []).map((group) => ({
+      ...group,
+      scriptLine: typeof group.scriptLine === "number" ? group.scriptLine : group.scriptLine,
+    })),
     order: doc.order ?? [],
     canvasDraft: doc.canvasDraft ?? { version: 1, elements: [] },
   };

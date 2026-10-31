@@ -31,6 +31,7 @@ import { EventHub } from "./events.js";
 import { pythonJson, startAndWait, waitForPythonJob } from "./python.js";
 import {
   commitRevision,
+  countScriptLines,
   createProject,
   currentFile,
   listHistory,
@@ -40,12 +41,17 @@ import {
   readCuts,
   readHistory,
   readMeta,
+  readScript,
   resetProjectStatus,
+  resolvedPipeline,
   DEFAULT_SETTINGS,
+  normalizeScriptText,
   normalizeSettings,
   saveMeta,
   useProject,
   withLock,
+  writeScript,
+  type PipelineMode,
 } from "./store.js";
 
 const actorSchema = z.enum(["algorithm", "grok", "human"]);
@@ -69,6 +75,54 @@ function actorOf(header: string | undefined, body: unknown): Actor {
     body && typeof body === "object" && "actor" in body ? String((body as { actor: unknown }).actor) : undefined;
   const parsed = actorSchema.safeParse(fromBody ?? header ?? "human");
   return parsed.success ? parsed.data : "human";
+}
+
+function pythonSettings(meta: { settings?: typeof DEFAULT_SETTINGS }, body: Record<string, unknown> = {}) {
+  const settings = meta.settings ?? DEFAULT_SETTINGS;
+  return {
+    silenceThreshold: (body.silenceThreshold as number | undefined) ?? settings.silenceThreshold ?? DEFAULT_SETTINGS.silenceThreshold,
+    pad: (body.pad as number | undefined) ?? settings.pad ?? DEFAULT_SETTINGS.pad,
+    similarityThreshold:
+      (body.similarityThreshold as number | undefined) ?? settings.similarityThreshold ?? DEFAULT_SETTINGS.similarityThreshold,
+    snapToAudio: settings.snapToAudio ?? DEFAULT_SETTINGS.snapToAudio,
+    snapSearchSeconds: settings.snapSearchSeconds ?? DEFAULT_SETTINGS.snapSearchSeconds,
+    scriptMatchThreshold: settings.scriptMatchThreshold ?? DEFAULT_SETTINGS.scriptMatchThreshold,
+    scriptConfirmThreshold: settings.scriptConfirmThreshold ?? DEFAULT_SETTINGS.scriptConfirmThreshold,
+    scriptPreferLastTakes: settings.scriptPreferLastTakes ?? DEFAULT_SETTINGS.scriptPreferLastTakes,
+    scriptWhisperPrompt: settings.scriptWhisperPrompt ?? DEFAULT_SETTINGS.scriptWhisperPrompt,
+  };
+}
+
+async function enqueueScriptConfirms(
+  dir: string,
+  cuts: { clips: Clip[] },
+  threshold: number,
+  createdBy: Actor,
+) {
+  const file = await readConfirmations(dir);
+  for (const clip of cuts.clips) {
+    if (clip.status !== "selected" || !clip.script) continue;
+    if (clip.script.score >= threshold) continue;
+    const line = clip.script.line;
+    const pending = file.items.some(
+      (item) =>
+        item.status === "pending" &&
+        (item.clipIds.includes(clip.id) || item.title.startsWith(`line ${line}:`)),
+    );
+    if (pending) continue;
+    mintConfirmation(
+      file,
+      {
+        kind: "confirm",
+        title: `line ${line}: match ${clip.script.score.toFixed(2)}, please check`,
+        message: clip.script.text,
+        clipIds: [clip.id],
+        options: [{ id: "checked", label: "Checked", style: "primary", applyOps: false }],
+      },
+      createdBy,
+    );
+  }
+  await writeConfirmations(dir, file);
 }
 
 function clipSummary(clip: Clip) {
@@ -254,7 +308,9 @@ export function registerRoutes(
   });
 
   app.post("/api/studio/projects", async (request, reply) => {
-    const body = z.object({ title: z.string().optional(), slug: z.string().optional() }).parse(request.body ?? {});
+    const body = z
+      .object({ title: z.string().optional(), slug: z.string().optional(), script: z.string().optional() })
+      .parse(request.body ?? {});
     const title = body.title?.trim() || "Untitled";
     let slug = body.slug ? slugify(body.slug) : slugify(title);
     const existing = new Set((await listProjects(root)).map((item) => item.slug));
@@ -263,7 +319,7 @@ export function registerRoutes(
       while (existing.has(`${slug}-${n}`)) n += 1;
       slug = `${slug}-${n}`;
     }
-    const meta = await createProject(root, slug, title);
+    const meta = await createProject(root, slug, title, body.script ?? "");
     return reply.code(201).send(meta);
   });
 
@@ -275,11 +331,13 @@ export function registerRoutes(
 
   app.get("/api/studio/projects/:slug", async (request) => {
     const { slug } = request.params as { slug: string };
-    const { meta, cuts } = await load(root, slug);
+    const { dir, meta, cuts } = await load(root, slug);
     return {
       meta,
       revision: meta.revision,
       status: meta.status,
+      script: await readScript(dir),
+      pipeline: meta.pipeline,
       hasTranscript: existsSync(path.join(projectDir(root, slug), "analysis", "words.json")),
       clips: cuts.clips,
       groups: cuts.groups,
@@ -287,6 +345,36 @@ export function registerRoutes(
       canvasDraft: cuts.canvasDraft,
       history: await listHistory(projectDir(root, slug), meta),
     };
+  });
+
+  app.put("/api/studio/projects/:slug/script", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const body = z
+      .object({
+        baseRevision: z.number().int(),
+        script: z.string().nullable().optional(),
+        actor: actorSchema.optional(),
+      })
+      .parse(request.body ?? {});
+    const actor = actorOf(request.headers["x-krayon-actor"] as string | undefined, body);
+    return withLock(slug, async () => {
+      const { dir, meta, cuts } = await load(root, slug);
+      if (body.baseRevision !== meta.revision) throw new ConflictError(meta.revision, body.baseRevision);
+      const next = normalizeScriptText(body.script ?? "");
+      await writeScript(dir, next);
+      meta.scriptLineCount = countScriptLines(next);
+      meta.needsRebuild = true;
+      meta.statusMessage = next.trim() ? "Script updated; rebuild to apply" : "Script cleared; rebuild to apply";
+      const entry = await commitRevision(dir, meta, cuts, actor, "script", next.trim() ? "script updated" : "script cleared");
+      deps.hub.publish(slug, {
+        type: "revision",
+        revision: entry.revision,
+        actor,
+        label: entry.label,
+        summary: entry.summary,
+      });
+      return { revision: entry.revision, script: await readScript(dir), scriptLineCount: meta.scriptLineCount, needsRebuild: true };
+    });
   });
 
   app.get("/api/studio/projects/:slug/settings", async (request) => {
@@ -304,6 +392,10 @@ export function registerRoutes(
         similarityThreshold: z.number().optional(),
         snapToAudio: z.boolean().optional(),
         snapSearchSeconds: z.number().optional(),
+        scriptMatchThreshold: z.number().optional(),
+        scriptConfirmThreshold: z.number().optional(),
+        scriptPreferLastTakes: z.boolean().optional(),
+        scriptWhisperPrompt: z.boolean().optional(),
       })
       .parse(request.body ?? {});
     return withLock(slug, async () => {
@@ -355,22 +447,28 @@ export function registerRoutes(
 
   app.post("/api/studio/projects/:slug/analyze", async (request) => {
     const { slug } = request.params as { slug: string };
-    const body = (request.body ?? {}) as { baseRevision?: number; silenceThreshold?: number; pad?: number; similarityThreshold?: number; language?: string };
+    const body = (request.body ?? {}) as {
+      baseRevision?: number;
+      silenceThreshold?: number;
+      pad?: number;
+      similarityThreshold?: number;
+      language?: string;
+      pipeline?: PipelineMode;
+    };
     const actor = actorOf(request.headers["x-krayon-actor"] as string | undefined, body);
     const started = await claimAnalysis(slug, body.baseRevision, "Starting analysis");
     try {
+      const script = await readScript(started.dir);
       const result = await startAndWait<AnalysisPayload>(
         python,
         "/api/audio-studio/analyze/async",
         {
           sourcePath: started.meta.sourcePath,
           analysisDir: path.join(started.dir, "analysis"),
-          silenceThreshold: body.silenceThreshold ?? started.meta.settings?.silenceThreshold ?? DEFAULT_SETTINGS.silenceThreshold,
-          pad: body.pad ?? started.meta.settings?.pad ?? DEFAULT_SETTINGS.pad,
-          similarityThreshold: body.similarityThreshold ?? started.meta.settings?.similarityThreshold ?? DEFAULT_SETTINGS.similarityThreshold,
           language: body.language ?? "en",
-          snapToAudio: started.meta.settings?.snapToAudio ?? DEFAULT_SETTINGS.snapToAudio,
-          snapSearchSeconds: started.meta.settings?.snapSearchSeconds ?? DEFAULT_SETTINGS.snapSearchSeconds,
+          pipeline: body.pipeline ?? "auto",
+          script,
+          ...pythonSettings(started.meta, body),
         },
         (event) => {
           deps.hub.publish(slug, {
@@ -394,7 +492,17 @@ export function registerRoutes(
         fresh.meta.nextClipSeq = ids.nextClipSeq;
         fresh.meta.nextGroupSeq = ids.nextGroupSeq;
         fresh.meta.status = "ready";
+        fresh.meta.lastPipeline = result.pipeline === "scripted" ? "scripted" : "transcript";
+        fresh.meta.needsRebuild = false;
         fresh.meta.statusMessage = `Analyzed ${adopted.doc.clips.length} clips`;
+        if (fresh.meta.lastPipeline === "scripted") {
+          await enqueueScriptConfirms(
+            fresh.dir,
+            adopted.doc,
+            fresh.meta.settings.scriptConfirmThreshold,
+            "algorithm",
+          );
+        }
         const entry = await commitRevision(fresh.dir, fresh.meta, adopted.doc, actor, "analyze", fresh.meta.statusMessage);
         deps.hub.publish(slug, {
           type: "revision",
@@ -579,6 +687,7 @@ export function registerRoutes(
         pad: z.number().optional(),
         similarityThreshold: z.number().optional(),
         reset: z.boolean().optional(),
+        pipeline: z.enum(["auto", "transcript", "scripted"]).optional(),
       })
       .parse(request.body);
     const actor = actorOf(request.headers["x-krayon-actor"] as string | undefined, body);
@@ -592,11 +701,25 @@ export function registerRoutes(
     }
     const rangeStart = body.rangeStart ?? (chosen.length ? Math.min(...chosen.map((clip) => clip.sourceStart)) : undefined);
     const rangeEnd = body.rangeEnd ?? (chosen.length ? Math.max(...chosen.map((clip) => clip.sourceEnd)) : undefined);
+    const runPipeline = resolvedPipeline(started.meta, body.pipeline);
+    const fullResegment = body.mode === "resegment" && rangeStart == null && rangeEnd == null && (!body.clipIds || body.clipIds.length === 0);
     try {
+      const script = await readScript(started.dir);
       const result = await startAndWait<AnalysisPayload>(
         python,
-        "/api/audio-studio/reanalyze/async",
-        {
+        fullResegment
+          ? "/api/audio-studio/analyze/async"
+          : "/api/audio-studio/reanalyze/async",
+        fullResegment
+          ? {
+              sourcePath: started.meta.sourcePath,
+              analysisDir: path.join(started.dir, "analysis"),
+              pipeline: runPipeline,
+              script: runPipeline === "scripted" ? script : "",
+              language: "en",
+              ...pythonSettings(started.meta, body),
+            }
+          : {
           sourcePath: started.meta.sourcePath,
           analysisDir: path.join(started.dir, "analysis"),
           mode: body.mode,
@@ -620,14 +743,20 @@ export function registerRoutes(
           throw new ConflictError(fresh.meta.revision, started.meta.revision);
         }
         const ids = { nextClipSeq: fresh.meta.nextClipSeq, nextGroupSeq: fresh.meta.nextGroupSeq };
+        const scriptedRun = fullResegment && runPipeline === "scripted";
         const adopted = adoptAnalysis(fresh.cuts, ids, { ...result, rangeStart: result.rangeStart ?? rangeStart, rangeEnd: result.rangeEnd ?? rangeEnd }, {
           regroup: body.mode === "regroup" && !body.reset,
-          initial: Boolean(body.reset),
-          reset: Boolean(body.reset),
+          initial: Boolean(body.reset) && !scriptedRun,
+          reset: Boolean(body.reset) && !scriptedRun,
         });
         fresh.meta.nextClipSeq = ids.nextClipSeq;
         fresh.meta.nextGroupSeq = ids.nextGroupSeq;
         fresh.meta.status = "ready";
+        fresh.meta.lastPipeline = scriptedRun ? "scripted" : "transcript";
+        fresh.meta.needsRebuild = false;
+        if (scriptedRun) {
+          await enqueueScriptConfirms(fresh.dir, adopted.doc, fresh.meta.settings.scriptConfirmThreshold, "algorithm");
+        }
         fresh.meta.statusMessage = adopted.retired.length ? `Retired ${adopted.retired.join(", ")}` : "Reanalysis kept clip ids";
         const entry = await commitRevision(fresh.dir, fresh.meta, adopted.doc, actor, body.label ?? body.mode, fresh.meta.statusMessage);
         deps.hub.publish(slug, { type: "revision", revision: entry.revision, actor, label: entry.label, summary: entry.summary });

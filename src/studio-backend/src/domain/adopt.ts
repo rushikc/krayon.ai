@@ -35,6 +35,10 @@ export type PyClip = {
   falseStart?: boolean;
   deliveryIssue?: string | null;
   ranges?: SourceRange[];
+  status?: Clip["status"];
+  decidedBy?: Clip["decidedBy"];
+  statusReason?: string;
+  script?: Clip["script"];
 };
 
 export type PyGroup = {
@@ -42,6 +46,7 @@ export type PyGroup = {
   label?: string;
   clipIds: string[];
   referenceClipId?: string | null;
+  scriptLine?: number;
 };
 
 export type AnalysisPayload = {
@@ -51,6 +56,7 @@ export type AnalysisPayload = {
   scope?: "full" | "range";
   rangeStart?: number | null;
   rangeEnd?: number | null;
+  pipeline?: string;
 };
 
 export function labelFromPy(clip: PyClip): ClipLabel {
@@ -124,6 +130,10 @@ export function adoptAnalysis(
 ): { doc: Cuts; retired: string[]; created: string[] } {
   const regroup = Boolean(options.regroup);
   const reset = Boolean(options.reset);
+  const scripted =
+    payload.pipeline === "scripted" ||
+    payload.clips.some((clip) => Boolean(clip.script)) ||
+    payload.groups.some((group) => typeof group.scriptLine === "number");
   const scope = payload.scope ?? "full";
   const range =
     scope === "range" && payload.rangeStart != null && payload.rangeEnd != null
@@ -148,8 +158,30 @@ export function adoptAnalysis(
     clusters.set(clip.groupId, list);
   }
   const groupOfPy = new Map<string, string>();
+  const usedScriptGroups = new Set<string>();
   for (const [pyGroup, members] of clusters) {
+    const pyMeta = payload.groups.find((group) => group.id === pyGroup);
+    if (typeof pyMeta?.scriptLine === "number" && !reset) {
+      const existing = doc.groups.find((group) => group.scriptLine === pyMeta.scriptLine && !usedScriptGroups.has(group.id));
+      if (existing) {
+        usedScriptGroups.add(existing.id);
+        groupOfPy.set(pyGroup, existing.id);
+        continue;
+      }
+    }
     groupOfPy.set(pyGroup, studioGroupForCluster(members, matched, ids, regroup));
+  }
+  for (const group of payload.groups) {
+    if (groupOfPy.has(group.id)) continue;
+    if (typeof group.scriptLine === "number" && !reset) {
+      const existing = doc.groups.find((item) => item.scriptLine === group.scriptLine && !usedScriptGroups.has(item.id));
+      if (existing) {
+        usedScriptGroups.add(existing.id);
+        groupOfPy.set(group.id, existing.id);
+        continue;
+      }
+    }
+    groupOfPy.set(group.id, mintGroupId(ids));
   }
 
   const nextClips: Clip[] = [...keepers];
@@ -168,6 +200,13 @@ export function adoptAnalysis(
       hit.label = labelFromPy(incoming);
       hit.score = score?.score ?? hit.score;
       hit.reasons = score?.reasons ?? hit.reasons;
+      if (incoming.script) hit.script = incoming.script;
+      if (scripted && incoming.status && hit.decidedBy === "algorithm") {
+        hit.status = incoming.status;
+        hit.decidedBy = incoming.decidedBy ?? "algorithm";
+        hit.statusReason = incoming.statusReason ?? hit.statusReason;
+        hit.statusAt = new Date().toISOString();
+      }
       if (hit.text.length === 0) hit.text = textFromWords(hit.words);
       nextClips.push(hit);
       continue;
@@ -188,12 +227,18 @@ export function adoptAnalysis(
       label: labelFromPy(incoming),
       score: score?.score ?? 0,
       reasons: score?.reasons ?? [],
-      status: hit && hit.decidedBy !== "algorithm" ? hit.status : "undecided",
-      decidedBy: hit && hit.decidedBy !== "algorithm" ? hit.decidedBy : "algorithm",
-      statusReason: hit?.statusReason ?? "",
-      statusAt: hit?.statusAt ?? "",
+      status:
+        hit && hit.decidedBy !== "algorithm"
+          ? hit.status
+          : scripted
+            ? (incoming.status ?? "undecided")
+            : "undecided",
+      decidedBy: hit && hit.decidedBy !== "algorithm" ? hit.decidedBy : (incoming.decidedBy ?? "algorithm"),
+      statusReason: hit && hit.decidedBy !== "algorithm" ? hit.statusReason : (incoming.statusReason ?? hit?.statusReason ?? ""),
+      statusAt: hit?.statusAt ?? (scripted ? new Date().toISOString() : ""),
       note: hit?.note ?? "",
       llm: hit?.llm ?? {},
+      script: incoming.script ?? hit?.script,
     };
     if (regroup && hit) {
       clip.groupId = groupOfPy.get(incoming.groupId)!;
@@ -220,23 +265,48 @@ export function adoptAnalysis(
     const members = nextClips.filter((item) => item.groupId === clip.groupId);
     const recommended =
       referenceByStudio.get(clip.groupId) ??
+      members.find((item) => item.status === "selected")?.id ??
       members.find((item) => item.reasons.includes("reference take"))?.id ??
       null;
     const labelSource = members.find((item) => item.id === recommended) ?? members[0];
+    const pyGroup = payload.groups.find((group) => groupOfPy.get(group.id) === clip.groupId);
     groups.push({
       id: clip.groupId,
-      label: labelSource?.text ?? "",
+      label: pyGroup?.label || labelSource?.text || "",
       clipIds: members.map((item) => item.id),
       recommendedClipId: recommended,
+      scriptLine: pyGroup?.scriptLine,
     });
   }
+  for (const pyGroup of payload.groups) {
+    const studioId = groupOfPy.get(pyGroup.id);
+    if (!studioId || seen.has(studioId)) continue;
+    seen.add(studioId);
+    groups.push({
+      id: studioId,
+      label: pyGroup.label ?? "",
+      clipIds: [],
+      recommendedClipId: null,
+      scriptLine: pyGroup.scriptLine,
+    });
+  }
+  if (scripted) {
+    groups.sort((a, b) => (a.scriptLine ?? 1e9) - (b.scriptLine ?? 1e9));
+  }
+
+  const selectedOrder = scripted
+    ? groups.flatMap((group) => {
+        const selected = nextClips.find((clip) => clip.groupId === group.id && clip.status === "selected");
+        return selected ? [selected.id] : [];
+      })
+    : doc.order.filter((id) => nextClips.some((clip) => clip.id === id && clip.status === "selected"));
 
   const next: Cuts = {
     ...doc,
     clips: nextClips.sort((a, b) => a.sourceStart - b.sourceStart),
     groups,
-    order: doc.order.filter((id) => nextClips.some((clip) => clip.id === id && clip.status === "selected")),
+    order: selectedOrder,
   };
-  if (options.initial || reset) applyAlgorithmCut(next);
+  if (!scripted && (options.initial || reset)) applyAlgorithmCut(next);
   return { doc: next, retired, created };
 }

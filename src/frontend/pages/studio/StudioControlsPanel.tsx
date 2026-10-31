@@ -8,7 +8,8 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getToolsStatus } from "@/lib/api/client";
 import type { ConfirmationItem, StudioSettings } from "@/lib/api/studio-client";
-import { formatDuration, formatSize } from "@/lib/format";
+import { countScriptLines } from "@/lib/studio-clip";
+import { formatDuration, formatProgressLabel, formatSize } from "@/lib/format";
 import { studioCopy } from "@/lib/studio-copy";
 import { ConfirmationTray } from "@/pages/studio/ConfirmationTray";
 import type { RenderManifest } from "@/pages/studio/StudioPreviewPanel";
@@ -65,6 +66,13 @@ export function StudioControlsPanel({
   analysisMessage,
   onAnalyze,
   onRebuild,
+  script,
+  onSaveScript,
+  lastPipeline,
+  scriptLineCount,
+  needsRebuild,
+  matchedLines,
+  missingLines,
 }: {
   asks: ConfirmationItem[];
   highlightAsk: string | null;
@@ -92,7 +100,14 @@ export function StudioControlsPanel({
   analysisBusy: boolean;
   analysisMessage?: string | null;
   onAnalyze: () => void;
-  onRebuild: () => void;
+  onRebuild: (pipeline?: "scripted" | "transcript") => void;
+  script: string;
+  onSaveScript: (script: string) => void;
+  lastPipeline?: "transcript" | "scripted" | null;
+  scriptLineCount: number;
+  needsRebuild?: boolean;
+  matchedLines: number;
+  missingLines: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(settings);
@@ -103,9 +118,12 @@ export function StudioControlsPanel({
   const [search, setSearch] = useState("");
   const transcriptBodyRef = useRef<HTMLDivElement>(null);
   const [rebuildOpen, setRebuildOpen] = useState(false);
+  const [scriptDraft, setScriptDraft] = useState(script);
   const empty = clipCount === 0;
+  const hasScript = countScriptLines(script) > 0;
 
   useEffect(() => setDraft(settings), [settings]);
+  useEffect(() => setScriptDraft(script), [script]);
 
   const refreshTools = async () => {
     setToolsLoading(true);
@@ -141,6 +159,21 @@ export function StudioControlsPanel({
     <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-background/60 backdrop-blur-2xl" data-testid="studio-controls">
       <div className="border-b border-border p-4">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{studioCopy.controls}</h2>
+        <p className="mt-2 text-[11px] text-muted-foreground" data-testid="pipeline-badge">
+          {lastPipeline === "scripted"
+            ? studioCopy.pipelineScripted(scriptLineCount)
+            : studioCopy.pipelineTranscript}
+        </p>
+        {lastPipeline === "scripted" ? (
+          <p className="text-[11px] text-muted-foreground" data-testid="pipeline-stats">
+            {studioCopy.pipelineStats(scriptLineCount, matchedLines, missingLines)}
+          </p>
+        ) : null}
+        {needsRebuild ? (
+          <p className="mt-1 text-[11px] text-amber-600" data-testid="needs-rebuild">
+            {studioCopy.needsRebuild}
+          </p>
+        ) : null}
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         {issueLabel ? (
@@ -213,6 +246,19 @@ export function StudioControlsPanel({
                 onChange={(event) => setDraft({ ...draft, similarityThreshold: Number(event.target.value) })}
                 className="w-full rounded-md border border-input bg-background px-2 py-1.5"
               />
+            </label>
+            <label className="block space-y-1 text-xs">
+              <FieldLabel label={studioCopy.scriptOptional} />
+              <textarea
+                data-testid="settings-script"
+                className="min-h-24 w-full rounded-md border border-input bg-background px-2 py-1.5"
+                value={scriptDraft}
+                onChange={(event) => setScriptDraft(event.target.value)}
+              />
+              <p className="text-muted-foreground">{studioCopy.scriptLines(countScriptLines(scriptDraft))}</p>
+              <Button type="button" size="xs" variant="outline" onClick={() => onSaveScript(scriptDraft)}>
+                {studioCopy.saveScript}
+              </Button>
             </label>
             <label className="block space-y-1 text-xs">
               <FieldLabel label={studioCopy.analysisRun} />
@@ -317,7 +363,7 @@ export function StudioControlsPanel({
           {renderProgress ? (
             <div data-testid="render-progress">
               <p className="text-xs text-muted-foreground">
-                {renderProgress.message} {Math.round(renderProgress.ratio * 100)}%
+                {formatProgressLabel(renderProgress.message, renderProgress.ratio)}
               </p>
               <Progress value={Math.round(renderProgress.ratio * 100)} />
             </div>
@@ -369,19 +415,45 @@ export function StudioControlsPanel({
           <DialogPopup>
             <DialogTitle>{studioCopy.rebuildConfirmTitle}</DialogTitle>
             <p className="mt-2 text-sm text-muted-foreground">{studioCopy.rebuildConfirm}</p>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setRebuildOpen(false)}>
                 {studioCopy.cancel}
               </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  setRebuildOpen(false);
-                  onRebuild();
-                }}
-              >
-                {studioCopy.rebuildConfirmAction}
-              </Button>
+              {hasScript ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    data-testid="rebuild-without-script"
+                    onClick={() => {
+                      setRebuildOpen(false);
+                      onRebuild("transcript");
+                    }}
+                  >
+                    {studioCopy.rebuildWithoutScript}
+                  </Button>
+                  <Button
+                    type="button"
+                    data-testid="rebuild-with-script"
+                    onClick={() => {
+                      setRebuildOpen(false);
+                      onRebuild("scripted");
+                    }}
+                  >
+                    {studioCopy.rebuildWithScript}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setRebuildOpen(false);
+                    onRebuild();
+                  }}
+                >
+                  {studioCopy.rebuildConfirmAction}
+                </Button>
+              )}
             </div>
           </DialogPopup>
         </DialogPortal>

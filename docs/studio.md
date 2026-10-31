@@ -10,7 +10,8 @@ Projects live in `studio/<slug>/` (gitignored):
 
 | Path | Role |
 |---|---|
-| `meta.json` | Title, source path, revision pointer, id counters, status |
+| `meta.json` | Title, source path, revision pointer, id counters, status, `pipeline` (`auto` / `transcript` / `scripted`), `lastPipeline`, `scriptLineCount` |
+| `script.txt` | Optional spoken script (one sentence per line). Source of truth for the scripted pipeline |
 | `cuts.json` | Clips, groups, selected order, `canvasDraft` |
 | `analysis/source.wav` | 16 kHz mono cache. Reused if present |
 | `analysis/words.json` | Word timestamps. Reused if present, so a rerun does not re-extract or re-transcribe |
@@ -73,7 +74,8 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `GET /projects/:slug/clips/:id/transcript`
 - `GET /projects/:slug/clips/:id/frame.png?at=`
 - `POST /projects/:slug/ops` — `{ baseRevision, ops, label }`. Mismatch is HTTP 409. Validation errors include `clipId`, `field`, `message`, `allowed`.
-- `POST /projects/:slug/reanalyze` — `mode` is `retranscribe`, `resegment`, or `regroup`. Omit the range for a full-file `resegment`. `reset: true` mints new clip ids and reruns the algorithm cut (Studio Rebuild)
+- `POST /projects/:slug/reanalyze` — `mode` is `retranscribe`, `resegment`, or `regroup`. Omit the range for a full-file `resegment`. `reset: true` mints new clip ids and reruns the algorithm cut (Studio Rebuild). Optional `pipeline`: `scripted` or `transcript` for that run only
+- `PUT /projects/:slug/script` — `{ baseRevision, script }` sets or clears `script.txt`, commits a history revision, and sets `needsRebuild` without analyzing
 - `GET/PATCH /projects/:slug/settings` — `{ silenceThreshold, pad, similarityThreshold }` (defaults 0.4 / 0.05 / 0.7). Analyze uses these when the request omits them
 - `GET /projects/:slug/segments`, `GET /projects/:slug/transcript`
 - `POST /projects/:slug/render` — `{ "quality": "preview" \| "final" }`

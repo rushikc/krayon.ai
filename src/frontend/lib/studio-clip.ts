@@ -11,6 +11,18 @@ export function takeLabelFromId(id: string): string {
   return `Take ${takeNumberFromId(id)}`;
 }
 
+export function countScriptLines(script: string): number {
+  return script
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((line) => line.trim().length > 0).length;
+}
+
+export function scriptedGroupLabel(scriptLine: number, takeCount: number): string {
+  return `Line ${scriptLine} · ${takeCount} take${takeCount === 1 ? "" : "s"}`;
+}
+
 export function isAccepted(clip: Pick<StudioClip, "status">): boolean {
   return clip.status === "selected";
 }

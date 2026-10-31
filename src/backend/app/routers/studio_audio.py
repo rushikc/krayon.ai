@@ -13,7 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.schemas import ClipItem
 from app.services.jobs import SSE_HEADERS, job_hub
 from app.services.segments import build_segments_from_words
-from app.services.studio.analyze import StudioAnalysis, analyze_project
+from app.services.studio.analyze import analyze_project
+from app.services.studio.common.serialize import analysis_payload
 from app.services.studio.audio_stats import clip_audio_stats, clip_peaks
 from app.services.studio.clip_preview import slice_clip_audio
 from app.services.studio.frame import extract_frame
@@ -38,6 +39,12 @@ class AnalyzeBody(_Camel):
     language: str | None = "en"
     snap_to_audio: bool = Field(default=True, alias="snapToAudio")
     snap_search_seconds: float = Field(default=0.3, alias="snapSearchSeconds")
+    pipeline: str = "auto"
+    script: str | None = None
+    script_match_threshold: float = Field(default=0.7, alias="scriptMatchThreshold")
+    script_confirm_threshold: float = Field(default=0.85, alias="scriptConfirmThreshold")
+    script_prefer_last_takes: bool = Field(default=True, alias="scriptPreferLastTakes")
+    script_whisper_prompt: bool = Field(default=True, alias="scriptWhisperPrompt")
 
 
 class ReanalyzeBody(AnalyzeBody):
@@ -64,19 +71,8 @@ class RenderBody(_Camel):
     clips: list[RenderClipBody]
 
 
-def _analysis_payload(result: StudioAnalysis) -> dict:
-    return {
-        "sourceDuration": result.source_duration,
-        "fps": result.fps,
-        "removedSeconds": result.removed_seconds,
-        "words": [word.model_dump() for word in result.words],
-        "clips": [clip.model_dump(by_alias=True) for clip in result.clips],
-        "groups": [group.model_dump(by_alias=True) for group in result.groups],
-        "scores": result.scores,
-        "scope": "full",
-        "rangeStart": None,
-        "rangeEnd": None,
-    }
+def _analysis_payload(result) -> dict:
+    return analysis_payload(result)
 
 
 def _start_job(work) -> dict:
@@ -141,6 +137,12 @@ def analyze_async(body: AnalyzeBody) -> dict:
             snap_to_audio=body.snap_to_audio,
             snap_search_seconds=body.snap_search_seconds,
             on_progress=on_progress,
+            pipeline=body.pipeline,
+            script=body.script,
+            script_match_threshold=body.script_match_threshold,
+            script_confirm_threshold=body.script_confirm_threshold,
+            script_prefer_last_takes=body.script_prefer_last_takes,
+            script_whisper_prompt=body.script_whisper_prompt,
         )
         return _analysis_payload(result)
 

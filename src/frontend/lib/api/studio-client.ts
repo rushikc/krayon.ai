@@ -22,6 +22,7 @@ export type StudioClip = {
   statusAt?: string;
   note: string;
   llm?: Record<string, unknown>;
+  script?: { line: number; text: string; score: number };
 };
 
 export type StudioGroup = {
@@ -29,6 +30,7 @@ export type StudioGroup = {
   label: string;
   clipIds: string[];
   recommendedClipId: string | null;
+  scriptLine?: number;
 };
 
 export type HistoryItem = {
@@ -49,9 +51,15 @@ export type StudioProject = {
     status: string;
     statusMessage: string;
     settings?: StudioSettings;
+    pipeline?: "auto" | "transcript" | "scripted";
+    lastPipeline?: "transcript" | "scripted" | null;
+    scriptLineCount?: number;
+    needsRebuild?: boolean;
   };
   revision: number;
   status: string;
+  script?: string;
+  pipeline?: "auto" | "transcript" | "scripted";
   hasTranscript?: boolean;
   clips: StudioClip[];
   groups: StudioGroup[];
@@ -65,6 +73,10 @@ export type StudioSettings = {
   similarityThreshold: number;
   snapToAudio?: boolean;
   snapSearchSeconds?: number;
+  scriptMatchThreshold?: number;
+  scriptConfirmThreshold?: number;
+  scriptPreferLastTakes?: boolean;
+  scriptWhisperPrompt?: boolean;
 };
 
 export type StudioOp = Record<string, unknown>;
@@ -132,8 +144,21 @@ export function listProjects() {
   return request<{ projects: StudioProject["meta"][]; current: string | null }>("/projects");
 }
 
-export function createProject(title: string) {
-  return request<StudioProject["meta"]>("/projects", { method: "POST", body: JSON.stringify({ title }) });
+export function createProject(title: string, script?: string) {
+  return request<StudioProject["meta"]>("/projects", {
+    method: "POST",
+    body: JSON.stringify({ title, ...(script != null && script !== "" ? { script } : {}) }),
+  });
+}
+
+export function updateScript(slug: string, baseRevision: number, script: string) {
+  return request<{ revision: number; script: string; scriptLineCount: number; needsRebuild: boolean }>(
+    `/projects/${slug}/script`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ baseRevision, script }),
+    },
+  );
 }
 
 export function getProject(slug: string) {

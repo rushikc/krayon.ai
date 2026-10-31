@@ -93,6 +93,14 @@ export function lintCuts(doc: Cuts, stats?: Record<string, AudioEdgeStats>): Lin
 
   for (const group of doc.groups) {
     const selected = group.clipIds.filter((id) => doc.clips.find((clip) => clip.id === id)?.status === "selected");
+    if (group.scriptLine && group.clipIds.length === 0) {
+      warnings.push({
+        code: "script_line_missing",
+        groupId: group.id,
+        message: `line ${group.scriptLine} not found in the recording`,
+      });
+      continue;
+    }
     if (selected.length === 0) {
       warnings.push({
         code: "group_unselected",

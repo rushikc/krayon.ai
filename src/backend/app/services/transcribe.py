@@ -74,6 +74,7 @@ def transcribe_words(
     language: str | None = "en",
     on_progress=None,
     pipeline: PipelineContext | None = None,
+    initial_prompt: str | None = None,
 ) -> list[Word]:
     if on_progress:
         on_progress(0.05, "Extracting audio…")
@@ -100,14 +101,16 @@ def transcribe_words(
         on_progress(0.25, "Transcribing…")
 
     transcribe_started = time.perf_counter()
-    segments, info = model.transcribe(
-        str(wav_path),
-        language=language,
-        word_timestamps=True,
-        vad_filter=True,
-        beam_size=settings.whisper_beam_size,
-        condition_on_previous_text=settings.whisper_condition_on_previous_text,
-    )
+    transcribe_kwargs: dict = {
+        "language": language,
+        "word_timestamps": True,
+        "vad_filter": True,
+        "beam_size": settings.whisper_beam_size,
+        "condition_on_previous_text": settings.whisper_condition_on_previous_text,
+    }
+    if initial_prompt:
+        transcribe_kwargs["initial_prompt"] = initial_prompt
+    segments, info = model.transcribe(str(wav_path), **transcribe_kwargs)
 
     total_duration = float(info.duration or 0.0)
     if total_duration <= 0:

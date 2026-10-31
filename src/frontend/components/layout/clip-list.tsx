@@ -138,7 +138,7 @@ export function ClipGroups({
   onExpandedChange,
   collapseOnClipDoubleClick,
 }: {
-  groups: Array<ClipGroup & { recommendedClipId?: string | null }>;
+  groups: Array<ClipGroup & { recommendedClipId?: string | null; emptyLabel?: string }>;
   clips: Array<Pick<ClipItem, "id" | "index" | "text" | "duration">>;
   selectedClipId: string | null;
   onPreviewClip: (clipId: string) => void;
@@ -149,7 +149,7 @@ export function ClipGroups({
   trailing?: (clip: Pick<ClipItem, "id" | "index" | "text" | "duration">) => ReactNode;
   issueLabel?: (clip: Pick<ClipItem, "id" | "index" | "text" | "duration">) => string | null;
   headerExtra?: (
-    group: ClipGroup & { recommendedClipId?: string | null },
+    group: ClipGroup & { recommendedClipId?: string | null; emptyLabel?: string },
     groupClips: Array<Pick<ClipItem, "id" | "index" | "text" | "duration">>,
   ) => ReactNode;
   dimmed?: (clip: Pick<ClipItem, "id" | "index" | "text" | "duration">) => boolean;
@@ -200,6 +200,11 @@ export function ClipGroups({
             </div>
             {isOpen && (
               <div className="space-y-1 border-t border-border/60 p-2">
+                {groupClips.length === 0 ? (
+                  <p className="px-2 py-1 text-xs text-amber-600" data-testid="missing-script-line">
+                    {group.emptyLabel ?? "Line not found"}
+                  </p>
+                ) : null}
                 {groupClips.map((clip) => (
                   <SpeechClipRow
                     key={clip.id}

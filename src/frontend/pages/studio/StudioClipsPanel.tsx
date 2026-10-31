@@ -12,6 +12,7 @@ import {
   isAccepted,
   statusDotTone,
   statusWord,
+  scriptedGroupLabel,
   takeLabelFromId,
   type ClipStatusFilter,
 } from "@/lib/studio-clip";
@@ -74,8 +75,19 @@ export function StudioClipsPanel({
   const visibleGroups = useMemo(() => {
     const ids = new Set(visible.map((clip) => clip.id));
     return groups
-      .map((group) => ({ ...group, clipIds: group.clipIds.filter((id) => ids.has(id)) }))
-      .filter((group) => group.clipIds.length > 0);
+      .map((group) => {
+        const clipIds = group.clipIds.filter((id) => ids.has(id));
+        if (group.scriptLine != null) {
+          return {
+            ...group,
+            clipIds,
+            label: scriptedGroupLabel(group.scriptLine, group.clipIds.length),
+            emptyLabel: studioCopy.lineNotFound(group.scriptLine),
+          };
+        }
+        return { ...group, clipIds };
+      })
+      .filter((group) => group.clipIds.length > 0 || group.scriptLine != null);
   }, [groups, visible]);
   const allCollapsed =
     visibleGroups.length > 0 && visibleGroups.every((group) => expandedMap[group.id] === false);
@@ -120,13 +132,14 @@ export function StudioClipsPanel({
           <Button
             type="button"
             variant="outline"
-            size="xs"
-            className="shrink-0"
+            size="icon-sm"
+            className="size-8 shrink-0"
             data-testid="toggle-all-groups"
+            aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+            title={allCollapsed ? "Expand all" : "Collapse all"}
             onClick={toggleAllGroups}
           >
-            {allCollapsed ? <ChevronsUpDown className="size-3" /> : <ChevronsDownUp className="size-3" />}
-            {allCollapsed ? "Expand all" : "Collapse all"}
+            {allCollapsed ? <ChevronsUpDown className="size-4" /> : <ChevronsDownUp className="size-4" />}
           </Button>
         </div>
       </div>

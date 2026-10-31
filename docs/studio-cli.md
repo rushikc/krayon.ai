@@ -47,6 +47,8 @@ pnpm krayon annotate c-0007 --file notes.json
 pnpm krayon annotate c-0007 --json '{"verdict":"drop"}' --replace
 pnpm krayon settings
 pnpm krayon settings set silence 0.3
+pnpm krayon script show --project demo
+pnpm krayon script set --project demo --file script.txt
 pnpm krayon split c-0007 --at 12.4
 pnpm krayon split c-0007 --at 12.4 --at 14.1
 pnpm krayon split c-0007 --word 3

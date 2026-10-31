@@ -3,12 +3,15 @@ import { useNavigate } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { createProject, importFile, importPath, listProjects, pickFile } from "@/lib/api/studio-client";
+import { countScriptLines } from "@/lib/studio-clip";
+import { studioCopy } from "@/lib/studio-copy";
 
 export function StudioLanding() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<{ slug: string; title: string; status: string }[]>([]);
   const [title, setTitle] = useState("");
   const [sourcePath, setSourcePath] = useState("");
+  const [script, setScript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -22,7 +25,7 @@ export function StudioLanding() {
     setBusy(true);
     setError(null);
     try {
-      const project = await createProject(projectTitle);
+      const project = await createProject(projectTitle, script);
       if (file) await importFile(project.slug, file);
       else if (path) await importPath(project.slug, path);
       navigate(`/studio/${project.slug}`);
@@ -49,7 +52,7 @@ export function StudioLanding() {
             event.preventDefault();
             const name = title.trim() || "Untitled";
             if (!sourcePath.trim()) {
-              void createProject(name).then((project) => navigate(`/studio/${project.slug}`));
+              void createProject(name, script).then((project) => navigate(`/studio/${project.slug}`));
               return;
             }
             void openWithSource(name, undefined, sourcePath.trim());
@@ -73,6 +76,19 @@ export function StudioLanding() {
               placeholder="/path/to/recording.mp4"
             />
           </label>
+          <details className="rounded-md border border-border p-2" data-testid="script-optional">
+            <summary className="cursor-pointer text-xs text-muted-foreground">{studioCopy.scriptOptional}</summary>
+            <textarea
+              className="mt-2 min-h-24 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+              data-testid="script-textarea"
+              value={script}
+              onChange={(event) => setScript(event.target.value)}
+              placeholder="One spoken sentence per line"
+            />
+            <p className="mt-1 text-xs text-muted-foreground" data-testid="script-line-count">
+              {studioCopy.scriptLines(countScriptLines(script))}
+            </p>
+          </details>
           <div className="flex flex-wrap gap-2">
             <button className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground" type="submit" disabled={busy}>
               Create

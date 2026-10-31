@@ -234,6 +234,22 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
       }
       return finish(`${project}/settings`);
     }
+    if (command === "script") {
+      if (sub === "show") {
+        const state = (await finish(project)) as {
+          script?: string;
+          meta: { pipeline?: string; scriptLineCount?: number };
+        };
+        return { script: state.script ?? "", pipeline: state.meta.pipeline ?? "auto", scriptLineCount: state.meta.scriptLineCount ?? 0 };
+      }
+      if (sub === "set") {
+        const filePath = flag(flags, "file");
+        const script = filePath ? await (await import("node:fs/promises")).readFile(filePath, "utf8") : "";
+        const baseRevision = await revisionOf(base, actor, slug);
+        return finish(`${project}/script`, "PUT", { baseRevision, actor, script });
+      }
+      throw new CliExit(1, { error: "validation", message: "script show | script set --file x.txt" }, pretty);
+    }
     if (command === "render-cancel") {
       const id = sub;
       if (!id) throw new CliExit(1, { error: "validation", message: "render-cancel <id>" }, pretty);
@@ -298,6 +314,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
         pad: flag(flags, "pad") ? Number(flag(flags, "pad")) : undefined,
         similarityThreshold: flag(flags, "similarity") ? Number(flag(flags, "similarity")) : undefined,
         reset: flags.map.has("reset") ? true : undefined,
+        pipeline: flag(flags, "pipeline"),
       });
     }
     if (command === "analyze") {
@@ -382,7 +399,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     throw new CliExit(1, {
       error: "validation",
       message: "Unknown command",
-      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "render-cancel", "schema", "reset-status", "doctor", "ask", "confirmations", "confirmation", "confirm-wait", "cancel-ask", "annotate", "settings"],
+      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "render-cancel", "schema", "reset-status", "doctor", "ask", "confirmations", "confirmation", "confirm-wait", "cancel-ask", "annotate", "settings", "script"],
     }, pretty);
   } catch (error) {
     if (error instanceof CliExit) {

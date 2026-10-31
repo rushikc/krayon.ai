@@ -122,14 +122,14 @@ test("transcript dialog fits the viewport and the body scrolls", async ({ page }
 test("expand and collapse all groups, and double click collapses one group", async ({ page }) => {
   await openStudio(page, slug!);
   const toggle = page.getByTestId("toggle-all-groups");
-  await expect(toggle).toHaveText("Collapse all");
+  await expect(toggle).toHaveAttribute("aria-label", "Collapse all");
   const first = clips[0];
   await expect(clipRow(page, first.id)).toBeVisible();
   await toggle.click();
-  await expect(toggle).toHaveText("Expand all");
+  await expect(toggle).toHaveAttribute("aria-label", "Expand all");
   await expect(clipRow(page, first.id)).toHaveCount(0);
   await toggle.click();
-  await expect(toggle).toHaveText("Collapse all");
+  await expect(toggle).toHaveAttribute("aria-label", "Collapse all");
   await expect(clipRow(page, first.id)).toBeVisible();
   await clipRow(page, first.id).dblclick({ position: { x: 24, y: 10 } });
   await expect(clipRow(page, first.id)).toHaveCount(0);

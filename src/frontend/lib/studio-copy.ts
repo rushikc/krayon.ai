@@ -78,6 +78,17 @@ export const studioCopy = {
   rebuildConfirm:
     "This regroups and rescores from the saved transcript without re-transcribing. Clip ids are replaced and accept/reject decisions are reset.",
   rebuildConfirmAction: "Rebuild",
+  rebuildWithScript: "Rebuild with script",
+  rebuildWithoutScript: "Rebuild without script",
+  scriptOptional: "Script (optional)",
+  scriptLines: (count: number) => `${count} line${count === 1 ? "" : "s"}`,
+  saveScript: "Save script",
+  needsRebuild: "Script changed. Rebuild to apply.",
+  pipelineScripted: (lines: number) => `Scripted · ${lines} lines`,
+  pipelineTranscript: "Transcript only",
+  pipelineStats: (lines: number, matched: number, missing: number) =>
+    `${lines} lines · ${matched} matched · ${missing} missing`,
+  lineNotFound: (line: number) => `Line ${line} not found`,
   cancel: "Cancel",
   analyzing: "Analyzing…",
   startingAnalysis: "Starting analysis",

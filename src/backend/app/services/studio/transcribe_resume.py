@@ -43,6 +43,7 @@ def transcribe_wav(
     *,
     language: str | None = "en",
     on_progress=None,
+    initial_prompt: str | None = None,
 ) -> list[Word]:
     """Transcribe an existing WAV. Does not extract or overwrite the file."""
     model = get_whisper_model()
@@ -50,14 +51,16 @@ def transcribe_wav(
         on_progress(0.0, "Transcribing…")
 
     started = time.perf_counter()
-    segments, info = model.transcribe(
-        str(wav_path),
-        language=language,
-        word_timestamps=True,
-        vad_filter=True,
-        beam_size=settings.whisper_beam_size,
-        condition_on_previous_text=settings.whisper_condition_on_previous_text,
-    )
+    transcribe_kwargs: dict = {
+        "language": language,
+        "word_timestamps": True,
+        "vad_filter": True,
+        "beam_size": settings.whisper_beam_size,
+        "condition_on_previous_text": settings.whisper_condition_on_previous_text,
+    }
+    if initial_prompt:
+        transcribe_kwargs["initial_prompt"] = initial_prompt
+    segments, info = model.transcribe(str(wav_path), **transcribe_kwargs)
 
     total_duration = float(info.duration or 0.0)
     if total_duration <= 0:
@@ -98,10 +101,16 @@ def ensure_words(
     *,
     language: str | None = "en",
     on_progress=None,
+    initial_prompt: str | None = None,
 ) -> bool:
     """Return True when Whisper ran. A cached words.json skips transcription."""
     if words_are_cached(words_path):
         return False
-    words = transcribe_wav(wav_path, language=language, on_progress=on_progress)
+    words = transcribe_wav(
+        wav_path,
+        language=language,
+        on_progress=on_progress,
+        initial_prompt=initial_prompt,
+    )
     save_words(words_path, words)
     return True

@@ -293,4 +293,41 @@ describe("studio http and cli", () => {
       globalThis.fetch = original;
     }
   });
+
+  it("stores a script, revises history, and restores it on undo", async () => {
+    const created = await fetch(`${base}/api/studio/projects`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "scripted", slug: "scripted", script: "hello world\n\nsecond line  " }),
+    });
+    expect(created.status).toBe(201);
+    const meta = (await created.json()) as { slug: string; scriptLineCount: number };
+    expect(meta.scriptLineCount).toBe(2);
+    const raw = await readFile(path.join(root, "scripted", "script.txt"), "utf8");
+    expect(raw).toContain("hello world");
+    expect(raw).toContain("second line");
+
+    await useProject(root, "scripted");
+    const shown = (await runCli(["script", "show", "--project", "scripted"], env())) as { scriptLineCount: number };
+    expect(shown.scriptLineCount).toBe(2);
+
+    const file = path.join(root, "scripted", "new-script.txt");
+    await writeFile(file, "only one line");
+    const before = (await runCli(["status", "--project", "scripted"], env())) as { revision: number };
+    await runCli(["script", "set", "--project", "scripted", "--file", file], env());
+    const after = (await runCli(["status", "--project", "scripted"], env())) as {
+      revision: number;
+      script: string;
+      meta: { needsRebuild: boolean; scriptLineCount: number };
+    };
+    expect(after.revision).toBe(before.revision + 1);
+    expect(after.meta.needsRebuild).toBe(true);
+    expect(after.meta.scriptLineCount).toBe(1);
+    expect(after.script).toContain("only one line");
+
+    await runCli(["undo", "--project", "scripted"], env());
+    const undone = (await runCli(["script", "show", "--project", "scripted"], env())) as { script: string; scriptLineCount: number };
+    expect(undone.scriptLineCount).toBe(2);
+    expect(undone.script).toContain("hello world");
+  });
 });

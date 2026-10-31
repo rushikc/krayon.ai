@@ -359,6 +359,13 @@ describe("lint and schema", () => {
     expect(lintCuts(doc).map((warning) => warning.code)).toContain("bad_word_timing");
   });
 
+  it("warns when a script line has no clips", () => {
+    const doc = emptyCuts();
+    doc.groups = [{ id: "g-0001", label: "missing", clipIds: [], recommendedClipId: null, scriptLine: 12 }];
+    const warning = lintCuts(doc).find((item) => item.code === "script_line_missing");
+    expect(warning?.message).toContain("line 12 not found");
+  });
+
   it("annotates llm with merge, replace, size limit, and undo via ops clone", () => {
     const state = { nextClipSeq: 2, nextGroupSeq: 2 };
     const doc = emptyCuts();
