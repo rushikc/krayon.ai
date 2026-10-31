@@ -12,7 +12,7 @@ pnpm frontend       # Vite only, http://localhost:5173
 pnpm backend        # FastAPI audio only
 pnpm reel-backend   # Fastify reel pipeline, 127.0.0.1:8788
 pnpm studio-backend # Fastify studio API, 127.0.0.1:8789
-pnpm krayon --      # studio CLI (status, clips, op, render, …)
+pnpm krayon         # studio CLI (status, clips, op, render, …)
 ```
 
 Audio logs: `src/backend/logs/` (gitignored). Audio config: `src/backend/krayon.toml`.

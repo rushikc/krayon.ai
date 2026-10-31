@@ -74,7 +74,7 @@ async function revisionOf(base: string, actor: string, slug: string): Promise<nu
 }
 
 export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.env, stdin = ""): Promise<unknown> {
-  const flags = parseArgv(argv);
+  const flags = parseArgv(argv[0] === "--" ? argv.slice(1) : argv);
   const pretty = flags.map.has("pretty");
   const actor = flag(flags, "actor") ?? "grok";
   const base = env.KRAYON_STUDIO_URL ?? "http://127.0.0.1:8789";
@@ -207,10 +207,21 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
         similarityThreshold: flag(flags, "similarity") ? Number(flag(flags, "similarity")) : undefined,
       });
     }
+    if (command === "analyze") {
+      const baseRevision = await revisionOf(base, actor, slug);
+      return finish(`${project}/analyze`, "POST", {
+        baseRevision,
+        actor,
+        silenceThreshold: flag(flags, "silence") ? Number(flag(flags, "silence")) : undefined,
+        pad: flag(flags, "pad") ? Number(flag(flags, "pad")) : undefined,
+        similarityThreshold: flag(flags, "similarity") ? Number(flag(flags, "similarity")) : undefined,
+        language: flag(flags, "language"),
+      });
+    }
     throw new CliExit(1, {
       error: "validation",
       message: "Unknown command",
-      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "schema"],
+      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "schema"],
     }, pretty);
   } catch (error) {
     if (error instanceof CliExit) {

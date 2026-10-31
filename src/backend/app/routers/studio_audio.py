@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.schemas import ClipItem
 from app.services.jobs import SSE_HEADERS, job_hub
 from app.services.studio.analyze import StudioAnalysis, analyze_project
+from app.services.studio.audio_stats import clip_audio_stats
 from app.services.studio.clip_preview import slice_clip_audio
 from app.services.studio.frame import extract_frame
 from app.services.studio.pick_file import pick_video_macos
@@ -194,6 +195,16 @@ def clip_audio(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return FileResponse(output, media_type="audio/wav", filename="clip.wav")
+
+
+@router.get("/audio-stats")
+def audio_stats(wav: str = Query(), ranges: str = Query()) -> dict:
+    wav_path = _require_file(Path(wav), "WAV")
+    parsed = _parse_ranges(ranges)
+    try:
+        return clip_audio_stats(wav_path, parsed, cache_dir=wav_path.parent / "audio-stats")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/frame.png")

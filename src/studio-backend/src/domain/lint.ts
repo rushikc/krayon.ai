@@ -14,7 +14,16 @@ function wordCut(clip: Clip, edge: "start" | "end"): boolean {
   return clip.words.some((word) => word.start + 0.02 < time && time < word.end - 0.02);
 }
 
-export function lintCuts(doc: Cuts): LintWarning[] {
+export type EdgeLevels = { rmsDbfs: number; peakDbfs: number };
+
+export type AudioEdgeStats = {
+  start: EdgeLevels;
+  end: EdgeLevels;
+};
+
+const EDGE_LOUD_DBFS = -35;
+
+export function lintCuts(doc: Cuts, stats?: Record<string, AudioEdgeStats>): LintWarning[] {
   const warnings: LintWarning[] = [];
   for (const clip of doc.clips) {
     if (clip.duration < SHORT_SECONDS) {
@@ -36,6 +45,14 @@ export function lintCuts(doc: Cuts): LintWarning[] {
         code: "mid_word",
         clipId: clip.id,
         message: `${clip.id} is cut in the middle of a word`,
+      });
+    }
+    const edge = stats?.[clip.id];
+    if (edge && (edge.start.rmsDbfs > EDGE_LOUD_DBFS || edge.end.rmsDbfs > EDGE_LOUD_DBFS)) {
+      warnings.push({
+        code: "edge_loud",
+        clipId: clip.id,
+        message: `${clip.id} starts or ends louder than ${EDGE_LOUD_DBFS} dBFS`,
       });
     }
   }

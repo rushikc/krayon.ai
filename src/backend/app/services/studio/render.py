@@ -91,7 +91,7 @@ def build_filter(ranges: list[tuple[float, float]], *, preview: bool) -> tuple[s
         video = "[v0]"
         audio = "[a0]"
         if preview:
-            parts.append("[v0]scale=640:-2[vpreview]")
+            parts.append("[v0]scale=w='min(iw,640)':h=-2[vpreview]")
             video = "[vpreview]"
         return ";".join(parts), video, audio
 
@@ -99,7 +99,7 @@ def build_filter(ranges: list[tuple[float, float]], *, preview: bool) -> tuple[s
     parts.append(f"{joined}concat=n={count}:v=1:a=1[vout][aout]")
     video = "[vout]"
     if preview:
-        parts.append("[vout]scale=640:-2[vpreview]")
+        parts.append("[vout]scale=w='min(iw,640)':h=-2[vpreview]")
         video = "[vpreview]"
     return ";".join(parts), video, "[aout]"
 
@@ -171,7 +171,7 @@ def render_video(
                 continue
             elapsed = ticks / 1_000_000 if text.startswith("out_time_us=") or ticks > expected_duration * 10 else ticks / 1_000
             ratio = max(0.0, min(0.99, elapsed / expected_duration))
-            on_progress(ratio, f"Rendering… {int(ratio * 100)}%")
+            on_progress("rendering", ratio, f"Rendering… {int(ratio * 100)}%")
     stderr = process.stderr.read() if process.stderr else ""
     code = process.wait()
     filter_path = output.with_suffix(output.suffix + ".filter")
@@ -196,5 +196,5 @@ def render_video(
     manifest_path = output.with_suffix(".json")
     manifest_path.write_text(json.dumps(payload, indent=2))
     if on_progress:
-        on_progress(1.0, "Render complete")
+        on_progress("rendering", 1.0, "Render complete")
     return payload

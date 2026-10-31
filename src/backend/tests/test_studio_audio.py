@@ -113,6 +113,11 @@ def test_render_command_reencodes_video(tmp_path: Path) -> None:
     codec = command[command.index("-c:v") + 1]
     assert codec in {"libx264", "h264_videotoolbox"}
     assert "copy" not in command
+    from app.services.studio.render import build_filter
+
+    preview_script, _, _ = build_filter([(0.2, 1.2)], preview=True)
+    assert "min(iw,640)" in preview_script
+    assert "scale=640" not in preview_script
     entries = manifest_for([RenderClipIn("c-0001", [(0.2, 0.7), (1.1, 1.6)])])
     assert entries[0].out_end == pytest.approx(1.0)
     output.with_suffix(".mp4.filter").unlink(missing_ok=True)
@@ -180,3 +185,90 @@ def test_final_render_duration_and_sync(tmp_path: Path) -> None:
     assert abs(durations["video"] - durations["audio"]) < 0.05
     manifest = json.loads(output.with_suffix(".json").read_text())
     assert [item["clipId"] for item in manifest["clips"]] == ["c-0001", "c-0002"]
+
+
+def _lavfi(path: Path, duration: str = "3", size: str = "320x180") -> None:
+    built = shutil.which("ffmpeg")
+    assert built
+    import subprocess
+
+    subprocess.run(
+        [
+            built,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc=size={size}:rate=30:duration={duration}",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:sample_rate=48000:duration={duration}",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg is not installed")
+def test_render_job_reaches_complete_and_writes_manifest(tmp_path: Path, client) -> None:
+    source = tmp_path / "src.mp4"
+    _lavfi(source, "3")
+    output = tmp_path / "out" / "final.mp4"
+    started = client.post(
+        "/api/audio-studio/render/async",
+        json={
+            "sourcePath": str(source),
+            "outputPath": str(output),
+            "quality": "preview",
+            "clips": [{"id": "c-0001", "ranges": [{"sourceStart": 0.4, "sourceEnd": 1.6}]}],
+        },
+    )
+    assert started.status_code == 200
+    job_id = started.json()["jobId"]
+    phases: list[dict] = []
+    with client.stream("GET", f"/api/audio-studio/progress/{job_id}") as response:
+        for line in response.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            payload = json.loads(line[5:])
+            if payload.get("phase"):
+                phases.append(payload)
+            if payload.get("done"):
+                break
+    complete = next(item for item in phases if item.get("phase") == "complete")
+    body = json.loads(complete["message"])
+    assert body["clips"][0]["clipId"] == "c-0001"
+    assert "outStart" in body["clips"][0]
+    assert "outEnd" in body["clips"][0]
+    assert body["duration"] > 0
+    manifest = json.loads(output.with_suffix(".json").read_text())
+    assert manifest["clips"][0]["clipId"] == "c-0001"
+    assert manifest["duration"] == body["duration"]
+
+
+def test_audio_stats_edges_and_internal_silence(tmp_path: Path) -> None:
+    from app.services.studio.audio_stats import clip_audio_stats
+
+    rate = 16000
+    silence = [0] * int(rate * 0.5)
+    tone = [8000] * int(rate * 0.4)
+    samples = silence + tone + silence + tone
+    wav = tmp_path / "source.wav"
+    _write_wav(wav, samples, rate)
+    stats = clip_audio_stats(wav, [(0.5, 1.4)], cache_dir=tmp_path / "audio-stats")
+    assert stats["start"]["rmsDbfs"] > -35
+    assert stats["end"]["rmsDbfs"] < -35
+    assert stats["before"]["rmsDbfs"] < -35
+    assert stats["longestSilenceSeconds"] >= 0.4
+    cached = clip_audio_stats(wav, [(0.5, 1.4)], cache_dir=tmp_path / "audio-stats")
+    assert cached == stats
+    assert list((tmp_path / "audio-stats").glob("*.json"))

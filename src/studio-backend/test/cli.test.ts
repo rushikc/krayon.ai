@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -116,5 +116,53 @@ describe("studio http and cli", () => {
     expect(info.hint).toContain("afplay");
     const history = (await runCli(["history"], env())) as { history: { actor: string }[] };
     expect(history.history.some((entry) => entry.actor === "grok" || entry.actor === "algorithm")).toBe(true);
+  });
+
+  it("treats a leading -- as pnpm's separator", async () => {
+    const schema = await runCli(["--", "schema"], env());
+    expect(JSON.stringify(schema)).toContain("baseRevision");
+    const direct = await runCli(["schema"], env());
+    expect(JSON.stringify(direct)).toContain("baseRevision");
+  });
+
+  it("posts analyze options and refuses render while analyzing", async () => {
+    const calls: unknown[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/analyze") && init?.body) calls.push(JSON.parse(String(init.body)));
+      return original(input, init);
+    };
+    try {
+      await runCli(["analyze", "--silence", "0.25", "--pad", "0.08", "--similarity", "0.6", "--language", "en"], env());
+      throw new Error("expected import error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CliExit);
+      expect(JSON.stringify((error as CliExit).payload)).toContain("Import a video first");
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(calls[0]).toMatchObject({
+      silenceThreshold: 0.25,
+      pad: 0.08,
+      similarityThreshold: 0.6,
+      language: "en",
+    });
+
+    const metaPath = path.join(root, "demo", "meta.json");
+    const meta = JSON.parse(await readFile(metaPath, "utf8")) as { status: string };
+    meta.status = "analyzing";
+    await writeFile(metaPath, JSON.stringify(meta));
+    try {
+      await runCli(["render", "--preview"], env());
+      throw new Error("expected busy");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CliExit);
+      expect((error as CliExit).code).toBe(2);
+      expect(JSON.stringify((error as CliExit).payload)).toContain("analyzing");
+    } finally {
+      meta.status = "ready";
+      await writeFile(metaPath, JSON.stringify(meta));
+    }
   });
 });

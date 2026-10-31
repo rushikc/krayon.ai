@@ -37,13 +37,15 @@ Re-analysis keeps an existing id when the new time span overlaps it with interse
 | `decidedBy` | `algorithm`, `grok`, or `human` |
 | `note` | Free text |
 
-`order` is the selected clip ids in cut order. The first pass selects the reference take in each group (or the only take), rejects false starts and labelled weak takes, and leaves other clean alternates undecided. Order follows the first appearance of each group.
+`order` is the selected clip ids in cut order. The first pass selects the clip whose reasons include `reference take`, otherwise the group's recommended clip, otherwise the only take. Every other take stays undecided. Order follows the first appearance of each group.
 
 ## Services
 
 - UI: `http://localhost:5173/studio` (Vite proxies `/api/studio` to `127.0.0.1:8789`)
 - Studio API: Fastify on `127.0.0.1:8789`, CORS limited to the Vite origin
 - Audio and render: Python `http://127.0.0.1:8000/api/audio-studio` (called by Fastify, not by the browser)
+
+After a Python requirements change, reinstall the backend venv at `src/backend/.krayonenv`.
 
 Final renders always re-encode video (`h264_videotoolbox` on a Mac, otherwise `libx264`) and apply short audio fades at joins. Preview is a faster, smaller encode.
 

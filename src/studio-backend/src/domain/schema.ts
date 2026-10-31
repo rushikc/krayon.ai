@@ -17,6 +17,8 @@ export const studioSchema = {
       status: "selected | rejected | undecided",
       decidedBy: "algorithm | grok | human",
       note: "free-form note",
+      audioStats:
+        "On clip detail: start/end/before/after 150 ms { rmsDbfs, peakDbfs } plus longestSilenceSeconds",
     },
   },
   order: "Ordered list of selected clip ids. Default is first appearance of each group's recommended take.",
@@ -38,7 +40,7 @@ export const studioSchema = {
     "Validation errors include clipId, field, message, and allowed when a range or set is known.",
     "Trim snaps to word boundaries unless sampleAccurate is true.",
     "Merge requires clips whose source gap is at most 1 second and that do not overlap.",
-    "Split retires the old id. Untouched clips keep their ids across re-analysis when overlap (IoU) is at least 0.7.",
+    "Split retires the old id and both halves keep the parent's status. A selected clip is replaced in the order by both halves. Untouched clips keep their ids across re-analysis when overlap (IoU) is at least 0.7.",
     "Ids are never reused, including after undo.",
   ],
   exampleError: {

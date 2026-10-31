@@ -75,6 +75,15 @@ export class ConflictError extends Error {
   }
 }
 
+export class BusyError extends Error {
+  readonly status = 409;
+
+  constructor(message = "Project is analyzing") {
+    super(message);
+    this.name = "BusyError";
+  }
+}
+
 export function emptyCuts(): Cuts {
   return {
     revision: 0,

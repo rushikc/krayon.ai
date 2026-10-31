@@ -200,16 +200,16 @@ function applySplit(doc: Cuts, ids: IdState, op: Extract<Op, { op: "split" }>, a
     rightWords,
     actor,
   );
-  const wasSelected = clip.status === "selected";
+  const parentStatus = clip.status;
   const orderIndex = doc.order.indexOf(clip.id);
   detach(doc, clip.id);
+  left.status = parentStatus;
+  right.status = parentStatus;
   doc.clips.push(left, right);
   replaceInGroup(doc, clip.groupId, [clip.id], [left, right]);
-  if (wasSelected) {
-    const keep = left.duration >= right.duration ? left : right;
-    keep.status = "selected";
+  if (parentStatus === "selected") {
     const index = orderIndex === -1 ? doc.order.length : Math.min(orderIndex, doc.order.length);
-    doc.order.splice(index, 0, keep.id);
+    doc.order.splice(index, 0, left.id, right.id);
   }
   return `split ${clip.id} into ${left.id} and ${right.id}`;
 }
@@ -419,15 +419,14 @@ export function applyAlgorithmCut(doc: Cuts): void {
       .map((id) => doc.clips.find((clip) => clip.id === id))
       .filter((clip): clip is Clip => clip != null);
     const recommended =
+      members.find((clip) => clip.reasons.includes("reference take")) ??
       members.find((clip) => clip.id === group.recommendedClipId) ??
       members.find((clip) => clip.label !== "falseStart") ??
       members[0];
     for (const clip of members) {
-      if (!recommended || members.length === 1 || clip.id === recommended.id) {
+      if (recommended && clip.id === recommended.id) {
         clip.status = "selected";
         order.push(clip.id);
-      } else if (clip.label !== "none") {
-        clip.status = "rejected";
       } else {
         clip.status = "undecided";
       }

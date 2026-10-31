@@ -177,8 +177,48 @@ describe("ops", () => {
     ];
     applyAlgorithmCut(doc);
     expect(doc.order).toEqual(["c-0001", "c-0002"]);
-    expect(doc.clips.find((clip) => clip.id === "c-0003")?.status).toBe("rejected");
+    expect(doc.clips.find((clip) => clip.id === "c-0003")?.status).toBe("undecided");
     expect(doc.clips.find((clip) => clip.id === "c-0002")?.status).toBe("selected");
+  });
+
+  it("selects the reference-reason take when scores match", () => {
+    const doc = emptyCuts();
+    doc.clips = [
+      makeClip({ id: "c-0001", groupId: "g-0001", sourceStart: 0, sourceEnd: 1, text: "line", score: 3 }),
+      makeClip({ id: "c-0002", groupId: "g-0001", sourceStart: 2, sourceEnd: 3, text: "line", score: 3, reasons: ["reference take"] }),
+    ];
+    doc.groups = [{ id: "g-0001", label: "line", clipIds: ["c-0001", "c-0002"], recommendedClipId: "c-0001" }];
+    applyAlgorithmCut(doc);
+    expect(doc.clips.find((clip) => clip.id === "c-0002")?.status).toBe("selected");
+    expect(doc.clips.find((clip) => clip.id === "c-0001")?.status).toBe("undecided");
+    expect(doc.order).toEqual(["c-0002"]);
+  });
+
+  it("keeps both halves selected in the parent's order slot", () => {
+    const state = ids();
+    state.nextClipSeq = 2;
+    const doc = emptyCuts();
+    doc.clips = [
+      makeClip({
+        id: "c-0001",
+        groupId: "g-0001",
+        sourceStart: 0,
+        sourceEnd: 2,
+        text: "alpha beta",
+        status: "selected",
+        words: [
+          { text: "alpha", start: 0.1, end: 0.4 },
+          { text: "beta", start: 0.8, end: 1.4 },
+        ],
+      }),
+    ];
+    doc.groups = [{ id: "g-0001", label: "alpha beta", clipIds: ["c-0001"], recommendedClipId: "c-0001" }];
+    doc.order = ["c-0001"];
+    const result = applyOps(doc, state, [{ op: "split", clipId: "c-0001", wordIndex: 1 }], "human");
+    expect(result.doc.order).toHaveLength(2);
+    const halves = result.doc.order.map((id) => result.doc.clips.find((clip) => clip.id === id)!);
+    expect(halves.every((clip) => clip.status === "selected")).toBe(true);
+    expect(halves[0]!.sourceStart).toBeLessThan(halves[1]!.sourceStart);
   });
 });
 
@@ -196,6 +236,10 @@ describe("lint and schema", () => {
     const codes = lintCuts(doc).map((warning) => warning.code);
     expect(codes).toContain("short_clip");
     expect(codes).toContain("selected_weak");
+    const loud = lintCuts(doc, {
+      "c-0001": { start: { rmsDbfs: -10, peakDbfs: -8 }, end: { rmsDbfs: -50, peakDbfs: -48 } },
+    }).map((warning) => warning.code);
+    expect(loud).toContain("edge_loud");
   });
 
   it("describes ops and the conflict example", () => {

@@ -6,12 +6,13 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { StudioConfig } from "./config.js";
 import { adoptAnalysis, type AnalysisPayload } from "./domain/adopt.js";
-import { lintCuts } from "./domain/lint.js";
+import { lintCuts, type AudioEdgeStats } from "./domain/lint.js";
 import { applyOps, type Op } from "./domain/ops.js";
 import { studioSchema } from "./domain/schema.js";
 import {
   type Actor,
   type Clip,
+  BusyError,
   ConflictError,
   OpError,
   playRanges,
@@ -107,6 +108,47 @@ export function registerRoutes(
   const root = deps.config.projectsDir;
   const python = deps.config.pythonBase;
 
+  async function claimAnalysis(slug: string, baseRevision: number | undefined, message: string) {
+    return withLock(slug, async () => {
+      const loaded = await load(root, slug);
+      if (loaded.meta.status === "analyzing") throw new BusyError();
+      if (baseRevision != null && baseRevision !== loaded.meta.revision) {
+        throw new ConflictError(loaded.meta.revision, baseRevision);
+      }
+      if (!loaded.meta.sourcePath) throw new OpError([{ clipId: null, field: "source", message: "Import a video first" }]);
+      loaded.meta.status = "analyzing";
+      loaded.meta.statusMessage = message;
+      await saveMeta(loaded.dir, loaded.meta);
+      return loaded;
+    });
+  }
+
+  async function failAnalysis(slug: string, message: string) {
+    await withLock(slug, async () => {
+      const loaded = await load(root, slug);
+      if (loaded.meta.status !== "analyzing") return;
+      loaded.meta.status = "error";
+      loaded.meta.statusMessage = message;
+      await saveMeta(loaded.dir, loaded.meta);
+    });
+  }
+
+  async function audioStatsFor(dir: string, clip: Clip): Promise<AudioEdgeStats | null> {
+    const wav = path.join(dir, "analysis", "source.wav");
+    try {
+      await stat(wav);
+    } catch {
+      return null;
+    }
+    const ranges = playRanges(clip).map((range) => `${range.sourceStart},${range.sourceEnd}`).join(";");
+    const url = new URL("/api/audio-studio/audio-stats", python);
+    url.searchParams.set("wav", wav);
+    url.searchParams.set("ranges", ranges);
+    const response = await fetch(url).catch(() => null);
+    if (!response || !response.ok) return null;
+    return (await response.json()) as AudioEdgeStats;
+  }
+
   app.get("/api/studio/health", async () => ({ status: "ok" }));
   app.get("/api/studio/schema", async () => studioSchema);
 
@@ -184,44 +226,43 @@ export function registerRoutes(
     const { slug } = request.params as { slug: string };
     const body = (request.body ?? {}) as { baseRevision?: number; silenceThreshold?: number; pad?: number; similarityThreshold?: number; language?: string };
     const actor = actorOf(request.headers["x-krayon-actor"] as string | undefined, body);
-    return withLock(slug, async () => {
-      const { dir, meta, cuts } = await load(root, slug);
-      if (body.baseRevision != null && body.baseRevision !== meta.revision) {
-        throw new ConflictError(meta.revision, body.baseRevision);
-      }
-      if (!meta.sourcePath) throw new OpError([{ clipId: null, field: "source", message: "Import a video first" }]);
-      meta.status = "analyzing";
-      meta.statusMessage = "Starting analysis";
-      await saveMeta(dir, meta);
-      const initial = cuts.clips.length === 0;
-      try {
-        const result = await startAndWait<AnalysisPayload>(
-          python,
-          "/api/audio-studio/analyze/async",
-          {
-            sourcePath: meta.sourcePath,
-            analysisDir: path.join(dir, "analysis"),
-            silenceThreshold: body.silenceThreshold ?? 0.4,
-            pad: body.pad ?? 0.05,
-            similarityThreshold: body.similarityThreshold ?? 0.7,
-            language: body.language ?? "en",
-          },
-          (event) => {
-            deps.hub.publish(slug, {
-              type: "progress",
-              phase: event.phase,
-              message: event.message,
-              ratio: event.progress,
-            });
-          },
-        );
-        const ids = { nextClipSeq: meta.nextClipSeq, nextGroupSeq: meta.nextGroupSeq };
-        const adopted = adoptAnalysis(cuts, ids, result, { initial });
-        meta.nextClipSeq = ids.nextClipSeq;
-        meta.nextGroupSeq = ids.nextGroupSeq;
-        meta.status = "ready";
-        meta.statusMessage = `Analyzed ${adopted.doc.clips.length} clips`;
-        const entry = await commitRevision(dir, meta, adopted.doc, actor, "analyze", meta.statusMessage);
+    const started = await claimAnalysis(slug, body.baseRevision, "Starting analysis");
+    try {
+      const result = await startAndWait<AnalysisPayload>(
+        python,
+        "/api/audio-studio/analyze/async",
+        {
+          sourcePath: started.meta.sourcePath,
+          analysisDir: path.join(started.dir, "analysis"),
+          silenceThreshold: body.silenceThreshold ?? 0.4,
+          pad: body.pad ?? 0.05,
+          similarityThreshold: body.similarityThreshold ?? 0.7,
+          language: body.language ?? "en",
+        },
+        (event) => {
+          deps.hub.publish(slug, {
+            type: "progress",
+            phase: event.phase,
+            message: event.message,
+            ratio: event.progress,
+          });
+        },
+      );
+      return await withLock(slug, async () => {
+        const fresh = await load(root, slug);
+        if (fresh.meta.revision !== started.meta.revision) {
+          fresh.meta.status = "ready";
+          fresh.meta.statusMessage = "Analysis discarded because the project changed";
+          await saveMeta(fresh.dir, fresh.meta);
+          throw new ConflictError(fresh.meta.revision, started.meta.revision);
+        }
+        const ids = { nextClipSeq: fresh.meta.nextClipSeq, nextGroupSeq: fresh.meta.nextGroupSeq };
+        const adopted = adoptAnalysis(fresh.cuts, ids, result, { initial: fresh.cuts.clips.length === 0 });
+        fresh.meta.nextClipSeq = ids.nextClipSeq;
+        fresh.meta.nextGroupSeq = ids.nextGroupSeq;
+        fresh.meta.status = "ready";
+        fresh.meta.statusMessage = `Analyzed ${adopted.doc.clips.length} clips`;
+        const entry = await commitRevision(fresh.dir, fresh.meta, adopted.doc, actor, "analyze", fresh.meta.statusMessage);
         deps.hub.publish(slug, {
           type: "revision",
           revision: entry.revision,
@@ -230,14 +271,14 @@ export function registerRoutes(
           summary: entry.summary,
         });
         return { revision: entry.revision, clipCount: adopted.doc.clips.length, summary: entry.summary };
-      } catch (error) {
-        meta.status = "error";
-        meta.statusMessage = error instanceof Error ? error.message : "Analysis failed";
-        await saveMeta(dir, meta);
-        deps.hub.publish(slug, { type: "status", status: "error", message: meta.statusMessage });
-        throw error;
+      });
+    } catch (error) {
+      if (!(error instanceof ConflictError) && !(error instanceof BusyError)) {
+        await failAnalysis(slug, error instanceof Error ? error.message : "Analysis failed");
+        deps.hub.publish(slug, { type: "status", status: "error", message: error instanceof Error ? error.message : "Analysis failed" });
       }
-    });
+      throw error;
+    }
   });
 
   app.get("/api/studio/projects/:slug/clips", async (request) => {
@@ -271,6 +312,7 @@ export function registerRoutes(
       group,
       groupMates: cuts.clips.filter((item) => item.groupId === clip.groupId && item.id !== clip.id).map(clipSummary),
       reasoning: { score: clip.score, reasons: clip.reasons, label: clip.label },
+      audioStats: await audioStatsFor(projectDir(root, slug), clip),
     };
   });
 
@@ -364,53 +406,72 @@ export function registerRoutes(
       })
       .parse(request.body);
     const actor = actorOf(request.headers["x-krayon-actor"] as string | undefined, body);
-    return withLock(slug, async () => {
-      const { dir, meta, cuts } = await load(root, slug);
-      if (body.baseRevision !== meta.revision) throw new ConflictError(meta.revision, body.baseRevision);
-      if (!meta.sourcePath) throw new OpError([{ clipId: null, field: "source", message: "Import a video first" }]);
-      const chosen = body.clipIds?.map((id) => cuts.clips.find((clip) => clip.id === id)).filter((clip): clip is Clip => clip != null) ?? [];
-      if (body.clipIds && chosen.length !== body.clipIds.length) {
-        throw new OpError([{ clipId: body.clipIds[0] ?? null, field: "clipIds", message: "Unknown clip id", allowed: cuts.clips.map((clip) => clip.id) }]);
-      }
-      const rangeStart = body.rangeStart ?? (chosen.length ? Math.min(...chosen.map((clip) => clip.sourceStart)) : undefined);
-      const rangeEnd = body.rangeEnd ?? (chosen.length ? Math.max(...chosen.map((clip) => clip.sourceEnd)) : undefined);
-      meta.status = "analyzing";
-      meta.statusMessage = body.mode;
-      await saveMeta(dir, meta);
+    const started = await claimAnalysis(slug, body.baseRevision, body.mode);
+    const chosen = body.clipIds
+      ?.map((id) => started.cuts.clips.find((clip) => clip.id === id))
+      .filter((clip): clip is Clip => clip != null) ?? [];
+    if (body.clipIds && chosen.length !== body.clipIds.length) {
+      await failAnalysis(slug, "Unknown clip id");
+      throw new OpError([{ clipId: body.clipIds[0] ?? null, field: "clipIds", message: "Unknown clip id", allowed: started.cuts.clips.map((clip) => clip.id) }]);
+    }
+    const rangeStart = body.rangeStart ?? (chosen.length ? Math.min(...chosen.map((clip) => clip.sourceStart)) : undefined);
+    const rangeEnd = body.rangeEnd ?? (chosen.length ? Math.max(...chosen.map((clip) => clip.sourceEnd)) : undefined);
+    try {
       const result = await startAndWait<AnalysisPayload>(
         python,
         "/api/audio-studio/reanalyze/async",
         {
-          sourcePath: meta.sourcePath,
-          analysisDir: path.join(dir, "analysis"),
+          sourcePath: started.meta.sourcePath,
+          analysisDir: path.join(started.dir, "analysis"),
           mode: body.mode,
           rangeStart,
           rangeEnd,
           silenceThreshold: body.silenceThreshold ?? 0.4,
           pad: body.pad ?? 0.05,
           similarityThreshold: body.similarityThreshold ?? 0.7,
-          clips: cuts.clips.map(toPythonClip),
+          clips: started.cuts.clips.map(toPythonClip),
         },
         (event) => deps.hub.publish(slug, { type: "progress", phase: event.phase, message: event.message, ratio: event.progress }),
       );
-      const ids = { nextClipSeq: meta.nextClipSeq, nextGroupSeq: meta.nextGroupSeq };
-      const adopted = adoptAnalysis(cuts, ids, { ...result, rangeStart: result.rangeStart ?? rangeStart, rangeEnd: result.rangeEnd ?? rangeEnd }, {
-        regroup: body.mode === "regroup",
+      return await withLock(slug, async () => {
+        const fresh = await load(root, slug);
+        if (fresh.meta.revision !== started.meta.revision) {
+          fresh.meta.status = "ready";
+          fresh.meta.statusMessage = "Reanalysis discarded because the project changed";
+          await saveMeta(fresh.dir, fresh.meta);
+          throw new ConflictError(fresh.meta.revision, started.meta.revision);
+        }
+        const ids = { nextClipSeq: fresh.meta.nextClipSeq, nextGroupSeq: fresh.meta.nextGroupSeq };
+        const adopted = adoptAnalysis(fresh.cuts, ids, { ...result, rangeStart: result.rangeStart ?? rangeStart, rangeEnd: result.rangeEnd ?? rangeEnd }, {
+          regroup: body.mode === "regroup",
+        });
+        fresh.meta.nextClipSeq = ids.nextClipSeq;
+        fresh.meta.nextGroupSeq = ids.nextGroupSeq;
+        fresh.meta.status = "ready";
+        fresh.meta.statusMessage = adopted.retired.length ? `Retired ${adopted.retired.join(", ")}` : "Reanalysis kept clip ids";
+        const entry = await commitRevision(fresh.dir, fresh.meta, adopted.doc, actor, body.label ?? body.mode, fresh.meta.statusMessage);
+        deps.hub.publish(slug, { type: "revision", revision: entry.revision, actor, label: entry.label, summary: entry.summary });
+        return { revision: entry.revision, summary: entry.summary, created: adopted.created, retired: adopted.retired };
       });
-      meta.nextClipSeq = ids.nextClipSeq;
-      meta.nextGroupSeq = ids.nextGroupSeq;
-      meta.status = "ready";
-      meta.statusMessage = adopted.retired.length ? `Retired ${adopted.retired.join(", ")}` : "Reanalysis kept clip ids";
-      const entry = await commitRevision(dir, meta, adopted.doc, actor, body.label ?? body.mode, meta.statusMessage);
-      deps.hub.publish(slug, { type: "revision", revision: entry.revision, actor, label: entry.label, summary: entry.summary });
-      return { revision: entry.revision, summary: entry.summary, created: adopted.created, retired: adopted.retired };
-    });
+    } catch (error) {
+      if (!(error instanceof ConflictError) && !(error instanceof BusyError) && !(error instanceof OpError)) {
+        await failAnalysis(slug, error instanceof Error ? error.message : "Reanalysis failed");
+      }
+      throw error;
+    }
   });
 
   app.get("/api/studio/projects/:slug/lint", async (request) => {
     const { slug } = request.params as { slug: string };
-    const { cuts } = await load(root, slug);
-    return { revision: cuts.revision, warnings: lintCuts(cuts) };
+    const { dir, cuts } = await load(root, slug);
+    const stats: Record<string, AudioEdgeStats> = {};
+    await Promise.all(
+      cuts.clips.map(async (clip) => {
+        const edge = await audioStatsFor(dir, clip);
+        if (edge) stats[clip.id] = edge;
+      }),
+    );
+    return { revision: cuts.revision, warnings: lintCuts(cuts, stats) };
   });
 
   app.get("/api/studio/projects/:slug/history", async (request) => {
@@ -462,6 +523,7 @@ export function registerRoutes(
     const { slug } = request.params as { slug: string };
     const body = z.object({ quality: z.enum(["preview", "final"]).default("final") }).parse(request.body ?? {});
     const { dir, meta, cuts } = await load(root, slug);
+    if (meta.status === "analyzing") throw new BusyError();
     if (!meta.sourcePath) throw new OpError([{ clipId: null, field: "source", message: "Import a video first" }]);
     const selected = cuts.order
       .map((id) => cuts.clips.find((clip) => clip.id === id))
@@ -596,10 +658,14 @@ export function errorBody(error: unknown): { status: number; body: unknown } | n
   if (error instanceof OpError) {
     return { status: 400, body: { error: "validation", message: error.message, errors: error.errors } };
   }
-  if (error instanceof ConflictError) {
+  if (error instanceof ConflictError || error instanceof BusyError) {
     return {
       status: 409,
-      body: { error: "conflict", message: error.message, currentRevision: error.currentRevision },
+      body: {
+        error: "conflict",
+        message: error.message,
+        ...("currentRevision" in error ? { currentRevision: error.currentRevision } : {}),
+      },
     };
   }
   if (error instanceof z.ZodError) {
