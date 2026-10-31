@@ -13,10 +13,12 @@ import type { useSegmentResize } from "./hooks/useSegmentResize";
 type DragHandlers = ReturnType<typeof useSegmentDrag>;
 type ResizeHandlers = ReturnType<typeof useSegmentResize>;
 
-const TYPE_PILL_CLASS: Record<CanvasElement["type"], string> = {
-  box: "bg-violet-600/90",
-  number: "bg-slate-700/90",
-  arrow: "bg-sky-600/90",
+const TYPE_BLOCK_CLASS: Record<CanvasElement["type"], string> = {
+  box: "bg-[var(--timeline-box-bg)] border-[var(--timeline-box-border)] text-[var(--timeline-box-fg)]",
+  number:
+    "bg-[var(--timeline-number-bg)] border-[var(--timeline-number-border)] text-[var(--timeline-number-fg)]",
+  arrow:
+    "bg-[var(--timeline-arrow-bg)] border-[var(--timeline-arrow-border)] text-[var(--timeline-arrow-fg)]",
 };
 
 interface SegmentBlockProps {
@@ -25,6 +27,7 @@ interface SegmentBlockProps {
   selected: boolean;
   drag: DragHandlers;
   resize: ResizeHandlers;
+  onEdit?: (id: string) => void;
 }
 
 export function SegmentBlock({
@@ -33,6 +36,7 @@ export function SegmentBlock({
   selected,
   drag,
   resize,
+  onEdit,
 }: SegmentBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const segment = {
@@ -51,8 +55,9 @@ export function SegmentBlock({
     <div
       ref={containerRef}
       data-timeline-interactive="true"
+      data-segment-type={element.type}
       className={cn(
-        "group absolute inset-y-1 will-change-transform",
+        "group absolute inset-y-0.5 will-change-transform",
         selected ? "z-40" : "z-10",
         isDragging ? "cursor-grabbing" : resize.isResizing ? "cursor-ew-resize" : "",
       )}
@@ -66,12 +71,27 @@ export function SegmentBlock({
     >
       <div
         className={cn(
-          "relative h-full overflow-hidden rounded-md border border-black/10 text-white transition-[box-shadow]",
-          TYPE_PILL_CLASS[element.type],
+          "relative h-full overflow-hidden rounded border text-left transition-[box-shadow]",
+          TYPE_BLOCK_CLASS[element.type],
           selected && "ring-2 ring-primary ring-offset-1 ring-offset-card",
-          isDragging ? "" : "hover:brightness-105",
         )}
+        tabIndex={0}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onEdit?.(element.id);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || event.repeat) {
+            return;
+          }
+          event.preventDefault();
+          onEdit?.(element.id);
+        }}
         onPointerDown={(event) => {
+          if (event.detail >= 2) {
+            return;
+          }
           if (
             event.target instanceof Element &&
             event.target.closest('[data-segment-resize-handle="true"]')
@@ -92,16 +112,16 @@ export function SegmentBlock({
               data-segment-resize-handle="true"
               aria-label={`Resize ${label} start`}
               className={cn(
-                "absolute inset-y-0 left-0 z-10 flex w-2.5 cursor-ew-resize touch-none items-stretch justify-start border-0 bg-transparent p-0",
+                "absolute inset-y-0 left-0 z-10 flex w-2 cursor-ew-resize touch-none items-stretch justify-start border-0 bg-transparent p-0",
                 "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
-                isResizing && "opacity-100",
+                (isResizing || selected) && "opacity-100",
               )}
               onPointerDown={(event) =>
                 resize.onResizePointerDown(event, segment, "left")
               }
             >
               <span
-                className="pointer-events-none block h-full w-1.5 rounded-l-md bg-black/80"
+                className="pointer-events-none block h-full w-0.5 bg-current/40"
                 aria-hidden
               />
             </button>
@@ -110,16 +130,16 @@ export function SegmentBlock({
               data-segment-resize-handle="true"
               aria-label={`Resize ${label} end`}
               className={cn(
-                "absolute inset-y-0 right-0 z-10 flex w-2.5 cursor-ew-resize touch-none items-stretch justify-end border-0 bg-transparent p-0",
+                "absolute inset-y-0 right-0 z-10 flex w-2 cursor-ew-resize touch-none items-stretch justify-end border-0 bg-transparent p-0",
                 "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
-                isResizing && "opacity-100",
+                (isResizing || selected) && "opacity-100",
               )}
               onPointerDown={(event) =>
                 resize.onResizePointerDown(event, segment, "right")
               }
             >
               <span
-                className="pointer-events-none block h-full w-1.5 rounded-r-md bg-black/80"
+                className="pointer-events-none ml-auto block h-full w-0.5 bg-current/40"
                 aria-hidden
               />
             </button>
@@ -128,7 +148,7 @@ export function SegmentBlock({
 
         <div
           className={cn(
-            "relative z-0 flex h-full flex-col items-center justify-center gap-0.5 px-2 text-center",
+            "relative z-0 flex h-full flex-col items-start justify-center gap-0 px-1.5",
             isDragging
               ? "cursor-grabbing"
               : resize.isResizing
@@ -136,10 +156,10 @@ export function SegmentBlock({
                 : "cursor-grab",
           )}
         >
-          <span className="max-w-full truncate text-[10px] font-medium uppercase tracking-wide opacity-80">
+          <span className="max-w-full truncate text-[9px] leading-none font-medium uppercase tracking-wide opacity-80">
             {element.type}
           </span>
-          <span className="max-w-full truncate text-[12px] font-medium leading-none">
+          <span className="max-w-full truncate text-[11px] leading-tight font-medium">
             {label}
           </span>
         </div>

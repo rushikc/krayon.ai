@@ -30,9 +30,13 @@ function byTrackDescending(a: CanvasElement, b: CanvasElement) {
 export function Canvas({
   showReelPreview = false,
   exporting = false,
+  width,
+  height,
 }: {
   showReelPreview?: boolean;
   exporting?: boolean;
+  width: number;
+  height: number;
 }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const elements = useCanvasStore((state) => state.elements);
@@ -157,10 +161,14 @@ export function Canvas({
       data-render-theme={renderTheme}
       data-exporting={exporting ? "true" : undefined}
       className={cn(
-        "relative aspect-[9/16] h-full w-auto max-h-full overflow-hidden rounded-xl shadow-sm",
+        "relative shrink-0 overflow-hidden rounded-xl shadow-sm",
         design.frameClassName,
       )}
-      style={design.frameStyle(exporting)}
+      style={{
+        ...design.frameStyle(exporting),
+        width,
+        height,
+      }}
       onClick={() => selectElement(null)}
     >
       <svg

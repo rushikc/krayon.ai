@@ -35,6 +35,7 @@ export interface TimelineProps {
   onSeek: (time: number) => void;
   onAddTrack: () => void;
   onDeleteTrack: (index: number) => void;
+  onEditElement?: (id: string) => void;
   previewAudio?: PreviewAudioClip | null;
   onRemoveAudio?: () => void;
 }
@@ -50,6 +51,7 @@ export function Timeline({
   onSeek,
   onAddTrack,
   onDeleteTrack,
+  onEditElement,
   previewAudio = null,
   onRemoveAudio,
 }: TimelineProps) {
@@ -226,6 +228,7 @@ export function Timeline({
                 selectedId={selectedId}
                 drag={drag}
                 resize={resize}
+                onEdit={onEditElement}
               />
             ))}
           </div>

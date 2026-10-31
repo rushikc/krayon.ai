@@ -12,7 +12,7 @@ export function Toaster() {
         <div
           key={item.id}
           role="status"
-          className="flex items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 slide-in-from-top-2"
+          className="flex items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm animate-in fade-in-0 slide-in-from-top-2"
         >
           <Check className="size-4 shrink-0 text-green-600 dark:text-green-500" />
           <span>{item.message}</span>

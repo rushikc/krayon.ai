@@ -1,2 +1,10 @@
+packages:
+  - "."
+  - "src/reel-backend"
+
 allowBuilds:
   esbuild: true
+  better-sqlite3: true
+  "@resvg/resvg-js": true
+  "@google/genai": true
+  protobufjs: true

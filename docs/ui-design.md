@@ -1,6 +1,6 @@
 # UI Design
 
-Krayon uses a home screen with two product tiles, then an **audio library** for browsing videos and an **editor** for processing a single video. Reel animations is a placeholder route for later work.
+Krayon uses a home screen with two product tiles, then an **audio library** for browsing videos and an **editor** for processing a single video. **Reel animations** is a 9:16 teaching-canvas workspace with a Timeline | Chat split.
 
 ## Pages
 
@@ -8,7 +8,7 @@ Krayon uses a home screen with two product tiles, then an **audio library** for 
 |-------|------|---------|
 | `/` | Home | Two tiles: Audio analysis, Reel animations |
 | `/audio` | Dashboard | Folder + video library, preview, metadata |
-| `/reel-animations` | Reel animations | Placeholder (coming soon) |
+| `/reel-animations` | Reel animations | 9:16 canvas, compact timeline, and reel-assistant chat |
 | `/editor/:mediaId` | Editor | Single-video processing workspace |
 
 ```mermaid
@@ -21,7 +21,45 @@ flowchart LR
 
 ## Home layout
 
-Two equal tiles centered in the shell: **Audio analysis** (silence removal & clip grouping) and **Reel animations** (coming soon).
+Two equal tiles centered in the shell: **Audio analysis** (silence removal & clip grouping) and **Reel animations** (9:16 teaching canvas).
+
+## Reel animations layout
+
+Portrait reels only (9:16). No landscape editor.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Home   project name                              theme  Export  │
+├──────────┬───────────────────────────────────────────────────────┤
+│  9:16    │  Timeline | Chat  │  Canvas Takes Captions Audio …    │
+│  canvas  ├───────────────────────────────────────────────────────┤
+│          │  Timeline (full width)  OR  Reel assistant chat       │
+│  playbar │                                                       │
+└──────────┴───────────────────────────────────────────────────────┘
+```
+
+- **Top bar (~44px)** — Home, editable project name, app light/dark toggle, Export (solid primary).
+- **Far left** — 9:16 canvas, always exactly 9:16. Size is `min(stage width, stage height × 9/16, 45% of the workspace)` with a 220px preferred minimum; on a short window it scales down. Explicit pixel width/height; the left column is the fitted reel plus padding. Compact playbar underneath.
+- **Right column** — remaining width. The tool row’s primary control is a large `Timeline | Chat` tab switch (Cmd/Ctrl+K toggles). Secondary ghost tools follow: Canvas, Takes, Captions, Audio, Zoom, then Settings right-aligned. Takes, Captions, and Zoom are disabled (“Coming soon”). Below ~900px, tool labels collapse to icons.
+- **Timeline view** — existing tracks, full width, compact rows. Double-click (or Enter on a focused block) opens an **Edit element** modal with the same Config fields as before. Save is one undo step; Cancel / Escape discards; a dirty dialog ignores outside clicks. There is no Config/JSON inspector on the page.
+- **Chat view** — reel assistant wired to `POST /api/reel/jobs` (script) and refine. Apply writes through `setElements` (undoable). The reel preview stays visible on the left with the same sizing.
+- The chosen Timeline | Chat view is persisted in `localStorage` (`krayon-workspace-side-view`). Default is Timeline.
+- **Gemini key** lives in the first-party cookie `krayon_gemini_api_key` (`SameSite=Strict`, not `HttpOnly`) and is sent only as `X-Gemini-Api-Key` on create/refine. Never localStorage.
+
+### App chrome tokens (Velo-like)
+
+Defined on `:root` and `.dark` in [`src/frontend/index.css`](../src/frontend/index.css). Canvas skins (`components/canvas/designs/*`) are a separate `RenderTheme`.
+
+| Token | Light | Dark |
+| --- | --- | --- |
+| background | `#F6F7F9` | `#0A0A0C` |
+| panels / card | `#FFFFFF` | `#101014` |
+| raised | `#FFFFFF` | `#16161B` |
+| border | `#E4E6EB` | `#23232A` |
+| muted text | `#6B6B76` | `#8B8B96` |
+| primary | `#2563EB` | `#3B82F6` |
+
+Sans: Geist Variable. Timeline type blocks use tinted fill + 1px border + coloured text (`--timeline-box-*`, `--timeline-number-*`, `--timeline-arrow-*`). Row height 32px, ruler 24px, track labels ~96px.
 
 ## Dashboard layout
 
@@ -82,7 +120,7 @@ While **Analyze silence** is running, the center panel shows `PipelineStepper` (
 |------|------|
 | `src/frontend/pages/HomePage.tsx` | Two-tile product home |
 | `src/frontend/pages/DashboardPage.tsx` | Audio library dashboard |
-| `src/frontend/pages/ReelAnimationsPage.tsx` | Reel animations placeholder |
+| `src/frontend/pages/ReelAnimationsPage.tsx` | 9:16 reel editor (timeline + chat) |
 | `src/frontend/pages/EditorPage.tsx` | Single-video editor |
 | `src/frontend/components/layout/LibrarySidebar.tsx` | Video list |
 | `src/frontend/components/layout/ClipsSidebar.tsx` | Grouped clips + all-segments timeline |

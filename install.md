@@ -51,23 +51,21 @@ pnpm backend
 
 ## Run locally
 
-**Option A — two terminals**
+**Both together**
 
 ```bash
-# Terminal 1: backend
-pnpm backend
-
-# Terminal 2: frontend
 pnpm dev
 ```
 
-**Option B — one command**
+**One process at a time**
 
 ```bash
-pnpm dev:all
+pnpm frontend        # Vite, http://localhost:5173
+pnpm backend         # FastAPI audio, :8000
+pnpm reel-backend    # Fastify reel pipeline, 127.0.0.1:8788
 ```
 
-Open **http://localhost:5173**. Vite proxies `/api/*` to the FastAPI server on port 8000.
+`pnpm dev:all` is the same as `pnpm dev`. Open **http://localhost:5173**. Vite proxies `/api/reel` to the reel backend on port 8788 and `/api` to the FastAPI server on port 8000.
 
 ## First use
 

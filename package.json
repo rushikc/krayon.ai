@@ -4,14 +4,19 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n fe,be,reel -c blue,green,magenta \"pnpm frontend\" \"pnpm backend\" \"pnpm reel-backend\"",
+    "dev:all": "pnpm dev",
+    "frontend": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "backend": "bash src/backend/bash.sh",
-    "dev:all": "concurrently -n fe,be -c blue,green \"pnpm dev\" \"pnpm backend\"",
-    "test": "vitest run",
+    "reel-backend": "pnpm --filter @krayon/reel-backend dev",
+    "lint": "pnpm --filter @krayon/reel-backend lint",
+    "typecheck": "tsc --noEmit && pnpm --filter @krayon/reel-backend typecheck",
+    "test": "vitest run && pnpm --filter @krayon/reel-backend test",
     "test:watch": "vitest",
-    "test:backend": "bash src/backend/test.sh"
+    "test:backend": "bash src/backend/test.sh",
+    "test:reel": "pnpm --filter @krayon/reel-backend test"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -26,10 +26,6 @@ describe("SchemaInspector rail", () => {
     );
     expect(screen.getByText("API Gateway")).toBeInTheDocument();
     expect(screen.getByText("Lambda Function")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue(
-      "krayon-reel",
-    );
-    expect(screen.getByText("Project name")).toBeInTheDocument();
   });
 
   it("shows a time range on each element row", () => {

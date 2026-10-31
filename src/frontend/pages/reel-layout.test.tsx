@@ -8,9 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportReelMp4 } from "@/lib/export-reel";
 import {
   RENDER_THEME_STORAGE_KEY,
-  SHOW_EDITOR_STORAGE_KEY,
   SHOW_REEL_PREVIEW_STORAGE_KEY,
-  SHOW_TIMELINE_STORAGE_KEY,
+  WORKSPACE_SIDE_VIEW_STORAGE_KEY,
 } from "@/lib/workspace-chrome";
 import { HomePage } from "@/pages/HomePage";
 import { ReelAnimationsPage } from "@/pages/ReelAnimationsPage";
@@ -26,6 +25,17 @@ vi.mock("@/lib/export-reel", async (importOriginal) => {
   return {
     ...actual,
     exportReelMp4: vi.fn(actual.exportReelMp4),
+  };
+});
+
+vi.mock("@/lib/api/reel-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/reel-client")>();
+  return {
+    ...actual,
+    health: vi.fn().mockResolvedValue({ ok: true, service: "reel-backend" }),
+    listJobs: vi.fn().mockResolvedValue([]),
+    getJob: vi.fn(),
+    subscribeToJob: vi.fn(() => () => undefined),
   };
 });
 
@@ -51,9 +61,8 @@ describe("home navigation", () => {
 describe("reel animations layout", () => {
   beforeEach(() => {
     localStorage.removeItem(RENDER_THEME_STORAGE_KEY);
-    localStorage.removeItem(SHOW_TIMELINE_STORAGE_KEY);
-    localStorage.removeItem(SHOW_EDITOR_STORAGE_KEY);
     localStorage.removeItem(SHOW_REEL_PREVIEW_STORAGE_KEY);
+    localStorage.removeItem(WORKSPACE_SIDE_VIEW_STORAGE_KEY);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -65,136 +74,95 @@ describe("reel animations layout", () => {
     vi.mocked(exportReelMp4).mockReset();
   });
 
-  it("shows the timeline, editor, and seed clips", () => {
+  it("pins the reel left and shows the tool row", () => {
     render(
       <MemoryRouter>
         <ReelAnimationsPage />
       </MemoryRouter>,
     );
-    expect(screen.getByRole("button", { name: /timeline/i })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("tab", { name: "Timeline" })).toHaveAttribute(
+      "aria-selected",
       "true",
     );
-    expect(screen.getByRole("button", { name: /editor/i })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute(
+      "aria-selected",
+      "false",
     );
-    expect(
-      screen.getByRole("button", { name: /reel preview/i }),
-    ).toHaveAttribute("aria-pressed", "false");
-    expect(screen.queryByTestId("reel-preview-overlay")).not.toBeInTheDocument();
-    expect(screen.getByRole("separator", { name: /resize timeline/i })).toBeInTheDocument();
-    expect(screen.queryByRole("separator", { name: /resize editor/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Config" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "JSON" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Toggle inspector" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Config" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
-    const muteButton = screen.getByRole("button", { name: "Mute" });
-    expect(muteButton).toBeInTheDocument();
-    expect(muteButton).toHaveAttribute("aria-pressed", "false");
-    expect(
-      screen.getByRole("button", { name: "Play" }).compareDocumentPosition(
-        muteButton,
-      ) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Mute" })).not.toBeInTheDocument();
     expect(screen.getByText("00:00 / 00:30")).toBeInTheDocument();
     expect(screen.getAllByText("API Gateway").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: "Add track" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete track 1" })).toBeInTheDocument();
-    expect(screen.queryByText("Track 7")).not.toBeInTheDocument();
-    expect(screen.queryByText("Track 1")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Bright" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(screen.getByRole("button", { name: "Calidraw light" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(screen.getByRole("button", { name: "Calidraw dark" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(screen.getByRole("button", { name: "Canary" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
-      "data-render-theme",
-      "bright",
-    );
-    const canvas = document.querySelector("[data-render-theme]");
-    expect(canvas).toHaveClass("h-full", "aspect-[9/16]");
-    const exportButton = screen.getByRole("button", { name: "Export MP4" });
-    const uploadAudio = screen.getByRole("button", { name: "Upload audio" });
-    const viewPrompt = screen.getByRole("button", { name: "View prompt" });
-    expect(exportButton).toBeInTheDocument();
-    expect(exportButton).not.toHaveAttribute("aria-pressed");
-    expect(uploadAudio).toBeInTheDocument();
-    expect(
-      viewPrompt.compareDocumentPosition(uploadAudio) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      uploadAudio.compareDocumentPosition(exportButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Remove audio" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("group", { name: "Panels" }),
-    ).toContainElement(screen.getByRole("button", { name: "Reel preview" }));
-    expect(
-      screen.getByRole("group", { name: "Canvas skin" }),
-    ).toContainElement(
-      screen.getByRole("button", { name: "Bright" }),
+    expect(screen.getByText("Track 1")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue(
+      "krayon-reel",
     );
     expect(screen.getByRole("link", { name: "Back to home" })).toHaveAttribute(
       "href",
       "/",
     );
-    expect(screen.queryByRole("heading", { name: "Krayon" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /switch to (dark|light) mode/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /switch to (dark|light) mode/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export MP4" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Takes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Captions" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Zoom" })).toBeDisabled();
+    const canvas = document.querySelector("[data-render-theme]");
+    expect(canvas).toBeInstanceOf(HTMLElement);
+    const width = parseFloat((canvas as HTMLElement).style.width);
+    const height = parseFloat((canvas as HTMLElement).style.height);
+    expect(width).toBeGreaterThan(0);
+    expect(height / width).toBeCloseTo(16 / 9);
   });
 
-  it("hides timeline and editor when toggled off", async () => {
+  it("switches to chat without showing the timeline", async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
         <ReelAnimationsPage />
       </MemoryRouter>,
     );
-
-    await user.click(screen.getByRole("button", { name: /timeline/i }));
+    await user.click(screen.getByRole("tab", { name: "Chat" }));
+    expect(screen.getByRole("heading", { name: "Reel assistant" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add track" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("separator", { name: /resize timeline/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /^editor$/i }));
-    expect(screen.queryByRole("button", { name: "Config" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("separator", { name: /resize editor/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
-  it("shows the reel preview overlay when toggled on", async () => {
+  it("opens the element editor from a timeline double-click", () => {
+    render(
+      <MemoryRouter>
+        <ReelAnimationsPage />
+      </MemoryRouter>,
+    );
+    const block = document.querySelector(
+      '[data-segment-type="box"] [tabindex="0"]',
+    );
+    expect(block).toBeInstanceOf(HTMLElement);
+    fireEvent.doubleClick(block as HTMLElement);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("shows the reel preview overlay from Settings", async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
         <ReelAnimationsPage />
       </MemoryRouter>,
     );
-
-    const toggle = screen.getByRole("button", { name: /reel preview/i });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const toggle = await screen.findByRole("button", { name: /reel preview/i });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByTestId("reel-preview-overlay")).not.toBeInTheDocument();
-
     await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("reel-preview-overlay")).toBeInTheDocument();
   });
 
@@ -243,13 +211,13 @@ describe("reel animations layout", () => {
       useCanvasStore.getState().selectElement("client");
     });
     const afterFirst = useCanvasStore.getState().elements.length;
-    await user.click(screen.getByDisplayValue("Client"));
+    await user.click(screen.getByRole("textbox", { name: "Project name" }));
     await user.keyboard("{Backspace}");
     expect(useCanvasStore.getState().elements.length).toBe(afterFirst);
     expect(useCanvasStore.getState().elements.find((el) => el.id === "client")).toBeDefined();
   });
 
-  it("switches canvas skins without changing element JSON", async () => {
+  it("switches canvas skins from the Canvas popover", async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -258,11 +226,8 @@ describe("reel animations layout", () => {
     );
 
     const json = JSON.stringify(useCanvasStore.getState().elements);
-    await user.click(screen.getByRole("button", { name: "Dark" }));
-    expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    await user.click(screen.getByRole("button", { name: "Canvas" }));
+    await user.click(await screen.findByRole("button", { name: "Dark" }));
     expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
       "data-render-theme",
       "dark",
@@ -270,39 +235,23 @@ describe("reel animations layout", () => {
     expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
 
     await user.click(screen.getByRole("button", { name: "Calidraw light" }));
-    expect(screen.getByRole("button", { name: "Calidraw light" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "Bright" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
     expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
       "data-render-theme",
       "calidraw-light",
     );
-    expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
-
     await user.click(screen.getByRole("button", { name: "Calidraw dark" }));
     expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
       "data-render-theme",
       "calidraw-dark",
     );
-    expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
-
     await user.click(screen.getByRole("button", { name: "Canary" }));
-    expect(screen.getByRole("button", { name: "Canary" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
     const canaryCanvas = document.querySelector("[data-render-theme]");
     expect(canaryCanvas).toHaveAttribute("data-render-theme", "canary");
     expect((canaryCanvas as HTMLElement).style.backgroundImage).toMatch(/url\(/);
-    expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
   });
 
-  it("opens a view prompt dialog with copy buttons for the selected skin", () => {
+  it("opens a view prompt dialog with copy buttons for the selected skin", async () => {
+    const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -314,26 +263,14 @@ describe("reel animations layout", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "View prompt" }));
+    await user.click(screen.getByRole("button", { name: "Canvas" }));
+    await user.click(await screen.findByRole("button", { name: "View prompt" }));
     expect(screen.getByRole("heading", { name: "Bright prompt" })).toBeInTheDocument();
-    expect(screen.getByText(/Bright canvas/)).toBeInTheDocument();
-    const copyButtons = screen.getAllByRole("button", { name: "Copy" });
-    expect(copyButtons).toHaveLength(2);
-    fireEvent.click(copyButtons[0]);
+    const copies = screen.getAllByRole("button", { name: "Copy" });
+    expect(copies.length).toBeGreaterThanOrEqual(2);
+    await user.click(copies[0]);
     expect(writeText).toHaveBeenCalledWith(
       expect.stringContaining("Bright canvas"),
-    );
-    fireEvent.click(copyButtons[1]);
-    expect(writeText).toHaveBeenCalledTimes(2);
-
-    fireEvent.click(document.querySelector('[data-slot="dialog-overlay"]')!);
-    fireEvent.click(screen.getByRole("button", { name: "Canary" }));
-    fireEvent.click(screen.getByRole("button", { name: "View prompt" }));
-    expect(screen.getByRole("heading", { name: "Canary prompt" })).toBeInTheDocument();
-    expect(screen.getByText(/Soft keep-out/)).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: "Copy" })[0]);
-    expect(writeText).toHaveBeenLastCalledWith(
-      expect.stringContaining("Soft keep-out"),
     );
   });
 

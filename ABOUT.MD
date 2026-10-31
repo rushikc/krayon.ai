@@ -1,6 +1,6 @@
 # Krayon
 
-Local talking-head editor and 9:16 teaching canvas. Recordings stay on the machine. React + Vite in the browser, Python FastAPI beside it, ffmpeg and faster-whisper on the same computer.
+Local talking-head editor and 9:16 teaching canvas. Recordings stay on the machine. React + Vite in the browser, Python FastAPI for audio, a TypeScript Fastify reel pipeline for generate → review → fix, ffmpeg and faster-whisper on the same computer. Scene generation talks to Gemini only when the UI sends a Google AI Studio key; that key is not stored on disk.
 
 Share this with the team as the map of what the code already does, and as a list of techniques worth researching if you want to build something adjacent.
 
@@ -15,7 +15,7 @@ Krayon has two workspaces.
 3. Similar lines are grouped as retakes. A restart in the middle of a sentence is split off and marked as a false start. Other takes in the same group can be flagged when the wording is incomplete or wrong.
 4. Each speech clip gets its own audio preview. Every run is saved next to the video, so you can switch runs or rebuild the grouping from the transcript you already have.
 
-**Reel animations** (`/reel-animations`) is the teaching canvas. Spoken ideas become boxes, numbered step badges, and arrows on a portrait 9:16 frame. Each shape has a start and end on a timeline, so it appears when the line is said and leaves when it no longer matters. You paste a JSON array, edit it in the inspector, play it with optional narration audio, and export an MP4 of the canvas.
+**Reel animations** (`/reel-animations`) is the teaching canvas. Spoken ideas become boxes, numbered step badges, and arrows on a portrait 9:16 frame. The reel stays on the far left; the right pane is either a compact timeline or a chat assistant. Each shape has a start and end on a timeline, so it appears when the line is said and leaves when it no longer matters. You paste a JSON array, edit it in the inspector, generate a scene from a script in Chat, play it with optional narration audio, and export an MP4 of the canvas. Chat calls the local Fastify generate → review → fix service. The Google AI Studio key is stored only as the first-party cookie `krayon_gemini_api_key` and sent as `X-Gemini-Api-Key`; it is never written to localStorage or the server disk (see `docs/reel-pipeline.md`).
 
 The two workspaces are separate today. Audio analysis does not draw the canvas, and the canvas export does not cut the talking-head video. They share the same app and the same idea: a long explanation becomes a short, timed visual.
 
@@ -169,7 +169,8 @@ This is the product surface in the repo. Sample scripts in `docs/` that talk thr
 | Piece | Used for |
 | --- | --- |
 | React 19, Vite, Tailwind v4, Zustand, React Router | UI, editor state, routes |
-| FastAPI, uvicorn, Pydantic | Local API |
+| FastAPI, uvicorn, Pydantic | Local audio API |
+| Fastify, Zod, better-sqlite3, `@resvg/resvg-js`, `@google/genai` | Local reel generate/review/fix API (Gemini Developer API) |
 | faster-whisper | Local speech-to-text with word times and VAD |
 | ffmpeg / ffprobe | Probe, audio extract, range slice fallback |
 | Python `wave` | Slice the cached WAV into clip previews |

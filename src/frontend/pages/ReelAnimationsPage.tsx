@@ -1,43 +1,38 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Canvas } from "@/components/canvas/Canvas";
-import { SchemaInspector } from "@/components/canvas/SchemaInspector";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { EditorKeyboardShortcuts } from "@/components/editor/EditorKeyboardShortcuts";
+import { ElementEditDialog } from "@/components/editor/ElementEditDialog";
 import { ExportProgressDialog } from "@/components/editor/ExportProgressDialog";
 import { PlaybackBar } from "@/components/editor/PlaybackBar";
 import { PreviewAudioSync } from "@/components/editor/PreviewAudioSync";
+import { ReelTopBar } from "@/components/editor/ReelTopBar";
 import { Timeline } from "@/components/editor/timeline/Timeline";
-import { WorkspaceToolbar } from "@/components/editor/WorkspaceToolbar";
-import {
-  clamp,
-  DEFAULT_TIMELINE_HEIGHT,
-  TIMELINE_RULER_HEIGHT,
-  TRACK_ROW_HEIGHT,
-} from "@/components/editor/timeline/lib/timeMath";
+import { WorkspaceToolRow } from "@/components/editor/WorkspaceToolRow";
 import { AppShell } from "@/components/layout/AppShell";
-import { PanelResizeHandle } from "@/components/layout/PanelResizeHandle";
+import { useFitReel } from "@/hooks/useFitReel";
 import { usePlaybackClock } from "@/hooks/usePlaybackClock";
 import {
   exportReelMp4,
   sanitizeExportFilename,
 } from "@/lib/export-reel";
+import { reelColumnWidth } from "@/lib/fit-reel";
 import {
   isPreviewAudioFile,
   readAudioDuration,
   type PreviewAudioClip,
 } from "@/lib/preview-audio";
 import {
-  getStoredShowEditor,
   getStoredShowReelPreview,
-  getStoredShowTimeline,
-  persistShowEditor,
+  getStoredWorkspaceSideView,
   persistShowReelPreview,
-  persistShowTimeline,
+  persistWorkspaceSideView,
+  type WorkspaceSideView,
 } from "@/lib/workspace-chrome";
 import { useCanvasStore } from "@/stores/canvas-store";
+import { useReelChatStore } from "@/stores/reel-chat-store";
 import { toast } from "@/stores/toast-store";
-
-const MIN_TIMELINE_HEIGHT = TIMELINE_RULER_HEIGHT + TRACK_ROW_HEIGHT;
 
 function isAbortError(error: unknown) {
   return (
@@ -47,7 +42,9 @@ function isAbortError(error: unknown) {
 }
 
 export function ReelAnimationsPage() {
-  const middleRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const reelSize = useFitReel(workspaceRef, stageRef);
   const elements = useCanvasStore((state) => state.elements);
   const duration = useCanvasStore((state) => state.duration);
   const selectedId = useCanvasStore((state) => state.selectedId);
@@ -65,13 +62,19 @@ export function ReelAnimationsPage() {
   );
 
   usePlaybackClock();
+  const hydrateChat = useReelChatStore((state) => state.hydrate);
 
-  const [showTimeline, setShowTimeline] = useState(getStoredShowTimeline);
-  const [showEditor, setShowEditor] = useState(getStoredShowEditor);
+  useEffect(() => {
+    void hydrateChat();
+  }, [hydrateChat]);
+
+  const [sideView, setSideView] = useState<WorkspaceSideView>(
+    getStoredWorkspaceSideView,
+  );
   const [showReelPreview, setShowReelPreview] = useState(
     getStoredShowReelPreview,
   );
-  const [timelineHeight, setTimelineHeight] = useState(DEFAULT_TIMELINE_HEIGHT);
+  const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportStartedAt, setExportStartedAt] = useState<number | null>(null);
@@ -129,46 +132,6 @@ export function ReelAnimationsPage() {
     [setPreviewAudioDuration],
   );
 
-  const onTimelineResizeStart = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) {
-        return;
-      }
-      event.preventDefault();
-      const handle = event.currentTarget;
-      handle.setPointerCapture(event.pointerId);
-      const startY = event.clientY;
-      const startHeight = timelineHeight;
-      const middle = middleRef.current?.clientHeight ?? 800;
-
-      function onMove(moveEvent: PointerEvent) {
-        if (moveEvent.pointerId !== event.pointerId) {
-          return;
-        }
-        const maxHeight = middle * 0.7;
-        const next = startHeight + (startY - moveEvent.clientY);
-        setTimelineHeight(clamp(next, MIN_TIMELINE_HEIGHT, maxHeight));
-      }
-
-      function onUp(upEvent: PointerEvent) {
-        if (upEvent.pointerId !== event.pointerId) {
-          return;
-        }
-        handle.removeEventListener("pointermove", onMove);
-        handle.removeEventListener("pointerup", onUp);
-        handle.removeEventListener("pointercancel", onUp);
-        if (handle.hasPointerCapture(upEvent.pointerId)) {
-          handle.releasePointerCapture(upEvent.pointerId);
-        }
-      }
-
-      handle.addEventListener("pointermove", onMove);
-      handle.addEventListener("pointerup", onUp);
-      handle.addEventListener("pointercancel", onUp);
-    },
-    [timelineHeight],
-  );
-
   const onExport = useCallback(async () => {
     if (exporting) {
       return;
@@ -218,96 +181,101 @@ export function ReelAnimationsPage() {
     }
   }, [exporting, projectName]);
 
+  const changeSideView = (view: WorkspaceSideView) => {
+    persistWorkspaceSideView(view);
+    setSideView(view);
+  };
+
   return (
     <AppShell hideHeader>
-      <EditorKeyboardShortcuts />
+      <EditorKeyboardShortcuts
+        onToggleSideView={() =>
+          changeSideView(sideView === "timeline" ? "chat" : "timeline")
+        }
+      />
       <PreviewAudioSync clip={previewAudio} muted={previewAudioMuted} />
-      <div className="flex min-h-0 min-w-0 flex-1">
-        <div className="flex h-full min-h-0 shrink-0 items-stretch p-2">
-          <Canvas
-            showReelPreview={showReelPreview}
-            exporting={exporting}
-          />
-        </div>
-
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <ReelTopBar
+          projectName={projectName}
+          onProjectNameChange={setProjectName}
+          exporting={exporting}
+          onExport={() => void onExport()}
+        />
         <div
-          ref={middleRef}
-          className="flex min-h-0 min-w-0 flex-1 flex-col"
+          ref={workspaceRef}
+          data-workspace-row
+          className="flex min-h-0 min-w-0 flex-1"
         >
-          <WorkspaceToolbar
-            showTimeline={showTimeline}
-            showEditor={showEditor}
-            showReelPreview={showReelPreview}
-            onToggleTimeline={() =>
-              setShowTimeline((value) => {
-                const next = !value;
-                persistShowTimeline(next);
-                return next;
-              })
-            }
-            onToggleEditor={() =>
-              setShowEditor((value) => {
-                const next = !value;
-                persistShowEditor(next);
-                return next;
-              })
-            }
-            onToggleReelPreview={() =>
-              setShowReelPreview((value) => {
-                const next = !value;
-                persistShowReelPreview(next);
-                return next;
-              })
-            }
-            renderTheme={renderTheme}
-            onRenderThemeChange={setRenderTheme}
-            exporting={exporting}
-            onExport={() => void onExport()}
-            onUploadAudio={(file) => void onUploadAudio(file)}
-          />
-
-          <div className="flex min-h-0 min-w-0 flex-1 p-2">
-            {showEditor ? (
-              <SchemaInspector
-                projectName={projectName}
-                onProjectNameChange={setProjectName}
+          <div
+            className="flex h-full min-h-0 shrink-0 flex-col items-stretch border-r border-border bg-card"
+            style={{ width: reelColumnWidth(reelSize.width) }}
+          >
+            <div
+              ref={stageRef}
+              data-reel-stage
+              className="flex min-h-0 flex-1 items-center justify-center p-2"
+            >
+              <Canvas
+                width={reelSize.width}
+                height={reelSize.height}
+                showReelPreview={showReelPreview}
+                exporting={exporting}
               />
-            ) : null}
+            </div>
+            <PlaybackBar />
           </div>
 
-          <PlaybackBar
-            muted={previewAudioMuted}
-            onMutedChange={setPreviewAudioMuted}
-          />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <WorkspaceToolRow
+              sideView={sideView}
+              onSideViewChange={changeSideView}
+              showReelPreview={showReelPreview}
+              onToggleReelPreview={() =>
+                setShowReelPreview((value) => {
+                  const next = !value;
+                  persistShowReelPreview(next);
+                  return next;
+                })
+              }
+              renderTheme={renderTheme}
+              onRenderThemeChange={setRenderTheme}
+              previewAudioMuted={previewAudioMuted}
+              onMutedChange={setPreviewAudioMuted}
+              onUploadAudio={(file) => void onUploadAudio(file)}
+            />
 
-          {showTimeline ? (
-            <div className="flex w-full shrink-0 flex-col">
-              <PanelResizeHandle
-                orientation="horizontal"
-                placement="bar"
-                label="Resize timeline"
-                onPointerDown={onTimelineResizeStart}
-              />
-              <div className="min-h-0 w-full" style={{ height: timelineHeight }}>
-                <Timeline
-                  elements={elements}
-                  duration={duration}
-                  currentTime={currentTime}
-                  trackCount={trackCount}
-                  selectedId={selectedId}
-                  onSelect={selectElement}
-                  onChange={setElements}
-                  onSeek={setCurrentTime}
-                  onAddTrack={addTrack}
-                  onDeleteTrack={deleteTrack}
-                  previewAudio={previewAudio}
-                  onRemoveAudio={clearPreviewAudio}
-                />
+            {sideView === "chat" ? (
+              <div className="min-h-0 flex-1">
+                <ChatPanel onApplied={() => changeSideView("timeline")} />
               </div>
-            </div>
-          ) : null}
+            ) : (
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <div className="min-h-0 min-w-0 flex-1">
+                  <Timeline
+                    elements={elements}
+                    duration={duration}
+                    currentTime={currentTime}
+                    trackCount={trackCount}
+                    selectedId={selectedId}
+                    onSelect={selectElement}
+                    onChange={setElements}
+                    onSeek={setCurrentTime}
+                    onAddTrack={addTrack}
+                    onDeleteTrack={deleteTrack}
+                    onEditElement={setEditingElementId}
+                    previewAudio={previewAudio}
+                    onRemoveAudio={clearPreviewAudio}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+      <ElementEditDialog
+        elementId={editingElementId}
+        onClose={() => setEditingElementId(null)}
+      />
       <ExportProgressDialog
         open={exporting}
         progress={exportProgress}

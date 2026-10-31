@@ -15,7 +15,7 @@ export function Playhead({ currentTime, duration, scrubbing }: PlayheadProps) {
     >
       <div
         className={cn(
-          "absolute left-1/2 top-1 size-2.5 -translate-x-1/2 rounded-full border-2 border-background bg-primary shadow-sm transition-transform",
+          "absolute left-1/2 top-0.5 size-2 -translate-x-1/2 rounded-full border-2 border-background bg-primary transition-transform",
           scrubbing ? "scale-110" : "scale-100",
         )}
       />

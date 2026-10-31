@@ -18,6 +18,10 @@ src/backend/.krayonenv
 src/backend/**/__pycache__
 src/backend/logs/*.log
 
+# Reel Fastify backend
+src/reel-backend/data/
+src/reel-backend/logs/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

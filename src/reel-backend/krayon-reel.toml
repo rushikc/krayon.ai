@@ -1,0 +1,26 @@
+host = "127.0.0.1"
+port = 8788
+cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+log_level = "INFO"
+log_body_max = 2000
+
+[gemini]
+model = "gemini-2.5-flash"
+review_model = "gemini-2.5-flash"
+fix_model = "gemini-2.5-flash"
+timeout_ms = 90000
+max_concurrency = 5
+
+[pipeline]
+max_rounds = 2
+pass_score = 8
+max_keyframes = 8
+generate_attempts = 3
+
+[render]
+width = 1080
+height = 1920
+
+[paths]
+data = "data"
+logs = "logs"
