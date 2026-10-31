@@ -39,7 +39,7 @@ export function EditorPage() {
       showBack
       backTo="/audio"
       backLabel="Back to library"
-      subtitle={selectedFile?.name ?? "editor"}
+      title={selectedFile?.name ?? "editor"}
     >
       <ClipsSidebar />
       {showStepper ? <PipelineStepper /> : <ClipAudioPlayer />}

@@ -1,11 +1,10 @@
 import { Loader2, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBackdrop, DialogPopup, DialogPortal, DialogTitle } from "@/components/ui/dialog";
 import { FieldLabel } from "@/components/ui/field-label";
 import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getToolsStatus } from "@/lib/api/client";
 import type { ConfirmationItem, StudioSettings } from "@/lib/api/studio-client";
@@ -15,15 +14,28 @@ import { ConfirmationTray } from "@/pages/studio/ConfirmationTray";
 import type { RenderManifest } from "@/pages/studio/StudioPreviewPanel";
 import type { ToolStatus } from "@/types/api";
 
-export type StudioSegmentRow = {
-  kind: "speech" | "silence";
-  sourceStart: number;
-  sourceEnd: number;
-  duration: number;
-  text: string;
-  clipId: string | null;
-  status: string | null;
-};
+function highlightWord(text: string, query: string, key: string): { nodes: ReactNode; matches: number } {
+  if (!query) return { nodes: text, matches: 0 };
+  const lower = text.toLowerCase();
+  const needle = query.toLowerCase();
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  let matches = 0;
+  let from = lower.indexOf(needle, cursor);
+  while (from >= 0) {
+    if (from > cursor) nodes.push(text.slice(cursor, from));
+    nodes.push(
+      <mark key={`${key}-${matches}`} className="rounded bg-primary/20 text-foreground">
+        {text.slice(from, from + needle.length)}
+      </mark>,
+    );
+    matches += 1;
+    cursor = from + needle.length;
+    from = lower.indexOf(needle, cursor);
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return { nodes: nodes.length ? nodes : text, matches };
+}
 
 export function StudioControlsPanel({
   asks,
@@ -44,7 +56,6 @@ export function StudioControlsPanel({
   onCancelRender,
   renders,
   onPlayRender,
-  onLoadSegments,
   onLoadTranscript,
   clipCount,
   hasTranscript,
@@ -73,7 +84,6 @@ export function StudioControlsPanel({
   onCancelRender: () => void;
   renders: RenderManifest[];
   onPlayRender: (name: string) => void;
-  onLoadSegments: () => Promise<{ segments: StudioSegmentRow[] }>;
   onLoadTranscript: () => Promise<{ words: Array<{ text: string; start: number; end: number; clipId: string | null }> }>;
   clipCount: number;
   hasTranscript: boolean;
@@ -88,11 +98,10 @@ export function StudioControlsPanel({
   const [draft, setDraft] = useState(settings);
   const [tools, setTools] = useState<ToolStatus | null>(null);
   const [toolsLoading, setToolsLoading] = useState(false);
-  const [segmentsOpen, setSegmentsOpen] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
-  const [segments, setSegments] = useState<StudioSegmentRow[]>([]);
   const [words, setWords] = useState<Array<{ text: string; start: number; end: number; clipId: string | null }>>([]);
   const [search, setSearch] = useState("");
+  const transcriptBodyRef = useRef<HTMLDivElement>(null);
   const [rebuildOpen, setRebuildOpen] = useState(false);
   const empty = clipCount === 0;
 
@@ -112,6 +121,21 @@ export function StudioControlsPanel({
   useEffect(() => {
     void refreshTools();
   }, []);
+
+  const query = search.trim();
+  const highlighted = useMemo(() => {
+    return words.map((word, index) => {
+      const key = `${word.start}-${index}`;
+      const { nodes, matches } = highlightWord(word.text, query, key);
+      return { word, index, key, nodes, matches };
+    });
+  }, [words, query]);
+  const matchCount = highlighted.reduce((sum, item) => sum + item.matches, 0);
+
+  useEffect(() => {
+    if (!transcriptOpen || !query) return;
+    transcriptBodyRef.current?.querySelector("mark")?.scrollIntoView?.({ block: "nearest" });
+  }, [query, highlighted, transcriptOpen]);
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-background/60 backdrop-blur-2xl" data-testid="studio-controls">
@@ -261,18 +285,8 @@ export function StudioControlsPanel({
             variant="outline"
             className="w-full"
             onClick={() => {
-              setSegmentsOpen(true);
-              void onLoadSegments().then((result) => setSegments(result.segments));
-            }}
-          >
-            {studioCopy.showAllSegments}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            onClick={() => {
               setTranscriptOpen(true);
+              setSearch("");
               void onLoadTranscript().then((result) => setWords(result.words));
             }}
           >
@@ -373,75 +387,51 @@ export function StudioControlsPanel({
         </DialogPortal>
       </Dialog>
 
-      <Dialog open={segmentsOpen} onOpenChange={setSegmentsOpen}>
-        <DialogPortal>
-        <DialogBackdrop />
-        <DialogPopup className="flex max-h-[80vh] max-w-lg flex-col">
-          <DialogTitle>{studioCopy.showAllSegments}</DialogTitle>
-          <ScrollArea className="mt-3 max-h-[60vh]">
-            <ul className="space-y-1 text-xs" data-testid="all-segments">
-              {segments.map((segment, index) => (
-                <li key={`${segment.sourceStart}-${index}`} className="flex items-start gap-2 rounded-md border border-border px-2 py-1.5">
-                  <span
-                    className={`mt-1 size-2 shrink-0 rounded-full ${segment.status === "selected" ? "bg-emerald-500" : "bg-red-500"}`}
-                  />
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => {
-                      if (segment.clipId) {
-                        onSelectClip(segment.clipId);
-                        setSegmentsOpen(false);
-                      }
-                    }}
-                  >
-                    <p>
-                      {formatDuration(segment.sourceStart)}–{formatDuration(segment.sourceEnd)} · {formatDuration(segment.duration)}
-                      {segment.clipId ? ` · ${segment.clipId}` : ""}
-                    </p>
-                    <p className="text-muted-foreground">{segment.kind === "silence" ? "Silence" : segment.text}</p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </ScrollArea>
-        </DialogPopup>
-        </DialogPortal>
-      </Dialog>
-
       <Dialog open={transcriptOpen} onOpenChange={setTranscriptOpen}>
         <DialogPortal>
         <DialogBackdrop />
-        <DialogPopup className="flex max-h-[80vh] max-w-lg flex-col">
-          <DialogTitle>{studioCopy.viewTranscript}</DialogTitle>
+        <DialogPopup className="flex max-h-[80vh] w-[calc(100vw-2rem)] max-w-2xl flex-col overflow-hidden">
+          <DialogTitle className="shrink-0">{studioCopy.viewTranscript}</DialogTitle>
           <input
-            className="mt-3 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            className="mt-3 shrink-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
             placeholder={studioCopy.searchTranscript}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <ScrollArea className="mt-3 max-h-[60vh]">
-            <div className="flex flex-wrap gap-1 text-xs">
-              {(search.trim()
-                ? words.filter((word) => word.text.toLowerCase().includes(search.trim().toLowerCase()))
-                : words
-              ).map((word, index) => (
-                <button
-                  key={`${word.start}-${index}`}
-                  type="button"
-                  className="rounded bg-muted px-1 py-0.5"
-                  onClick={() => {
-                    if (word.clipId) {
-                      onSelectClip(word.clipId);
+          {query ? <p className="mt-2 shrink-0 text-xs text-muted-foreground">{matchCount} matches</p> : null}
+          <div
+            ref={transcriptBodyRef}
+            data-testid="transcript-body"
+            className="mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto text-sm leading-relaxed break-words"
+          >
+            {highlighted.map((item, index) => (
+              <span key={item.key}>
+                {index > 0 ? " " : null}
+                {item.word.clipId ? (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="cursor-pointer hover:underline"
+                    onClick={() => {
+                      onSelectClip(item.word.clipId!);
                       setTranscriptOpen(false);
-                    }
-                  }}
-                >
-                  {word.text}
-                </button>
-              ))}
-            </div>
-          </ScrollArea>
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelectClip(item.word.clipId!);
+                        setTranscriptOpen(false);
+                      }
+                    }}
+                  >
+                    {item.nodes}
+                  </span>
+                ) : (
+                  <span>{item.nodes}</span>
+                )}
+              </span>
+            ))}
+          </div>
         </DialogPopup>
         </DialogPortal>
       </Dialog>

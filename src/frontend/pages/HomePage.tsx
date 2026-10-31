@@ -26,7 +26,7 @@ const tiles = [
 
 export function HomePage() {
   return (
-    <AppShell subtitle="home">
+    <AppShell>
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3">
           {tiles.map(({ to, title, description, icon: Icon }) => (

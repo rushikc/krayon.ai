@@ -27,7 +27,7 @@ If the dev servers are down, the suite stops immediately with a message telling 
 - `helpers/studio-page.ts`: page helpers (`openStudio`, `selectClip`, `clickWaveform`).
 - `e2e/studio-api.spec.ts`: API checks (fields, peaks, wav Range support, 409 on stale revision).
 - `e2e/studio-empty.spec.ts`: a project with no clips shows only Analyze and Rebuild.
-- `e2e/studio-ui.spec.ts`: left list, filters, controls, clip selection, accept/reject, waveform editor and cuts, console errors.
+- `e2e/studio-ui.spec.ts`: left list, filters, controls, clip selection, accept/reject, transcript dialog, group expand/collapse, playhead contrast and motion, waveform editor and cuts, console errors.
 
 ## Data safety
 
@@ -44,10 +44,6 @@ If the dev servers are down, the suite stops immediately with a message telling 
 | `E2E_API` | `http://127.0.0.1:8789/api/studio` | Studio API URL |
 | `E2E_CHANNEL` | `chrome` | Browser channel (`chromium` to use Playwright's own) |
 | `E2E_RENDER` | off | Set to `1` to include the slow real-render test |
-
-## Known failing test
-
-`no React or page errors while browsing a clip` fails on purpose: React reports a `<button>` nested inside the clip group header `<button>`. It goes green once that markup is fixed.
 
 ## Adding tests
 

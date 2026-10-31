@@ -58,7 +58,6 @@ export const studioCopy = {
   currentAnalysis: "Current analysis",
   backendTools: "Backend tools",
   refresh: "Refresh",
-  showAllSegments: "Show all segments",
   viewTranscript: "View transcript",
   renderPreview: "Render preview",
   renderFinal: "Render final video",

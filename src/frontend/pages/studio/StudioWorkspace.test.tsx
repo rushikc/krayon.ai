@@ -193,7 +193,7 @@ describe("StudioWorkspace", () => {
     expect(screen.getAllByText("Missing words").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("sends accept and reject ops and keeps all clips when segments open", async () => {
+  it("sends accept and reject ops and keeps the clip in the list", async () => {
     const clips = [clip({ id: "c-0007", status: "undecided", text: "open me" })];
     getProject.mockResolvedValue(project(clips));
     const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
@@ -207,8 +207,6 @@ describe("StudioWorkspace", () => {
     expect(applyOps).toHaveBeenCalledWith("real", 1, [{ op: "select", clipId: "c-0007" }], "select");
     await userEvent.click(screen.getByRole("button", { name: "Reject" }));
     expect(applyOps).toHaveBeenCalledWith("real", 1, [{ op: "reject", clipId: "c-0007" }], "reject");
-    await userEvent.click(screen.getByRole("button", { name: "Show all segments" }));
-    expect(screen.getAllByText("Take 7").length).toBeGreaterThan(0);
     expect(screen.getByTestId("studio-clips")).toHaveTextContent("Take 7");
   });
 
@@ -317,5 +315,105 @@ describe("StudioWorkspace", () => {
     expect(at[0]).toBeCloseTo(2, 1);
     expect(at[1]).toBeCloseTo(3.5, 1);
     expect(at[0]).toBeGreaterThan(0.5);
+  });
+
+  it("toggles Collapse all and Expand all on visible groups", async () => {
+    getProject.mockResolvedValue(
+      project([
+        clip({ id: "c-0001", status: "selected", text: "one" }),
+        clip({ id: "c-0002", status: "undecided", text: "two" }),
+      ]),
+    );
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByText("Take 1");
+    const toggle = screen.getByTestId("toggle-all-groups");
+    expect(toggle).toHaveTextContent("Collapse all");
+    await userEvent.click(toggle);
+    expect(screen.queryByRole("button", { name: "Take 1" })).toBeNull();
+    expect(toggle).toHaveTextContent("Expand all");
+    await userEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Take 1" })).toBeTruthy();
+    expect(toggle).toHaveTextContent("Collapse all");
+  });
+
+  it("collapses only the double-clicked group and keeps the clip selected", async () => {
+    const clips = [
+      clip({ id: "c-0001", status: "undecided", text: "alpha", groupId: "g-0001" }),
+      clip({ id: "c-0002", status: "undecided", text: "beta", groupId: "g-0001" }),
+      clip({ id: "c-0003", status: "undecided", text: "gamma", groupId: "g-0002" }),
+    ];
+    getProject.mockResolvedValue({
+      ...project(clips),
+      groups: [
+        { id: "g-0001", label: "First group", clipIds: ["c-0001", "c-0002"], recommendedClipId: "c-0001" },
+        { id: "g-0002", label: "Second group", clipIds: ["c-0003"], recommendedClipId: "c-0003" },
+      ],
+    });
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Take 1" }));
+    expect(screen.getByTestId("clip-data")).toHaveTextContent("c-0002");
+    await userEvent.dblClick(screen.getByRole("button", { name: "Take 1" }));
+    expect(screen.queryByRole("button", { name: "Take 1" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Take 2" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Take 3" })).toBeTruthy();
+    expect(screen.getByTestId("clip-data")).toHaveTextContent("c-0002");
+    expect(screen.getByText("Take 1")).toBeTruthy();
+  });
+
+  it("puts Copy JSON before Raw JSON and Undo/Redo in the preview tabs", async () => {
+    getProject.mockResolvedValue(project([clip({ id: "c-0007", status: "undecided", text: "open me" })]));
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    const tabs = await screen.findByTestId("preview-tabs");
+    expect(tabs.querySelector('[aria-label="Undo"]')).toBeTruthy();
+    expect(tabs.querySelector('[aria-label="Redo"]')).toBeTruthy();
+    expect(tabs).toHaveTextContent("Undo");
+    expect(tabs).toHaveTextContent("Redo");
+    await userEvent.click(screen.getByRole("button", { name: "Take 7" }));
+    const data = screen.getByTestId("clip-data");
+    const copy = screen.getByRole("button", { name: "Copy JSON" });
+    const raw = screen.getByRole("button", { name: "Raw JSON" });
+    expect(data.contains(copy)).toBe(true);
+    expect(copy.compareDocumentPosition(raw) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders the transcript as wrapping text with a scrollable body", async () => {
+    getProject.mockResolvedValue(project([clip({ id: "c-0007", status: "undecided", text: "open me" })]));
+    getTranscript.mockResolvedValue({
+      words: [
+        { text: "hello", start: 0, end: 0.2, clipId: "c-0007" },
+        { text: "world", start: 0.2, end: 0.4, clipId: "c-0007" },
+        { text: "aside", start: 0.4, end: 0.5, clipId: null },
+      ],
+    });
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "View transcript" }));
+    const body = await screen.findByTestId("transcript-body");
+    expect(body.className).toMatch(/overflow-y-auto/);
+    expect(body).toHaveTextContent("hello world aside");
+    await userEvent.type(screen.getByPlaceholderText(/search transcript/i), "ell");
+    expect(body.querySelector("mark")).toHaveTextContent("ell");
+    expect(body).toHaveTextContent("world");
+    expect(body).toHaveTextContent("aside");
+    expect(screen.getByText("1 matches")).toBeTruthy();
   });
 });

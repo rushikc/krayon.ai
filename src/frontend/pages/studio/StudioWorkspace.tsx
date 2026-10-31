@@ -1,8 +1,6 @@
-import { Redo2, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/button";
 import {
   type ConfirmationItem,
   type StudioClip,
@@ -19,7 +17,6 @@ import {
   lintProject,
   listConfirmations,
   listOutputs,
-  listSegments,
   reanalyze,
   redo,
   renderStatus,
@@ -278,21 +275,9 @@ export function StudioWorkspace({ slug }: { slug: string }) {
       showBack
       backTo="/studio"
       backLabel={studioCopy.backToLibrary}
-      subtitle={sourceName(project?.meta.sourcePath)}
-      afterTitle={
-        <span className="ml-3 truncate text-xs text-muted-foreground">{project?.meta.title ?? slug}</span>
-      }
-      actions={
-        <>
-          <StudioStepIndicator />
-          <Button type="button" variant="ghost" size="icon-sm" aria-label="Undo" onClick={() => void undo(slug).then(refresh)}>
-            <Undo2 className="size-3.5" />
-          </Button>
-          <Button type="button" variant="ghost" size="icon-sm" aria-label="Redo" onClick={() => void redo(slug).then(refresh)}>
-            <Redo2 className="size-3.5" />
-          </Button>
-        </>
-      }
+      title={sourceName(project?.meta.sourcePath)}
+      subtitle={project?.meta.title ?? slug}
+      actions={<StudioStepIndicator />}
     >
       {error ? <p className="absolute left-4 top-12 z-10 text-xs text-destructive">{error}</p> : null}
       <StudioClipsPanel
@@ -331,6 +316,8 @@ export function StudioWorkspace({ slug }: { slug: string }) {
           editingRef.current = value;
         }}
         onStayOnClip={(id) => setSelectedClipId(id)}
+        onUndo={() => void undo(slug).then(refresh)}
+        onRedo={() => void redo(slug).then(refresh)}
         onSaveCuts={async (clipId, at) => {
           if (!project) return false;
           setConflictError(null);
@@ -393,7 +380,6 @@ export function StudioWorkspace({ slug }: { slug: string }) {
           setActiveRenderName(name);
           setTab("render");
         }}
-        onLoadSegments={() => listSegments(slug)}
         onLoadTranscript={() => getTranscript(slug)}
         clipCount={clips.length}
         hasTranscript={Boolean(project?.hasTranscript)}

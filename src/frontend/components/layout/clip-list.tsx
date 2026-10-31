@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Play } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { TruncatedText } from "@/components/ui/truncated-text";
@@ -27,6 +27,13 @@ export function ClipListPlayButton({
   );
 }
 
+function activateOnEnterOrSpace(event: KeyboardEvent, action: () => void) {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    action();
+  }
+}
+
 export function SpeechClipRow({
   clip,
   selected,
@@ -39,6 +46,7 @@ export function SpeechClipRow({
   trailing,
   onPreview,
   onPlay,
+  onDoubleClick,
 }: {
   clip: Pick<ClipItem, "id" | "index" | "text" | "duration">;
   selected: boolean;
@@ -51,20 +59,23 @@ export function SpeechClipRow({
   trailing?: ReactNode;
   onPreview: () => void;
   onPlay: () => void;
+  onDoubleClick?: () => void;
 }) {
   const resolvedIssue = issueLabel === undefined ? clipIssueLabel(clip as ClipItem) : issueLabel;
   const label = takeLabel ?? `Take ${clip.index + 1}`;
   return (
-    <div className="group relative -my-0.5 py-2">
-      <button
-        type="button"
-        className="absolute inset-0 z-0 cursor-pointer"
-        aria-label={label}
-        onClick={onPreview}
-      />
+    <div
+      className="group relative -my-0.5 py-2"
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      onClick={onPreview}
+      onDoubleClick={onDoubleClick}
+      onKeyDown={(event) => activateOnEnterOrSpace(event, onPreview)}
+    >
       <div
         className={cn(
-          "relative z-10 pointer-events-none flex items-start gap-1 rounded-md border px-2 py-1.5 text-left text-xs",
+          "relative z-10 flex items-start gap-1 rounded-md border px-2 py-1.5 text-left text-xs",
           resolvedIssue
             ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
             : selected
@@ -75,7 +86,7 @@ export function SpeechClipRow({
         {leading}
         <div className={cn("min-w-0 flex-1 text-left", dimmed && "opacity-60")}>
           <span className="flex items-baseline gap-1.5">
-            <span className="whitespace-nowrap font-medium">{label}</span>
+            <span className="whitespace-nowrap font-medium text-foreground">{label}</span>
             {extraTitle ? <span className="pointer-events-auto">{extraTitle}</span> : null}
             {isBest && !resolvedIssue && (
               <span className="text-[10px] font-medium uppercase tracking-wide text-primary">
@@ -88,11 +99,15 @@ export function SpeechClipRow({
               </span>
             )}
           </span>
-          <TruncatedText text={clip.text} className="pointer-events-none text-muted-foreground" />
-          <span className="text-muted-foreground">{formatDuration(clip.duration)}</span>
+          <TruncatedText text={clip.text} className="pointer-events-none text-foreground/80" />
+          <span className="text-foreground/80">{formatDuration(clip.duration)}</span>
         </div>
         {trailing}
-        <span className="pointer-events-auto">
+        <span
+          className="pointer-events-auto"
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
           <ClipListPlayButton
             onClick={(e) => {
               e.stopPropagation();
@@ -119,6 +134,9 @@ export function ClipGroups({
   headerExtra,
   dimmed,
   recommendedId,
+  expandedMap,
+  onExpandedChange,
+  collapseOnClipDoubleClick,
 }: {
   groups: Array<ClipGroup & { recommendedClipId?: string | null }>;
   clips: Array<Pick<ClipItem, "id" | "index" | "text" | "duration">>;
@@ -136,8 +154,18 @@ export function ClipGroups({
   ) => ReactNode;
   dimmed?: (clip: Pick<ClipItem, "id" | "index" | "text" | "duration">) => boolean;
   recommendedId?: (group: ClipGroup & { recommendedClipId?: string | null }) => string | null | undefined;
+  expandedMap?: Record<string, boolean>;
+  onExpandedChange?: (next: Record<string, boolean>) => void;
+  collapseOnClipDoubleClick?: boolean;
 }) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [uncontrolled, setUncontrolled] = useState<Record<string, boolean>>({});
+  const expanded = expandedMap ?? uncontrolled;
+
+  function setExpanded(updater: (current: Record<string, boolean>) => Record<string, boolean>) {
+    const next = updater(expanded);
+    onExpandedChange?.(next);
+    if (expandedMap === undefined) setUncontrolled(next);
+  }
 
   const clipsById = useMemo(() => {
     const map = new Map<string, Pick<ClipItem, "id" | "index" | "text" | "duration">>();
@@ -153,19 +181,23 @@ export function ClipGroups({
           .map((id) => clipsById.get(id))
           .filter(Boolean) as Array<Pick<ClipItem, "id" | "index" | "text" | "duration">>;
         const bestId = recommendedId?.(group) ?? group.referenceClipId;
+        const toggle = () => setExpanded((s) => ({ ...s, [group.id]: !isOpen }));
 
         return (
           <div key={group.id} className="rounded-lg border border-border/60 bg-background/40">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium"
-              onClick={() => setExpanded((s) => ({ ...s, [group.id]: !isOpen }))}
+            <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={isOpen}
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm font-medium"
+              onClick={toggle}
+              onKeyDown={(event) => activateOnEnterOrSpace(event, toggle)}
             >
               {isOpen ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
               <TruncatedText text={group.label} className="min-w-0 flex-1" />
               {headerExtra?.(group, groupClips)}
               <span className="ml-auto shrink-0 text-xs text-muted-foreground">{groupClips.length}</span>
-            </button>
+            </div>
             {isOpen && (
               <div className="space-y-1 border-t border-border/60 p-2">
                 {groupClips.map((clip) => (
@@ -182,6 +214,11 @@ export function ClipGroups({
                     dimmed={dimmed?.(clip)}
                     onPreview={() => onPreviewClip(clip.id)}
                     onPlay={() => onPlayClip(clip.id)}
+                    onDoubleClick={
+                      collapseOnClipDoubleClick
+                        ? () => setExpanded((s) => ({ ...s, [group.id]: false }))
+                        : undefined
+                    }
                   />
                 ))}
               </div>

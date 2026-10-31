@@ -37,7 +37,9 @@ export function TruncatedText({ text, className }: TruncatedTextProps) {
   return (
     <TooltipProvider>
       <Tooltip>
-        <TooltipTrigger className={cn("block min-w-0 max-w-full text-left", className)}>
+        <TooltipTrigger
+          render={<span className={cn("block min-w-0 max-w-full text-left", className)} />}
+        >
           {span}
         </TooltipTrigger>
         <TooltipContent>{text}</TooltipContent>

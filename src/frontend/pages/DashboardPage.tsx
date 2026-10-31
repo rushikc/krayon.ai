@@ -8,7 +8,7 @@ export function DashboardPage() {
   const { handleOpenFolder } = useFolderActions();
 
   return (
-    <AppShell subtitle="library">
+    <AppShell title="library">
       <LibrarySidebar onOpenFolder={() => void handleOpenFolder()} />
       <VideoPlayer />
       <DashboardPanel />

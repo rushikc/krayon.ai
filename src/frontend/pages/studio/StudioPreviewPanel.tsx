@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Copy, Loader2, Redo2, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ClipPlayerCard } from "@/components/player/ClipPlayerCard";
@@ -10,7 +10,7 @@ import { formatDuration, formatSize, formatTimestamp } from "@/lib/format";
 import { studioClipIssueLabel } from "@/lib/delivery-issue";
 import { playheadToSource, sourceToPlayhead, takeLabelFromId, validateCut } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
-import { StudioWaveform } from "@/pages/studio/StudioWaveform";
+import { StudioWaveform, type StudioWaveformHandle } from "@/pages/studio/StudioWaveform";
 import { toast } from "@/stores/toast-store";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +48,8 @@ export function StudioPreviewPanel({
   onEditingChange,
   onStayOnClip,
   onSaveCuts,
+  onUndo,
+  onRedo,
 }: {
   slug: string;
   clip: StudioClip | null;
@@ -71,10 +73,15 @@ export function StudioPreviewPanel({
   onEditingChange?: (editing: boolean) => void;
   onStayOnClip?: (id: string) => void;
   onSaveCuts?: (clipId: string, at: number[]) => Promise<boolean>;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playheadRef = useRef(0);
   const ignorePausedZeroRef = useRef(false);
+  const waveformRef = useRef<StudioWaveformHandle>(null);
+  const rafRef = useRef(0);
+  const lastStateMsRef = useRef(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -88,6 +95,35 @@ export function StudioPreviewPanel({
   const [discardOpen, setDiscardOpen] = useState(false);
   const src = clip ? audioUrl(slug, clip.id, pad) : "";
   const selectedRender = renders.find((item) => item.name === activeRenderName) ?? renders[0] ?? null;
+
+  function stopPlayheadLoop() {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
+  }
+
+  function startPlayheadLoop() {
+    stopPlayheadLoop();
+    const tick = (now: number) => {
+      const audio = audioRef.current;
+      if (!audio || audio.paused) {
+        rafRef.current = 0;
+        return;
+      }
+      const time = audio.currentTime;
+      playheadRef.current = time;
+      waveformRef.current?.setPlayheadTime(time);
+      if (now - lastStateMsRef.current >= 100) {
+        lastStateMsRef.current = now;
+        setCurrentTime(time);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
+  useEffect(() => {
+    return () => stopPlayheadLoop();
+  }, []);
 
   useEffect(() => {
     playingRef.current = isPlaying && tab === "clip";
@@ -118,9 +154,11 @@ export function StudioPreviewPanel({
   const activeClipId = useRef(clip?.id ?? null);
 
   useEffect(() => {
+    stopPlayheadLoop();
     setIsPlaying(false);
     playheadRef.current = 0;
     setCurrentTime(0);
+    waveformRef.current?.setPlayheadTime(0);
     handledAutoPlay.current = 0;
     if (clip?.id === activeClipId.current) return;
     if (cutsRef.current.length > 0 && activeClipId.current) {
@@ -169,12 +207,15 @@ export function StudioPreviewPanel({
     const next = Number.isFinite(value) ? Math.max(0, value) : 0;
     playheadRef.current = next;
     setCurrentTime(next);
+    waveformRef.current?.setPlayheadTime(next);
   }
 
   const seek = (value: number) => {
-    ignorePausedZeroRef.current = audioRef.current?.paused !== false;
-    setPlayhead(value);
     const audio = audioRef.current;
+    const wasPlaying = audio ? !audio.paused : false;
+    stopPlayheadLoop();
+    ignorePausedZeroRef.current = audio?.paused !== false;
+    setPlayhead(value);
     if (audio && Number.isFinite(value)) {
       try {
         audio.currentTime = value;
@@ -182,6 +223,7 @@ export function StudioPreviewPanel({
         /* jsdom / some webviews ignore currentTime writes */
       }
     }
+    if (wasPlaying) startPlayheadLoop();
   };
 
   function addCutAtPlayhead() {
@@ -234,7 +276,7 @@ export function StudioPreviewPanel({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
-      <div className="flex flex-wrap gap-1 border-b border-border px-4 py-2" data-testid="preview-tabs">
+      <div className="flex flex-wrap items-center gap-1 border-b border-border px-4 py-2" data-testid="preview-tabs">
         {tabs.map((item) => (
           <Button
             key={item.id}
@@ -246,6 +288,16 @@ export function StudioPreviewPanel({
             {item.label}
           </Button>
         ))}
+        <div className="ml-auto flex items-center gap-1">
+          <Button type="button" variant="outline" size="sm" aria-label="Undo" onClick={onUndo}>
+            <Undo2 className="size-3.5" />
+            Undo
+          </Button>
+          <Button type="button" variant="outline" size="sm" aria-label="Redo" onClick={onRedo}>
+            <Redo2 className="size-3.5" />
+            Redo
+          </Button>
+        </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
         {tab === "clip" ? (
@@ -294,6 +346,7 @@ export function StudioPreviewPanel({
                   }
                   timeline={
                     <StudioWaveform
+                      ref={waveformRef}
                       peaks={peaks}
                       duration={peakDuration || duration}
                       currentTime={currentTime}
@@ -356,16 +409,25 @@ export function StudioPreviewPanel({
                       }}
                       onTimeUpdate={(event) => {
                         const audio = event.currentTarget;
-                        if (audio.paused) {
-                          if (ignorePausedZeroRef.current && audio.currentTime === 0) return;
-                          return;
-                        }
-                        ignorePausedZeroRef.current = false;
+                        if (!audio.paused) return;
+                        if (ignorePausedZeroRef.current && audio.currentTime === 0) return;
                         setPlayhead(audio.currentTime);
                       }}
-                      onPlay={() => setIsPlaying(true)}
-                      onPause={() => setIsPlaying(false)}
-                      onEnded={() => setIsPlaying(false)}
+                      onPlay={() => {
+                        ignorePausedZeroRef.current = false;
+                        setIsPlaying(true);
+                        startPlayheadLoop();
+                      }}
+                      onPause={() => {
+                        stopPlayheadLoop();
+                        setIsPlaying(false);
+                        const audio = audioRef.current;
+                        if (audio) setPlayhead(audio.currentTime);
+                      }}
+                      onEnded={() => {
+                        stopPlayheadLoop();
+                        setIsPlaying(false);
+                      }}
                     />
                   }
                 />
@@ -453,15 +515,16 @@ export function StudioPreviewPanel({
                         </div>
                       ))}
                     </dl>
-                    <button type="button" className="mt-2 underline" onClick={() => setRawOpen((open) => !open)}>
+                    <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void copyJson()}>
+                      <Copy className="size-3.5" />
+                      {studioCopy.copyJson}
+                    </Button>
+                    <button type="button" className="mt-2 block text-left underline" onClick={() => setRawOpen((open) => !open)}>
                       {studioCopy.rawJson}
                     </button>
                     {rawOpen ? (
                       <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2">{JSON.stringify(clip, null, 2)}</pre>
                     ) : null}
-                    <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void copyJson()}>
-                      {studioCopy.copyJson}
-                    </Button>
                   </section>
                 </div>
               </div>

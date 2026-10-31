@@ -34,7 +34,7 @@ export function StudioLanding() {
   }
 
   return (
-    <AppShell subtitle="studio" showBack backTo="/" backLabel="Home">
+    <AppShell title="Studio" showBack backTo="/" backLabel="Home">
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 overflow-auto p-6">
         <div>
           <h2 className="text-lg font-semibold">Studio</h2>
