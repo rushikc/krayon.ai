@@ -1,12 +1,15 @@
+import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ClipPlayerCard } from "@/components/player/ClipPlayerCard";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogBackdrop, DialogPopup, DialogPortal, DialogTitle } from "@/components/ui/dialog";
 import type { StudioClip, StudioGroup } from "@/lib/api/studio-client";
-import { audioUrl, outputUrl, sourceUrl } from "@/lib/api/studio-client";
+import { audioUrl, getClipPeaks, outputUrl, sourceUrl } from "@/lib/api/studio-client";
 import { formatDuration, formatSize, formatTimestamp } from "@/lib/format";
-import { takeLabelFromId } from "@/lib/studio-clip";
+import { playheadToSource, sourceToPlayhead, takeLabelFromId, validateCut } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
+import { StudioWaveform } from "@/pages/studio/StudioWaveform";
 import { toast } from "@/stores/toast-store";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +41,12 @@ export function StudioPreviewPanel({
   onNext,
   autoPlayToken,
   playingRef,
+  projectStatus,
+  statusMessage,
+  onRetryAnalyze,
+  onEditingChange,
+  onStayOnClip,
+  onSaveCuts,
 }: {
   slug: string;
   clip: StudioClip | null;
@@ -55,6 +64,12 @@ export function StudioPreviewPanel({
   onNext: () => void;
   autoPlayToken: number;
   playingRef: React.MutableRefObject<boolean>;
+  projectStatus?: string;
+  statusMessage?: string;
+  onRetryAnalyze?: () => void;
+  onEditingChange?: (editing: boolean) => void;
+  onStayOnClip?: (id: string) => void;
+  onSaveCuts?: (clipId: string, at: number[]) => Promise<boolean>;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -62,6 +77,12 @@ export function StudioPreviewPanel({
   const [duration, setDuration] = useState(0);
   const handledAutoPlay = useRef(0);
   const [rawOpen, setRawOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [cuts, setCuts] = useState<number[]>([]);
+  const [cutError, setCutError] = useState<string | null>(null);
+  const [peaks, setPeaks] = useState<number[]>([]);
+  const [peakDuration, setPeakDuration] = useState(0);
+  const [discardOpen, setDiscardOpen] = useState(false);
   const src = clip ? audioUrl(slug, clip.id, pad) : "";
   const selectedRender = renders.find((item) => item.name === activeRenderName) ?? renders[0] ?? null;
 
@@ -70,10 +91,45 @@ export function StudioPreviewPanel({
   }, [isPlaying, playingRef, tab]);
 
   useEffect(() => {
+    onEditingChange?.(editing);
+  }, [editing, onEditingChange]);
+
+  useEffect(() => {
+    if (!clip) {
+      setPeaks([]);
+      return;
+    }
+    void getClipPeaks(slug, clip.id, 800, pad)
+      .then((result) => {
+        setPeaks(result.peaks);
+        setPeakDuration(result.duration);
+      })
+      .catch(() => {
+        setPeaks([]);
+        setPeakDuration(0);
+      });
+  }, [clip?.id, pad, slug]);
+
+  const cutsRef = useRef(cuts);
+  cutsRef.current = cuts;
+  const activeClipId = useRef(clip?.id ?? null);
+
+  useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
     handledAutoPlay.current = 0;
-  }, [clip?.id]);
+    if (clip?.id === activeClipId.current) return;
+    if (cutsRef.current.length > 0 && activeClipId.current) {
+      if (!window.confirm(studioCopy.discardCuts)) {
+        onStayOnClip?.(activeClipId.current);
+        return;
+      }
+    }
+    activeClipId.current = clip?.id ?? null;
+    setEditing(false);
+    setCuts([]);
+    setCutError(null);
+  }, [clip?.id, onStayOnClip]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -107,10 +163,42 @@ export function StudioPreviewPanel({
 
   const seek = (value: number) => {
     const audio = audioRef.current;
-    if (!audio) return;
-    audio.currentTime = value;
+    if (audio && Number.isFinite(value)) {
+      try {
+        audio.currentTime = value;
+      } catch {
+        /* jsdom / some webviews ignore currentTime writes */
+      }
+    }
     setCurrentTime(value);
   };
+
+  function addCutAtPlayhead() {
+    if (!clip || !editing) return;
+    const playhead = Math.max(currentTime, audioRef.current?.currentTime ?? 0);
+    const at = playheadToSource(playhead, clip.sourceStart, pad);
+    const error = validateCut(at, clip.sourceStart, clip.sourceEnd, cuts);
+    if (error) {
+      setCutError(studioCopy.cutTooClose);
+      return;
+    }
+    setCuts((current) => [...current, at].sort((left, right) => left - right));
+    setCutError(null);
+  }
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (!editing) return;
+      if (event.key === "s" || event.key === "S") {
+        event.preventDefault();
+        addCutAtPlayhead();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   const copyClip = async () => {
     if (!clip) return;
@@ -151,7 +239,7 @@ export function StudioPreviewPanel({
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
         {tab === "clip" ? (
-          <div className="flex flex-1 flex-col items-center gap-4 p-6">
+          <div className="flex w-full min-w-0 flex-1 flex-col items-center gap-4 p-6">
             {clip ? (
               <>
                 <ClipPlayerCard
@@ -163,10 +251,88 @@ export function StudioPreviewPanel({
                   copyAriaLabel={studioCopy.copySentence}
                   srcReady={Boolean(src)}
                   currentTime={currentTime}
-                  duration={clip.duration || duration}
+                  duration={peakDuration || duration || clip.duration + pad * 2}
                   isPlaying={isPlaying}
                   onSeek={seek}
                   onTogglePlay={() => void togglePlay()}
+                  timelineCardClassName={editing ? "border-blue-500" : undefined}
+                  timelineHeader={
+                    <div className="mb-3 flex items-center justify-end gap-2">
+                      {editing ? (
+                        <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[11px] font-medium text-blue-300" data-testid="editing-badge">
+                          {studioCopy.editing}
+                        </span>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant={editing ? "outline" : "default"}
+                        data-testid="waveform-edit"
+                        onClick={() => {
+                          if (editing && cuts.length > 0) {
+                            setDiscardOpen(true);
+                            return;
+                          }
+                          setEditing((value) => !value);
+                          setCutError(null);
+                        }}
+                      >
+                        {editing ? studioCopy.cancel : studioCopy.edit}
+                      </Button>
+                    </div>
+                  }
+                  timeline={
+                    <StudioWaveform
+                      peaks={peaks}
+                      duration={peakDuration || duration}
+                      currentTime={currentTime}
+                      editing={editing}
+                      cuts={cuts}
+                      sourceStart={clip.sourceStart}
+                      sourceEnd={clip.sourceEnd}
+                      pad={pad}
+                      onSeek={seek}
+                      onRemoveCut={(at) => setCuts((current) => current.filter((cut) => cut !== at))}
+                    />
+                  }
+                  timelineFooter={
+                    editing ? (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button type="button" size="sm" variant="outline" onClick={addCutAtPlayhead}>
+                            {studioCopy.addCut}
+                          </Button>
+                          <span className="text-xs text-muted-foreground">{studioCopy.pressS}</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={cuts.length === 0}
+                            onClick={() => setCuts((current) => current.slice(0, -1))}
+                          >
+                            {studioCopy.undoLastCut}
+                          </Button>
+                        </div>
+                        {cutError ? <p className="text-xs text-destructive">{cutError}</p> : null}
+                        <Button
+                          type="button"
+                          className="w-full"
+                          disabled={cuts.length === 0}
+                          onClick={() => {
+                            void onSaveCuts?.(clip.id, cuts).then((ok) => {
+                              if (ok) {
+                                setEditing(false);
+                                setCuts([]);
+                                setCutError(null);
+                              }
+                            });
+                          }}
+                        >
+                          {studioCopy.saveCuts(cuts.length)}
+                        </Button>
+                      </div>
+                    ) : null
+                  }
                   audio={
                     <audio
                       ref={audioRef}
@@ -229,7 +395,7 @@ export function StudioPreviewPanel({
                           key={`${word.start}-${index}`}
                           type="button"
                           className="rounded bg-muted px-1 py-0.5 hover:bg-primary/15"
-                          onClick={() => seek(Math.max(0, word.start - clip.sourceStart))}
+                          onClick={() => seek(Math.max(0, sourceToPlayhead(word.start, clip.sourceStart, pad)))}
                         >
                           {word.text}
                         </button>
@@ -281,7 +447,25 @@ export function StudioPreviewPanel({
                 </div>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">{studioCopy.noClipSelected}</p>
+              <div className="flex flex-col items-center gap-3 p-8 text-center" data-testid="studio-empty">
+                {projectStatus === "analyzing" ? (
+                  <>
+                    <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">{statusMessage || studioCopy.analyzing}</p>
+                  </>
+                ) : projectStatus === "error" ? (
+                  <>
+                    <p className="text-sm text-destructive">{statusMessage || studioCopy.analyzeFailed}</p>
+                    <Button type="button" onClick={onRetryAnalyze}>
+                      {studioCopy.retry}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {statusMessage && projectStatus === "empty" ? studioCopy.readyToAnalyze : studioCopy.noClipSelected}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         ) : null}
@@ -320,6 +504,31 @@ export function StudioPreviewPanel({
           </div>
         ) : null}
       </div>
+      <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <DialogPortal>
+          <DialogBackdrop />
+          <DialogPopup>
+            <DialogTitle>{studioCopy.discardCuts}</DialogTitle>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setDiscardOpen(false)}>
+                {studioCopy.edit}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setCuts([]);
+                  setEditing(false);
+                  setDiscardOpen(false);
+                  setCutError(null);
+                }}
+              >
+                {studioCopy.cancel}
+              </Button>
+            </div>
+          </DialogPopup>
+        </DialogPortal>
+      </Dialog>
     </main>
   );
 }

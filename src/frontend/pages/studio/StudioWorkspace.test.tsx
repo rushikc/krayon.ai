@@ -6,6 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudioClip, StudioProject } from "@/lib/api/studio-client";
 
 const applyOps = vi.fn();
+const analyze = vi.fn();
+const reanalyze = vi.fn();
+const getClipPeaks = vi.fn();
 const getProject = vi.fn();
 const lintProject = vi.fn();
 const listConfirmations = vi.fn();
@@ -21,6 +24,9 @@ vi.mock("@/lib/api/studio-client", async () => {
   return {
     ...actual,
     applyOps: (...args: unknown[]) => applyOps(...args),
+    analyze: (...args: unknown[]) => analyze(...args),
+    reanalyze: (...args: unknown[]) => reanalyze(...args),
+    getClipPeaks: (...args: unknown[]) => getClipPeaks(...args),
     getProject: (...args: unknown[]) => getProject(...args),
     lintProject: (...args: unknown[]) => lintProject(...args),
     listConfirmations: (...args: unknown[]) => listConfirmations(...args),
@@ -85,6 +91,7 @@ function project(clips: StudioClip[]): StudioProject {
     },
     revision: 1,
     status: "ready",
+    hasTranscript: true,
     clips,
     groups: [{ id: "g-0001", label: "Have you ever tried to manage", clipIds: clips.map((item) => item.id), recommendedClipId: clips[0]?.id ?? null }],
     order: clips.filter((item) => item.status === "selected").map((item) => item.id),
@@ -99,7 +106,10 @@ function emit(data: unknown) {
 describe("StudioWorkspace", () => {
   beforeEach(() => {
     listeners.length = 0;
-    applyOps.mockReset().mockResolvedValue({ revision: 2 });
+    applyOps.mockReset().mockResolvedValue({ revision: 2, summary: "split c-0007 into 3 clips" });
+    analyze.mockReset().mockResolvedValue({ revision: 2, clipCount: 3 });
+    reanalyze.mockReset().mockResolvedValue({ revision: 3 });
+    getClipPeaks.mockReset().mockResolvedValue({ duration: 4, peaks: Array.from({ length: 16 }, () => 0.2) });
     lintProject.mockResolvedValue({ warnings: [] });
     listConfirmations.mockResolvedValue({ items: [] });
     listOutputs.mockResolvedValue({ manifests: [] });
@@ -199,5 +209,68 @@ describe("StudioWorkspace", () => {
     await waitFor(() => expect(screen.getByTestId("render-progress")).toHaveTextContent("40%"));
     emit({ type: "render", renderId: "preview-1", phase: "done", ratio: 1, message: "Render complete", outputName: "preview-1.mp4" });
     await waitFor(() => expect(screen.getByTestId("rendered-video")).toBeTruthy());
+  });
+
+  it("hides render and segment buttons when there are no clips", async () => {
+    getProject.mockResolvedValue({ ...project([]), status: "empty", hasTranscript: false, meta: { ...project([]).meta, status: "empty" } });
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("button", { name: "Analyze audio" });
+    expect(screen.getByRole("button", { name: "Analyze audio" }).className).toMatch(/bg-primary|default/);
+    expect(screen.queryByRole("button", { name: "Show all segments" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Render preview" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Rebuild" })).toBeDisabled();
+  });
+
+  it("toggles edit mode, adds cuts with S, and saves splitMany once", async () => {
+    const clips = [clip({ id: "c-0007", status: "undecided", text: "open me", sourceStart: 0, sourceEnd: 8, duration: 8 })];
+    getProject.mockResolvedValue(project(clips));
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    const { container } = render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByText("open me"));
+    expect(screen.getByTestId("studio-waveform").getAttribute("data-editing")).toBe("false");
+    await userEvent.click(screen.getByTestId("waveform-edit"));
+    expect(screen.getByTestId("editing-badge")).toBeTruthy();
+    expect(screen.getByTestId("studio-waveform").getAttribute("data-editing")).toBe("true");
+    expect(screen.getByRole("button", { name: /Save \(0 cuts/ })).toBeDisabled();
+
+    await userEvent.keyboard("s");
+    expect(screen.getByRole("button", { name: /Save \(0 cuts/ })).toBeDisabled();
+
+    const audio = container.querySelector("audio") as HTMLAudioElement;
+    let playhead = 2;
+    Object.defineProperty(audio, "currentTime", {
+      configurable: true,
+      get: () => playhead,
+      set: (value: number) => {
+        playhead = value;
+      },
+    });
+    await userEvent.keyboard("s");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Save \(1 cuts/ })).toBeEnabled());
+
+    const typing = document.createElement("input");
+    document.body.appendChild(typing);
+    typing.focus();
+    await userEvent.keyboard("s");
+    expect(screen.getByRole("button", { name: /Save \(1 cuts/ })).toBeTruthy();
+    typing.remove();
+
+    playhead = 4;
+    await userEvent.keyboard("s");
+    await userEvent.click(screen.getByRole("button", { name: /Save \(2 cuts/ }));
+    expect(applyOps).toHaveBeenCalledTimes(1);
+    expect(applyOps.mock.calls[0][2]).toEqual([
+      { op: "splitMany", clipId: "c-0007", at: expect.any(Array) },
+    ]);
+    expect((applyOps.mock.calls[0][2][0] as { at: number[] }).at).toHaveLength(2);
   });
 });

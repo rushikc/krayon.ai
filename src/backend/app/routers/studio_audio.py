@@ -14,7 +14,7 @@ from app.schemas import ClipItem
 from app.services.jobs import SSE_HEADERS, job_hub
 from app.services.segments import build_segments_from_words
 from app.services.studio.analyze import StudioAnalysis, analyze_project
-from app.services.studio.audio_stats import clip_audio_stats
+from app.services.studio.audio_stats import clip_audio_stats, clip_peaks
 from app.services.studio.clip_preview import slice_clip_audio
 from app.services.studio.frame import extract_frame
 from app.services.studio.pick_file import pick_video_macos
@@ -205,6 +205,21 @@ def clip_audio(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return FileResponse(output, media_type="audio/wav", filename="clip.wav")
+
+
+@router.get("/clip-peaks")
+def clip_peaks_route(
+    wav: str = Query(),
+    ranges: str = Query(),
+    pad: float = Query(default=0.0),
+    buckets: int = Query(default=800),
+) -> dict:
+    wav_path = _require_file(Path(wav), "WAV")
+    parsed = _parse_ranges(ranges)
+    try:
+        return clip_peaks(wav_path, parsed, pad=pad, buckets=buckets, cache_dir=wav_path.parent / "peaks")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/audio-stats")

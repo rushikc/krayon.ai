@@ -181,7 +181,7 @@ export function describeOpsPreview(ops: Op[] | undefined): string {
   return ops
     .map((op) => {
       if (op.op === "select" || op.op === "reject" || op.op === "undecided") return `${op.op} ${op.clipId}`;
-      if (op.op === "split") return `split ${op.clipId}`;
+      if (op.op === "split" || op.op === "splitMany") return `split ${op.clipId}`;
       if (op.op === "merge") return `merge ${op.clipIds.join(" ")}`;
       if (op.op === "trim") return `trim ${op.clipId}`;
       if (op.op === "note") return `note ${op.clipId}`;

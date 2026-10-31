@@ -52,6 +52,7 @@ export type StudioProject = {
   };
   revision: number;
   status: string;
+  hasTranscript?: boolean;
   clips: StudioClip[];
   groups: StudioGroup[];
   order: string[];
@@ -275,6 +276,21 @@ export function eventsUrl(slug: string) {
 
 export function audioUrl(slug: string, id: string, pad = 0.5) {
   return `${API}/projects/${slug}/clips/${id}/audio.wav?pad=${pad}`;
+}
+
+export function peaksUrl(slug: string, id: string, buckets = 800, pad?: number) {
+  const params = new URLSearchParams({ buckets: String(buckets) });
+  if (pad != null) params.set("pad", String(pad));
+  return `${API}/projects/${slug}/clips/${id}/peaks?${params.toString()}`;
+}
+
+export function getClipPeaks(slug: string, id: string, buckets = 800, pad?: number) {
+  return request<{ duration: number; peaks: number[] }>(
+    `/projects/${slug}/clips/${id}/peaks?${new URLSearchParams({
+      buckets: String(buckets),
+      ...(pad != null ? { pad: String(pad) } : {}),
+    }).toString()}`,
+  );
 }
 
 export function listConfirmations(slug: string, status: "pending" | "answered" | "all" = "all") {

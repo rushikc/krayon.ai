@@ -6,6 +6,7 @@ import { Dialog, DialogBackdrop, DialogPopup, DialogPortal, DialogTitle } from "
 import { FieldLabel } from "@/components/ui/field-label";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getToolsStatus } from "@/lib/api/client";
 import type { ConfirmationItem, StudioSettings } from "@/lib/api/studio-client";
 import { formatDuration, formatSize } from "@/lib/format";
@@ -45,6 +46,12 @@ export function StudioControlsPanel({
   onPlayRender,
   onLoadSegments,
   onLoadTranscript,
+  clipCount,
+  hasTranscript,
+  analysisBusy,
+  analysisMessage,
+  onAnalyze,
+  onRebuild,
 }: {
   asks: ConfirmationItem[];
   highlightAsk: string | null;
@@ -66,6 +73,12 @@ export function StudioControlsPanel({
   onPlayRender: (name: string) => void;
   onLoadSegments: () => Promise<{ segments: StudioSegmentRow[] }>;
   onLoadTranscript: () => Promise<{ words: Array<{ text: string; start: number; end: number; clipId: string | null }> }>;
+  clipCount: number;
+  hasTranscript: boolean;
+  analysisBusy: boolean;
+  analysisMessage?: string | null;
+  onAnalyze: () => void;
+  onRebuild: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(settings);
@@ -76,6 +89,8 @@ export function StudioControlsPanel({
   const [segments, setSegments] = useState<StudioSegmentRow[]>([]);
   const [words, setWords] = useState<Array<{ text: string; start: number; end: number; clipId: string | null }>>([]);
   const [search, setSearch] = useState("");
+  const [rebuildOpen, setRebuildOpen] = useState(false);
+  const empty = clipCount === 0;
 
   useEffect(() => setDraft(settings), [settings]);
 
@@ -100,6 +115,7 @@ export function StudioControlsPanel({
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{studioCopy.controls}</h2>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+        {empty ? null : (
         <ConfirmationTray
           items={asks}
           highlightId={highlightAsk}
@@ -108,6 +124,7 @@ export function StudioControlsPanel({
           onSelectClip={onSelectClip}
           onDismiss={onDismissAsk}
         />
+        )}
 
         <details className="rounded-xl border border-border bg-card/50 p-4" data-testid="settings-box">
           <summary className="cursor-pointer text-sm font-medium">{studioCopy.settings}</summary>
@@ -184,6 +201,41 @@ export function StudioControlsPanel({
         </details>
 
         <section className="space-y-2 rounded-xl border border-border bg-card/50 p-4">
+          {analysisMessage ? <p className="text-xs text-muted-foreground">{analysisMessage}</p> : null}
+          <Button
+            type="button"
+            className="w-full"
+            variant={empty ? "default" : "outline"}
+            disabled={analysisBusy}
+            onClick={onAnalyze}
+          >
+            {studioCopy.analyzeAudio}
+          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="block w-full">
+                    <Button
+                      type="button"
+                      className="w-full"
+                      variant="outline"
+                      disabled={analysisBusy || !hasTranscript}
+                      onClick={() => setRebuildOpen(true)}
+                    >
+                      {studioCopy.rebuild}
+                    </Button>
+                  </span>
+                }
+              />
+              {!hasTranscript ? <TooltipContent>{studioCopy.rebuildFirst}</TooltipContent> : null}
+            </Tooltip>
+          </TooltipProvider>
+        </section>
+
+        {empty ? null : (
+        <>
+        <section className="space-y-2 rounded-xl border border-border bg-card/50 p-4">
           <Button
             type="button"
             variant="outline"
@@ -247,6 +299,7 @@ export function StudioControlsPanel({
               {studioCopy.cancelRender}
             </Button>
           ) : null}
+          {renders.length > 0 ? (
           <div>
             <p className="mb-2 text-xs font-medium">{studioCopy.recentRenders}</p>
             <ul className="space-y-2 text-xs">
@@ -270,8 +323,35 @@ export function StudioControlsPanel({
               ))}
             </ul>
           </div>
+          ) : null}
         </section>
+        </>
+        )}
       </div>
+
+      <Dialog open={rebuildOpen} onOpenChange={setRebuildOpen}>
+        <DialogPortal>
+          <DialogBackdrop />
+          <DialogPopup>
+            <DialogTitle>{studioCopy.rebuildConfirmTitle}</DialogTitle>
+            <p className="mt-2 text-sm text-muted-foreground">{studioCopy.rebuildConfirm}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setRebuildOpen(false)}>
+                {studioCopy.cancel}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setRebuildOpen(false);
+                  onRebuild();
+                }}
+              >
+                {studioCopy.rebuildConfirmAction}
+              </Button>
+            </div>
+          </DialogPopup>
+        </DialogPortal>
+      </Dialog>
 
       <Dialog open={segmentsOpen} onOpenChange={setSegmentsOpen}>
         <DialogPortal>

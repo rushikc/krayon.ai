@@ -164,8 +164,13 @@ def reanalyze_project(
         scope = "range"
     elif mode == "resegment":
         if range_start is None or range_end is None:
-            raise ValueError("resegment requires a time range")
-        scope = "range"
+            range_start = 0.0
+            range_end = source_duration
+            affected_start = range_start
+            affected_end = range_end
+            scope = "full"
+        else:
+            scope = "range"
     elif mode == "regroup":
         scope = "full" if range_start is None else "range"
     else:

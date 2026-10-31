@@ -28,6 +28,10 @@ export function ClipPlayerCard({
   isPlaying,
   onSeek,
   onTogglePlay,
+  timeline,
+  timelineHeader,
+  timelineFooter,
+  timelineCardClassName,
 }: {
   takeLabel: string;
   issueLabel?: string | null;
@@ -44,10 +48,14 @@ export function ClipPlayerCard({
   isPlaying: boolean;
   onSeek: (value: number) => void;
   onTogglePlay: () => void;
+  timeline?: ReactNode;
+  timelineHeader?: ReactNode;
+  timelineFooter?: ReactNode;
+  timelineCardClassName?: string;
 }) {
   const scrubValue = Number.isFinite(currentTime) ? Math.min(currentTime, duration || 0) : 0;
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-4">
+    <div className="flex w-full max-w-3xl min-w-0 flex-col gap-4 self-stretch">
       <div
         className={cn(
           "rounded-xl border p-8",
@@ -94,34 +102,53 @@ export function ClipPlayerCard({
         ) : null}
       </div>
 
-      <div className="rounded-xl border border-border bg-card/60 p-4 backdrop-blur">
-        <div className="flex items-center gap-4">
-          <div className="min-w-0 flex-1">
-            <input
-              type="range"
-              min={0}
-              max={duration || 0}
-              step={0.01}
-              value={scrubValue}
-              disabled={!srcReady}
-              onChange={(e) => onSeek(Number(e.target.value))}
-              className={cn("h-1.5 w-full cursor-pointer accent-primary")}
-            />
-            <div className="mt-1 flex justify-between text-xs tabular-nums text-muted-foreground">
-              <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(duration)}</span>
+      <div className={cn("rounded-xl border border-border bg-card/60 p-4 backdrop-blur", timelineCardClassName)}>
+        {timelineHeader}
+        {timeline ? (
+          <div className="flex flex-col gap-3">
+            <div className="w-full min-w-0">{timeline}</div>
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="icon-lg"
+                className="size-14 shrink-0 rounded-full"
+                disabled={!srcReady}
+                onClick={onTogglePlay}
+              >
+                {isPlaying ? <Pause className="size-7" /> : <Play className="size-7" />}
+              </Button>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="icon-lg"
-            className="size-14 shrink-0 rounded-full"
-            disabled={!srcReady}
-            onClick={onTogglePlay}
-          >
-            {isPlaying ? <Pause className="size-7" /> : <Play className="size-7" />}
-          </Button>
-        </div>
+        ) : (
+          <div className="flex items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <input
+                type="range"
+                min={0}
+                max={duration || 0}
+                step={0.01}
+                value={scrubValue}
+                disabled={!srcReady}
+                onChange={(e) => onSeek(Number(e.target.value))}
+                className={cn("h-1.5 w-full cursor-pointer accent-primary")}
+              />
+              <div className="mt-1 flex justify-between text-xs tabular-nums text-muted-foreground">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="icon-lg"
+              className="size-14 shrink-0 rounded-full"
+              disabled={!srcReady}
+              onClick={onTogglePlay}
+            >
+              {isPlaying ? <Pause className="size-7" /> : <Play className="size-7" />}
+            </Button>
+          </div>
+        )}
+        {timelineFooter}
       </div>
     </div>
   );

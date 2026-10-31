@@ -40,3 +40,27 @@ export function statusWord(status: StudioClip["status"]): "Accepted" | "Rejected
   if (status === "rejected") return "Rejected";
   return "Undecided";
 }
+
+export const SPLIT_MIN_GAP = 0.15;
+
+export function wavOrigin(sourceStart: number, pad: number): number {
+  return Math.max(0, sourceStart - pad);
+}
+
+export function playheadToSource(playhead: number, sourceStart: number, pad: number): number {
+  return wavOrigin(sourceStart, pad) + playhead;
+}
+
+export function sourceToPlayhead(sourceTime: number, sourceStart: number, pad: number): number {
+  return sourceTime - wavOrigin(sourceStart, pad);
+}
+
+export function validateCut(at: number, sourceStart: number, sourceEnd: number, existing: number[]): string | null {
+  if (at - sourceStart < SPLIT_MIN_GAP || sourceEnd - at < SPLIT_MIN_GAP) {
+    return "Cut is too close to the clip start or end";
+  }
+  if (existing.some((cut) => Math.abs(cut - at) < SPLIT_MIN_GAP)) {
+    return "Cut is too close to another cut";
+  }
+  return null;
+}

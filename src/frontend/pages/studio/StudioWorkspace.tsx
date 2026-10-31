@@ -9,6 +9,7 @@ import {
   type StudioProject,
   type StudioSettings,
   StudioConflictError,
+  analyze,
   answerConfirmation,
   applyOps,
   cancelRender,
@@ -19,6 +20,7 @@ import {
   listConfirmations,
   listOutputs,
   listSegments,
+  reanalyze,
   redo,
   renderStatus,
   startRender,
@@ -60,7 +62,10 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   const [render, setRender] = useState<{ id: string; message: string; ratio: number; outputName?: string; status?: string } | null>(null);
   const [renders, setRenders] = useState<RenderManifest[]>([]);
   const [activeRenderName, setActiveRenderName] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState<string | null>(null);
   const playingRef = useRef(false);
+  const editingRef = useRef(false);
+  const autoAnalyze = useRef<string | null>(null);
 
   const settings: StudioSettings = project?.meta.settings ?? {
     silenceThreshold: 0.4,
@@ -118,7 +123,16 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         setBusyAsk(null);
         void refresh().catch(() => undefined);
       }
+      if (data.type === "progress") {
+        setAnalysisProgress([data.message, data.ratio != null ? `${Math.round(data.ratio * 100)}%` : null].filter(Boolean).join(" "));
+        void refresh().catch(() => undefined);
+      }
+      if (data.type === "status") {
+        setAnalysisProgress(data.message ?? null);
+        void refresh().catch(() => undefined);
+      }
       if (data.type === "revision" || data.type === "snapshot") {
+        setAnalysisProgress(null);
         void refresh().catch(() => undefined);
       }
       if (data.type === "render") {
@@ -213,6 +227,12 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         event.preventDefault();
         moveSelection(1);
       }
+      if (event.key === " ") {
+        event.preventDefault();
+        setAutoPlayToken((token) => token + 1);
+        return;
+      }
+      if (editingRef.current) return;
       if (event.key === "a" || event.key === "A") {
         event.preventDefault();
         void decide("select");
@@ -220,10 +240,6 @@ export function StudioWorkspace({ slug }: { slug: string }) {
       if (event.key === "r" || event.key === "R") {
         event.preventDefault();
         void decide("reject");
-      }
-      if (event.key === " ") {
-        event.preventDefault();
-        setAutoPlayToken((token) => token + 1);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -234,6 +250,31 @@ export function StudioWorkspace({ slug }: { slug: string }) {
     .map((id) => clips.find((clip) => clip.id === id)?.duration ?? 0)
     .reduce((sum, value) => sum + value, 0);
   const renderBusy = render?.status === "rendering" || project?.status === "rendering";
+  const analysisBusy = project?.status === "analyzing" || renderBusy;
+
+  async function runAnalyze() {
+    if (!project || analysisBusy) return;
+    setError(null);
+    setAnalysisProgress(studioCopy.startingAnalysis);
+    try {
+      await analyze(slug, project.revision);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Analyze failed");
+      await refresh().catch(() => undefined);
+    }
+  }
+
+  useEffect(() => {
+    if (!project) return;
+    if (autoAnalyze.current === slug) return;
+    if (project.clips.length > 0) return;
+    if (!project.meta.sourcePath) return;
+    if (project.status !== "empty") return;
+    autoAnalyze.current = slug;
+    void runAnalyze();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, slug]);
 
   return (
     <AppShell
@@ -287,6 +328,33 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         onNext={() => moveSelection(1)}
         autoPlayToken={autoPlayToken}
         playingRef={playingRef}
+        projectStatus={project?.status}
+        statusMessage={analysisProgress ?? project?.meta.statusMessage}
+        onRetryAnalyze={() => void runAnalyze()}
+        onEditingChange={(value) => {
+          editingRef.current = value;
+        }}
+        onStayOnClip={(id) => setSelectedClipId(id)}
+        onSaveCuts={async (clipId, at) => {
+          if (!project) return false;
+          setConflictError(null);
+          try {
+            await applyOps(slug, project.revision, [{ op: "splitMany", clipId, at }], "split");
+            const next = await refresh();
+            const first = next.clips.find((item) => item.parentIds[0] === clipId);
+            if (first) selectClip(first.id);
+            toast(studioCopy.splitToast(at.length + 1));
+            return true;
+          } catch (err) {
+            if (err instanceof StudioConflictError) {
+              setConflictError(studioCopy.splitConflict);
+              await refresh();
+              return false;
+            }
+            setError(err instanceof Error ? err.message : "Split failed");
+            return false;
+          }
+        }}
       />
       <StudioControlsPanel
         asks={asks}
@@ -331,6 +399,17 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         }}
         onLoadSegments={() => listSegments(slug)}
         onLoadTranscript={() => getTranscript(slug)}
+        clipCount={clips.length}
+        hasTranscript={Boolean(project?.hasTranscript)}
+        analysisBusy={Boolean(analysisBusy)}
+        analysisMessage={analysisProgress ?? (project?.status === "analyzing" ? project.meta.statusMessage : null)}
+        onAnalyze={() => void runAnalyze()}
+        onRebuild={() => {
+          if (!project) return;
+          void reanalyze(slug, project.revision, { mode: "resegment", reset: true })
+            .then(() => refresh())
+            .catch((err: unknown) => setError(err instanceof Error ? err.message : "Rebuild failed"));
+        }}
       />
     </AppShell>
   );

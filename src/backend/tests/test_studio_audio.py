@@ -336,3 +336,20 @@ def test_audio_stats_edges_and_internal_silence(tmp_path: Path) -> None:
     quiet = clip_audio_stats(wav, [(0.05, 0.2)])
     assert quiet["before"]["rmsDbfs"] < -40
     assert quiet["after"]["rmsDbfs"] < -40
+
+
+def test_clip_peaks_bucket_count_and_cache(tmp_path: Path) -> None:
+    from app.services.studio.audio_stats import clip_peaks
+
+    rate = 16000
+    samples = [0] * int(rate * 0.5) + [12000] * int(rate * 0.5)
+    wav = tmp_path / "source.wav"
+    _write_wav(wav, samples, rate)
+    cache = tmp_path / "peaks"
+    first = clip_peaks(wav, [(0.0, 1.0)], pad=0.0, buckets=40, cache_dir=cache)
+    assert len(first["peaks"]) == 80
+    assert first["duration"] == pytest.approx(1.0, abs=0.01)
+    assert max(first["peaks"]) > 0
+    cached = clip_peaks(wav, [(0.0, 1.0)], pad=0.0, buckets=40, cache_dir=cache)
+    assert cached == first
+    assert list(cache.glob("*.json"))

@@ -95,3 +95,57 @@ def clip_audio_stats(
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(payload))
     return payload
+
+
+def _pad_ranges(ranges: list[tuple[float, float]], pad: float) -> list[tuple[float, float]]:
+    if pad < 0:
+        raise ValueError("pad must be >= 0")
+    padded: list[tuple[float, float]] = []
+    last = len(ranges) - 1
+    for index, (start, end) in enumerate(ranges):
+        left = start - pad if index == 0 else start
+        right = end + pad if index == last else end
+        padded.append((max(0.0, left), max(left, right)))
+    return padded
+
+
+def clip_peaks(
+    wav_path: Path,
+    ranges: list[tuple[float, float]],
+    *,
+    pad: float = 0.0,
+    buckets: int = 800,
+    cache_dir: Path | None = None,
+) -> dict:
+    if not ranges:
+        raise ValueError("at least one range is required")
+    count = max(1, min(int(buckets), 4096))
+    padded = _pad_ranges(ranges, pad)
+    key = hashlib.sha256(json.dumps({"ranges": padded, "buckets": count}).encode()).hexdigest()[:16]
+    cache_path = (cache_dir / f"{key}.json") if cache_dir else None
+    if cache_path and cache_path.is_file():
+        return json.loads(cache_path.read_text())
+
+    samples, rate = _load_wav(wav_path)
+    inside = array.array("h")
+    for start, end in padded:
+        inside.extend(_slice(samples, rate, start, end))
+    length = len(inside)
+    peaks: list[float] = []
+    if length == 0:
+        peaks = [0.0, 0.0] * count
+    else:
+        for index in range(count):
+            start_i = int(index * length / count)
+            end_i = int((index + 1) * length / count)
+            chunk = inside[start_i:end_i]
+            if len(chunk) == 0:
+                chunk = array.array("h", [0])
+            low = max(-1.0, min(1.0, min(chunk) / FULL_SCALE))
+            high = max(-1.0, min(1.0, max(chunk) / FULL_SCALE))
+            peaks.extend([round(low, 4), round(high, 4)])
+    payload = {"duration": round(length / rate, 6) if rate else 0.0, "peaks": peaks}
+    if cache_path:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(payload))
+    return payload

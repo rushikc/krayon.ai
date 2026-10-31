@@ -110,6 +110,38 @@ describe("clip ids", () => {
     expect(adopted.doc.clips.find((clip) => clip.id === "c-0001")?.note).toBe("keep me");
     expect(adopted.doc.clips.find((clip) => clip.id === "c-0001")?.status).toBe("selected");
   });
+
+  it("reset reanalysis mints new ids and drops prior decisions", () => {
+    const state = { nextClipSeq: 3, nextGroupSeq: 2 };
+    const doc = emptyCuts();
+    doc.clips = [
+      makeClip({
+        id: "c-0001",
+        groupId: "g-0001",
+        sourceStart: 0,
+        sourceEnd: 2,
+        text: "hello there",
+        decidedBy: "human",
+        status: "selected",
+      }),
+    ];
+    doc.groups = [{ id: "g-0001", label: "hello", clipIds: ["c-0001"], recommendedClipId: "c-0001" }];
+    doc.order = ["c-0001"];
+    const adopted = adoptAnalysis(
+      doc,
+      state,
+      {
+        scope: "full",
+        clips: [{ id: "tmp-a", sourceStart: 0, sourceEnd: 2, text: "hello there", groupId: "py-1" }],
+        groups: [{ id: "py-1", clipIds: ["tmp-a"], referenceClipId: "tmp-a" }],
+        scores: { "tmp-a": { score: 4, reasons: ["reference take"] } },
+      },
+      { reset: true, initial: true },
+    );
+    expect(adopted.doc.clips.map((clip) => clip.id)).not.toContain("c-0001");
+    expect(adopted.retired).toContain("c-0001");
+    expect(adopted.doc.clips[0]?.parentIds).toEqual([]);
+  });
 });
 
 describe("ops", () => {
@@ -224,6 +256,46 @@ describe("ops", () => {
     const halves = result.doc.order.map((id) => result.doc.clips.find((clip) => clip.id === id)!);
     expect(halves.every((clip) => clip.status === "selected")).toBe(true);
     expect(halves[0]!.sourceStart).toBeLessThan(halves[1]!.sourceStart);
+  });
+
+  it("splitMany mints undecided children at exact times with one summary", () => {
+    const state = { nextClipSeq: 2, nextGroupSeq: 2 };
+    const doc = emptyCuts();
+    doc.clips = [
+      makeClip({
+        id: "c-0001",
+        groupId: "g-0001",
+        sourceStart: 0,
+        sourceEnd: 4,
+        text: "alpha beta gamma",
+        status: "selected",
+        score: 9,
+        label: "cut_off",
+        words: [
+          { text: "alpha", start: 0.2, end: 0.6 },
+          { text: "beta", start: 1.4, end: 1.8 },
+          { text: "gamma", start: 2.6, end: 3.2 },
+        ],
+      }),
+    ];
+    doc.groups = [{ id: "g-0001", label: "alpha beta gamma", clipIds: ["c-0001"], recommendedClipId: "c-0001" }];
+    doc.order = ["c-0001"];
+    const result = applyOps(doc, state, [{ op: "splitMany", clipId: "c-0001", at: [1.2, 2.2] }], "human");
+    expect(result.summary).toBe("split c-0001 into 3 clips");
+    expect(result.doc.clips).toHaveLength(3);
+    expect(result.doc.clips.map((clip) => clip.id)).not.toContain("c-0001");
+    expect(result.doc.order).toEqual([]);
+    expect(result.doc.clips.every((clip) => clip.status === "undecided")).toBe(true);
+    expect(result.doc.clips.every((clip) => clip.statusReason === "split from c-0001")).toBe(true);
+    expect(result.doc.clips.every((clip) => clip.parentIds[0] === "c-0001")).toBe(true);
+    expect(result.doc.clips.every((clip) => clip.label === "none" && clip.score === 0)).toBe(true);
+    expect(result.doc.clips.map((clip) => clip.text)).toEqual(["alpha", "beta", "gamma"]);
+    expect(result.doc.clips[0]?.sourceEnd).toBe(1.2);
+    expect(result.doc.clips[1]?.sourceStart).toBe(1.2);
+    expect(result.doc.groups[0]?.clipIds).toEqual(result.doc.clips.map((clip) => clip.id));
+    expect(doc.clips).toHaveLength(1);
+    expect(() => applyOps(doc, state, [{ op: "splitMany", clipId: "c-0001", at: [0.05] }], "human")).toThrow(OpError);
+    expect(() => applyOps(doc, state, [{ op: "splitMany", clipId: "c-0001", at: [1.2, 1.25] }], "human")).toThrow(OpError);
   });
 });
 

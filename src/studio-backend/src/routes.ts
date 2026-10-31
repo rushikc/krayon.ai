@@ -1,5 +1,5 @@
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readdir, readFile, stat, unlink } from "node:fs/promises";
+import { createReadStream, createWriteStream, existsSync } from "node:fs";
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -280,6 +280,7 @@ export function registerRoutes(
       meta,
       revision: meta.revision,
       status: meta.status,
+      hasTranscript: existsSync(path.join(projectDir(root, slug), "analysis", "words.json")),
       clips: cuts.clips,
       groups: cuts.groups,
       order: cuts.order,
@@ -470,6 +471,41 @@ export function registerRoutes(
     return reply.send(Buffer.from(await response.arrayBuffer()));
   });
 
+  app.get("/api/studio/projects/:slug/clips/:id/peaks", async (request) => {
+    const { slug, id } = request.params as { slug: string; id: string };
+    const query = request.query as { buckets?: string; pad?: string };
+    const buckets = Math.max(1, Math.min(4096, Number(query.buckets ?? 800) || 800));
+    const { dir, meta, cuts } = await load(root, slug);
+    const clip = cuts.clips.find((item) => item.id === id);
+    if (!clip) throw new OpError([{ clipId: id, field: "id", message: `Unknown clip ${id}` }]);
+    const pad = Number(query.pad ?? meta.settings?.pad ?? DEFAULT_SETTINGS.pad);
+    const cacheDir = path.join(dir, "analysis", "peaks");
+    const cachePath = path.join(cacheDir, `${id}-r${cuts.revision}-p${pad}-b${buckets}.json`);
+    try {
+      return JSON.parse(await readFile(cachePath, "utf8")) as { duration: number; peaks: number[] };
+    } catch {
+      /* miss */
+    }
+    const wav = path.join(dir, "analysis", "source.wav");
+    try {
+      await stat(wav);
+    } catch {
+      throw new OpError([{ clipId: id, field: "audio", message: "No analysis WAV; run Analyze first" }]);
+    }
+    const ranges = playRanges(clip).map((range) => `${range.sourceStart},${range.sourceEnd}`).join(";");
+    const url = new URL("/api/audio-studio/clip-peaks", python);
+    url.searchParams.set("wav", wav);
+    url.searchParams.set("ranges", ranges);
+    url.searchParams.set("pad", String(Number.isFinite(pad) ? pad : 0));
+    url.searchParams.set("buckets", String(buckets));
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(await response.text());
+    const payload = (await response.json()) as { duration: number; peaks: number[] };
+    await mkdir(cacheDir, { recursive: true });
+    await writeFile(cachePath, JSON.stringify(payload));
+    return payload;
+  });
+
   app.get("/api/studio/projects/:slug/clips/:id/frame.png", async (request, reply) => {
     const { slug, id } = request.params as { slug: string; id: string };
     const at = Number((request.query as { at?: string }).at ?? NaN);
@@ -531,6 +567,7 @@ export function registerRoutes(
         silenceThreshold: z.number().optional(),
         pad: z.number().optional(),
         similarityThreshold: z.number().optional(),
+        reset: z.boolean().optional(),
       })
       .parse(request.body);
     const actor = actorOf(request.headers["x-krayon-actor"] as string | undefined, body);
@@ -571,7 +608,9 @@ export function registerRoutes(
         }
         const ids = { nextClipSeq: fresh.meta.nextClipSeq, nextGroupSeq: fresh.meta.nextGroupSeq };
         const adopted = adoptAnalysis(fresh.cuts, ids, { ...result, rangeStart: result.rangeStart ?? rangeStart, rangeEnd: result.rangeEnd ?? rangeEnd }, {
-          regroup: body.mode === "regroup",
+          regroup: body.mode === "regroup" && !body.reset,
+          initial: Boolean(body.reset),
+          reset: Boolean(body.reset),
         });
         fresh.meta.nextClipSeq = ids.nextClipSeq;
         fresh.meta.nextGroupSeq = ids.nextGroupSeq;

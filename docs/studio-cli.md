@@ -48,6 +48,7 @@ pnpm krayon annotate c-0007 --json '{"verdict":"drop"}' --replace
 pnpm krayon settings
 pnpm krayon settings set silence 0.3
 pnpm krayon split c-0007 --at 12.4
+pnpm krayon split c-0007 --at 12.4 --at 14.1
 pnpm krayon split c-0007 --word 3
 pnpm krayon merge c-0007 c-0008
 pnpm krayon trim c-0007 --start 1.2 --end 4.5
@@ -84,7 +85,11 @@ pnpm krayon reanalyze c-0007 c-0008 --mode regroup --similarity 0.6
 pnpm krayon reanalyze c-0004 --mode retranscribe
 ```
 
-Modes: `resegment` (default), `regroup`, `retranscribe`. Clip ids become the time range. This calls Whisper only for `retranscribe`.
+Modes: `resegment` (default), `regroup`, `retranscribe`. Clip ids become the time range. Omit clip ids and range for a full-file `resegment` from the saved transcript. `--reset` mints new clip ids and resets decisions. This calls Whisper only for `retranscribe`.
+
+```bash
+pnpm krayon reanalyze --mode resegment --reset
+```
 
 ### Render
 

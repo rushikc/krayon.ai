@@ -120,9 +120,10 @@ export function adoptAnalysis(
   doc: Cuts,
   ids: IdState,
   payload: AnalysisPayload,
-  options: { regroup?: boolean; initial?: boolean } = {},
+  options: { regroup?: boolean; initial?: boolean; reset?: boolean } = {},
 ): { doc: Cuts; retired: string[]; created: string[] } {
   const regroup = Boolean(options.regroup);
+  const reset = Boolean(options.reset);
   const scope = payload.scope ?? "full";
   const range =
     scope === "range" && payload.rangeStart != null && payload.rangeEnd != null
@@ -136,7 +137,7 @@ export function adoptAnalysis(
   const incomingClips = range
     ? payload.clips.filter((clip) => overlaps(outer(clip), range))
     : payload.clips;
-  const matched = greedyMatch(candidates, incomingClips);
+  const matched = reset ? new Map<string, Clip>() : greedyMatch(candidates, incomingClips);
   const retired = candidates.filter((clip) => ![...matched.values()].includes(clip)).map((clip) => clip.id);
   const created: string[] = [];
 
@@ -236,6 +237,6 @@ export function adoptAnalysis(
     groups,
     order: doc.order.filter((id) => nextClips.some((clip) => clip.id === id && clip.status === "selected")),
   };
-  if (options.initial) applyAlgorithmCut(next);
+  if (options.initial || reset) applyAlgorithmCut(next);
   return { doc: next, retired, created };
 }

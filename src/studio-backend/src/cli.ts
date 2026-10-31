@@ -227,8 +227,12 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
       const id = sub;
       if (!id) throw new CliExit(1, { error: "validation", message: "split <id> --at <seconds>" }, pretty);
       const baseRevision = await revisionOf(base, actor, slug);
-      const op: Record<string, unknown> = { op: "split", clipId: id };
-      if (flag(flags, "at")) op.at = Number(flag(flags, "at"));
+      const ats = flagList(flags, "at").map(Number);
+      const op: Record<string, unknown> =
+        ats.length > 1
+          ? { op: "splitMany", clipId: id, at: ats }
+          : { op: "split", clipId: id };
+      if (ats.length === 1) op.at = ats[0];
       if (flag(flags, "word")) op.wordIndex = Number(flag(flags, "word"));
       if (flags.map.has("sample-accurate")) op.sampleAccurate = true;
       return finish(`${project}/ops`, "POST", { baseRevision, actor, label: "split", ops: [op] });
@@ -277,6 +281,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
         silenceThreshold: flag(flags, "silence") ? Number(flag(flags, "silence")) : undefined,
         pad: flag(flags, "pad") ? Number(flag(flags, "pad")) : undefined,
         similarityThreshold: flag(flags, "similarity") ? Number(flag(flags, "similarity")) : undefined,
+        reset: flags.map.has("reset") ? true : undefined,
       });
     }
     if (command === "analyze") {

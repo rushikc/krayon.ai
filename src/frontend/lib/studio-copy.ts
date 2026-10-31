@@ -71,6 +71,29 @@ export const studioCopy = {
   playRender: "Play",
   searchTranscript: "Search transcript",
   noClipSelected: "Select a clip from the sidebar to preview audio.",
+  analyzeAudio: "Analyze audio",
+  rebuild: "Rebuild",
+  rebuildFirst: "Run Analyze first",
+  rebuildConfirmTitle: "Rebuild from saved transcript?",
+  rebuildConfirm:
+    "This regroups and rescores from the saved transcript without re-transcribing. Clip ids are replaced and accept/reject decisions are reset.",
+  rebuildConfirmAction: "Rebuild",
+  cancel: "Cancel",
+  analyzing: "Analyzing…",
+  startingAnalysis: "Starting analysis",
+  readyToAnalyze: "Import is ready. Run Analyze audio to transcribe and group takes.",
+  analyzeFailed: "Analysis failed",
+  retry: "Retry",
+  editing: "Editing",
+  addCut: "Add cut at playhead",
+  pressS: "Press S to cut",
+  undoLastCut: "Undo last cut",
+  saveCuts: (cuts: number) => `Save (${cuts} cuts → ${cuts + 1} clips)`,
+  splitToast: (count: number) => `Split into ${count} clips`,
+  discardCuts: "Discard unsaved cuts?",
+  cutTooClose: "Cut is too close to the clip start, end, or another cut",
+  splitConflict: "This cut changed. Reloaded the clip. Retry Save.",
+  analysisProgress: "Analysis",
   decidedBy: (actor: string) => `Decided by ${actor}`,
   toolsReady: (ffmpeg: boolean, ffprobe: boolean, whisper: boolean) =>
     `Backend tools: ffmpeg / ffprobe / whisper: ${ffmpeg && ffprobe && whisper ? "ready" : "missing"}`,
@@ -82,7 +105,7 @@ export function describeOpsPreview(ops: Array<Record<string, unknown>> | undefin
     .map((op) => {
       const name = String(op.op ?? "");
       if (name === "select" || name === "reject" || name === "undecided") return `${name} ${String(op.clipId ?? "")}`.trim();
-      if (name === "split") return `split ${String(op.clipId ?? "")}`.trim();
+      if (name === "split" || name === "splitMany") return `split ${String(op.clipId ?? "")}`.trim();
       if (name === "merge" && Array.isArray(op.clipIds)) return `merge ${op.clipIds.join(" ")}`;
       if (name === "trim") return `trim ${String(op.clipId ?? "")}`.trim();
       if (name === "note") return `note ${String(op.clipId ?? "")}`.trim();

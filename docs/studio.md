@@ -63,16 +63,17 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 
 - `GET /api/studio/schema` — fields, ops, rules, error example
 - `GET/POST /api/studio/projects`, `POST /api/studio/projects/use`
-- `GET /projects/:slug` — clips, groups, order, revision, history
+- `GET /projects/:slug` — clips, groups, order, revision, history, `hasTranscript` when `analysis/words.json` exists
 - `POST /projects/:slug/import` — `{ "path" }` or a multipart file streamed to `imported/`
-- `POST /projects/:slug/analyze`
+- `POST /projects/:slug/analyze` — Studio Analyze audio. Creating a project and importing a video auto-starts this once the project screen opens
 - `GET /projects/:slug/clips?group=&label=&status=`
 - `GET /projects/:slug/clips/:id` — words, neighbours, group mates, reasons
 - `GET /projects/:slug/clips/:id/audio.wav?pad=0.5`
+- `GET /projects/:slug/clips/:id/peaks?buckets=800` — `{ duration, peaks: [min, max, …] }` in -1..1, cached per clip id + revision + pad
 - `GET /projects/:slug/clips/:id/transcript`
 - `GET /projects/:slug/clips/:id/frame.png?at=`
 - `POST /projects/:slug/ops` — `{ baseRevision, ops, label }`. Mismatch is HTTP 409. Validation errors include `clipId`, `field`, `message`, `allowed`.
-- `POST /projects/:slug/reanalyze` — `mode` is `retranscribe`, `resegment`, or `regroup`
+- `POST /projects/:slug/reanalyze` — `mode` is `retranscribe`, `resegment`, or `regroup`. Omit the range for a full-file `resegment`. `reset: true` mints new clip ids and reruns the algorithm cut (Studio Rebuild)
 - `GET/PATCH /projects/:slug/settings` — `{ silenceThreshold, pad, similarityThreshold }` (defaults 0.4 / 0.05 / 0.7). Analyze uses these when the request omits them
 - `GET /projects/:slug/segments`, `GET /projects/:slug/transcript`
 - `POST /projects/:slug/render` — `{ "quality": "preview" \| "final" }`
@@ -87,7 +88,7 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 
 Grok never asks for confirmation in chat. It writes a question to `confirmations.json` (`krayon ask … --wait`). The workspace shows the oldest pending item; a human click answers it. If the option has `applyOps`, the server applies `proposedOps` as one history revision with actor `human`. If the project revision moved, the item is `stale` and nothing is applied.
 
-Ops: `select`, `reject`, `undecided` (optional `statusReason`), `reorder`, `split` (`at` or `wordIndex`), `merge`, `trim` (word snap unless `sampleAccurate`), `ungroup`, `moveToGroup`, `note`, `annotate` (`llm` object, `merge` defaults true).
+Ops: `select`, `reject`, `undecided` (optional `statusReason`), `reorder`, `split` (`at` or `wordIndex`), `splitMany` (`at: number[]` exact times, undecided children, one history entry), `merge`, `trim` (word snap unless `sampleAccurate`), `ungroup`, `moveToGroup`, `note`, `annotate` (`llm` object, `merge` defaults true).
 
 Undo and redo move the history pointer. Restore copies an older snapshot forward as a new revision. A new edit drops the redo branch. Id counters only increase, including across undo.
 

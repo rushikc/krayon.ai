@@ -23,6 +23,7 @@ export type Op =
   | { op: "undecided"; clipId: string; statusReason?: string }
   | { op: "reorder"; order: string[] }
   | { op: "split"; clipId: string; at?: number; wordIndex?: number; sampleAccurate?: boolean }
+  | { op: "splitMany"; clipId: string; at: number[] }
   | { op: "merge"; clipIds: [string, string] }
   | {
       op: "trim";
@@ -37,6 +38,7 @@ export type Op =
   | { op: "annotate"; clipId: string; llm: Record<string, unknown>; merge?: boolean };
 
 const ADJACENT_GAP_SECONDS = 1;
+export const SPLIT_MIN_GAP = 0.15;
 
 function fail(clipId: string | null, field: string, message: string, allowed?: unknown): never {
   throw new OpError([{ clipId, field, message, allowed }]);
@@ -222,6 +224,63 @@ function applySplit(doc: Cuts, ids: IdState, op: Extract<Op, { op: "split" }>, a
     doc.order.splice(index, 0, left.id, right.id);
   }
   return `split ${clip.id} into ${left.id} and ${right.id}`;
+}
+
+function wordsByMidpoint(clip: Clip, from: number, to: number, last: boolean): Word[] {
+  return clip.words.filter((word) => {
+    const mid = (word.start + word.end) / 2;
+    return last ? mid >= from && mid <= to : mid >= from && mid < to;
+  });
+}
+
+function applySplitMany(doc: Cuts, ids: IdState, op: Extract<Op, { op: "splitMany" }>, actor: Actor): string {
+  const clip = clipById(doc, op.clipId);
+  if (clip.ranges.length > 1) {
+    fail(clip.id, "ranges", "Split a single-range clip; trim a stitched clip instead");
+  }
+  const cuts = [...(op.at ?? [])].sort((left, right) => left - right);
+  if (cuts.length === 0) fail(clip.id, "at", "Provide at least one cut time");
+  for (let index = 0; index < cuts.length; index += 1) {
+    const at = cuts[index]!;
+    if (at - clip.sourceStart < SPLIT_MIN_GAP || clip.sourceEnd - at < SPLIT_MIN_GAP) {
+      fail(clip.id, "at", "Cuts must be at least 0.15s from the clip start and end", {
+        min: clip.sourceStart + SPLIT_MIN_GAP,
+        max: clip.sourceEnd - SPLIT_MIN_GAP,
+      });
+    }
+    if (index > 0 && at - cuts[index - 1]! < SPLIT_MIN_GAP) {
+      fail(clip.id, "at", "Cuts must be at least 0.15s apart");
+    }
+  }
+  const bounds = [clip.sourceStart, ...cuts, clip.sourceEnd];
+  const children: Clip[] = [];
+  const reason = `split from ${clip.id}`;
+  for (let index = 0; index < bounds.length - 1; index += 1) {
+    const from = bounds[index]!;
+    const to = bounds[index + 1]!;
+    const last = index === bounds.length - 2;
+    const child: Clip = {
+      ...clip,
+      id: mintClipId(ids),
+      parentIds: [clip.id],
+      status: "undecided",
+      decidedBy: actor,
+      statusReason: reason,
+      statusAt: new Date().toISOString(),
+      note: "",
+      label: "none",
+      score: 0,
+      reasons: [],
+      llm: {},
+    };
+    syncBounds(child, [{ sourceStart: from, sourceEnd: to }], wordsByMidpoint(clip, from, to, last));
+    if (!child.text) child.text = "";
+    children.push(child);
+  }
+  detach(doc, clip.id);
+  doc.clips.push(...children);
+  replaceInGroup(doc, clip.groupId, [clip.id], children);
+  return `split ${clip.id} into ${children.length} clips`;
 }
 
 function applyMerge(doc: Cuts, ids: IdState, clipIds: [string, string], actor: Actor): string {
@@ -417,6 +476,8 @@ function applyOne(doc: Cuts, ids: IdState, op: Op, actor: Actor): string {
     }
     case "split":
       return applySplit(doc, ids, op, actor);
+    case "splitMany":
+      return applySplitMany(doc, ids, op, actor);
     case "merge":
       return applyMerge(doc, ids, op.clipIds, actor);
     case "trim":

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -234,5 +234,29 @@ describe("studio http and cli", () => {
       meta.status = "ready";
       await writeFile(metaPath, JSON.stringify(meta));
     }
+  });
+
+  it("splits many cuts in one revision and serves cached peaks", async () => {
+    const split = (await runCli(["split", "c-0001", "--at", "0.6", "--at", "1.2"], env())) as {
+      summary: string;
+      revision: number;
+    };
+    expect(split.summary).toBe("split c-0001 into 3 clips");
+    const status = (await runCli(["status"], env())) as { clips: { id: string; status: string }[]; revision: number };
+    expect(status.clips).toHaveLength(4);
+    expect(status.clips.filter((item) => item.status === "undecided").length).toBeGreaterThanOrEqual(3);
+    const undone = (await runCli(["undo"], env())) as { revision: number };
+    expect(undone.revision).toBe(split.revision - 1);
+    const restored = (await runCli(["status"], env())) as { clips: { id: string }[] };
+    expect(restored.clips.some((item) => item.id === "c-0001")).toBe(true);
+
+    const after = (await runCli(["status"], env())) as { revision: number };
+    const cacheDir = path.join(root, "demo", "analysis", "peaks");
+    await mkdir(cacheDir, { recursive: true });
+    const payload = { duration: 2, peaks: [-0.2, 0.5, -0.1, 0.4] };
+    await writeFile(path.join(cacheDir, `c-0001-r${after.revision}-p0.05-b800.json`), JSON.stringify(payload));
+    const peaks = await fetch(`${base}/api/studio/projects/demo/clips/c-0001/peaks`);
+    expect(peaks.ok).toBe(true);
+    expect(await peaks.json()).toEqual(payload);
   });
 });
