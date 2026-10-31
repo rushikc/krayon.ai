@@ -19,7 +19,9 @@
     "test": "vitest run && pnpm --filter @krayon/reel-backend test && pnpm --filter @krayon/studio-backend test",
     "test:watch": "vitest",
     "test:backend": "bash src/backend/test.sh",
-    "test:reel": "pnpm --filter @krayon/reel-backend test"
+    "test:reel": "pnpm --filter @krayon/reel-backend test",
+    "test:e2e": "playwright test -c test/playwright.config.ts",
+    "test:e2e:report": "playwright show-report tmp/playwright-report"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -42,6 +44,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
