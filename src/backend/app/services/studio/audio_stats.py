@@ -9,6 +9,7 @@ from pathlib import Path
 
 FULL_SCALE = 32768.0
 EDGE_SECONDS = 0.15
+CLIP_EDGE_SECONDS = 0.02
 WINDOW_SECONDS = 0.02
 SILENCE_DBFS = -40.0
 
@@ -84,6 +85,8 @@ def clip_audio_stats(
     payload = {
         "start": _levels(_slice(samples, rate, start, start + EDGE_SECONDS)),
         "end": _levels(_slice(samples, rate, end - EDGE_SECONDS, end)),
+        "startEdge": _levels(_slice(samples, rate, start, start + CLIP_EDGE_SECONDS)),
+        "endEdge": _levels(_slice(samples, rate, end - CLIP_EDGE_SECONDS, end)),
         "before": _levels(_slice(samples, rate, start - EDGE_SECONDS, start)),
         "after": _levels(_slice(samples, rate, end, min(duration, end + EDGE_SECONDS))),
         "longestSilenceSeconds": _longest_silence(inside, rate),

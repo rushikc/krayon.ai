@@ -272,3 +272,16 @@ def test_audio_stats_edges_and_internal_silence(tmp_path: Path) -> None:
     cached = clip_audio_stats(wav, [(0.5, 1.4)], cache_dir=tmp_path / "audio-stats")
     assert cached == stats
     assert list((tmp_path / "audio-stats").glob("*.json"))
+    assert "startEdge" in stats
+    assert "endEdge" in stats
+    try:
+        clip_audio_stats(wav, [])
+        raise AssertionError("empty ranges should fail")
+    except ValueError:
+        pass
+    mid = clip_audio_stats(wav, [(0.6, 0.8)])
+    assert mid["before"]["rmsDbfs"] > -35
+    assert mid["startEdge"]["rmsDbfs"] > -30
+    quiet = clip_audio_stats(wav, [(0.05, 0.2)])
+    assert quiet["before"]["rmsDbfs"] < -40
+    assert quiet["after"]["rmsDbfs"] < -40

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { adoptAnalysis } from "../src/domain/adopt.js";
-import { lintCuts } from "../src/domain/lint.js";
+import { EDGE_CLIPPED_DBFS, NEIGHBOR_LOUD_DBFS, lintCuts } from "../src/domain/lint.js";
 import { applyAlgorithmCut, applyOps } from "../src/domain/ops.js";
 import { studioSchema } from "../src/domain/schema.js";
 import {
@@ -177,7 +177,7 @@ describe("ops", () => {
     ];
     applyAlgorithmCut(doc);
     expect(doc.order).toEqual(["c-0001", "c-0002"]);
-    expect(doc.clips.find((clip) => clip.id === "c-0003")?.status).toBe("undecided");
+    expect(doc.clips.find((clip) => clip.id === "c-0003")?.status).toBe("rejected");
     expect(doc.clips.find((clip) => clip.id === "c-0002")?.status).toBe("selected");
   });
 
@@ -236,10 +236,30 @@ describe("lint and schema", () => {
     const codes = lintCuts(doc).map((warning) => warning.code);
     expect(codes).toContain("short_clip");
     expect(codes).toContain("selected_weak");
+    const quietInside = lintCuts(doc, {
+      "c-0001": {
+        start: { rmsDbfs: -10, peakDbfs: -8 },
+        end: { rmsDbfs: -10, peakDbfs: -8 },
+        before: { rmsDbfs: -60, peakDbfs: -58 },
+        after: { rmsDbfs: -60, peakDbfs: -58 },
+        startEdge: { rmsDbfs: -10, peakDbfs: -8 },
+        endEdge: { rmsDbfs: -10, peakDbfs: -8 },
+      },
+    }).map((warning) => warning.code);
+    expect(quietInside).not.toContain("edge_loud");
+    expect(quietInside).not.toContain("edge_clipped");
     const loud = lintCuts(doc, {
-      "c-0001": { start: { rmsDbfs: -10, peakDbfs: -8 }, end: { rmsDbfs: -50, peakDbfs: -48 } },
+      "c-0001": {
+        start: { rmsDbfs: -10, peakDbfs: -8 },
+        end: { rmsDbfs: -50, peakDbfs: -48 },
+        before: { rmsDbfs: NEIGHBOR_LOUD_DBFS + 5, peakDbfs: -20 },
+        after: { rmsDbfs: -60, peakDbfs: -58 },
+        startEdge: { rmsDbfs: EDGE_CLIPPED_DBFS + 5, peakDbfs: -10 },
+        endEdge: { rmsDbfs: -50, peakDbfs: -48 },
+      },
     }).map((warning) => warning.code);
     expect(loud).toContain("edge_loud");
+    expect(loud).toContain("edge_clipped");
   });
 
   it("describes ops and the conflict example", () => {

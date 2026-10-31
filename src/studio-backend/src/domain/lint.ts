@@ -9,6 +9,11 @@ export type LintWarning = {
 
 const SHORT_SECONDS = 0.35;
 
+export const STATS_WINDOW_SECONDS = 0.15;
+export const EDGE_CHECK_SECONDS = 0.02;
+export const NEIGHBOR_LOUD_DBFS = -40;
+export const EDGE_CLIPPED_DBFS = -30;
+
 function wordCut(clip: Clip, edge: "start" | "end"): boolean {
   const time = edge === "start" ? clip.sourceStart : clip.sourceEnd;
   return clip.words.some((word) => word.start + 0.02 < time && time < word.end - 0.02);
@@ -19,9 +24,11 @@ export type EdgeLevels = { rmsDbfs: number; peakDbfs: number };
 export type AudioEdgeStats = {
   start: EdgeLevels;
   end: EdgeLevels;
+  before?: EdgeLevels;
+  after?: EdgeLevels;
+  startEdge?: EdgeLevels;
+  endEdge?: EdgeLevels;
 };
-
-const EDGE_LOUD_DBFS = -35;
 
 export function lintCuts(doc: Cuts, stats?: Record<string, AudioEdgeStats>): LintWarning[] {
   const warnings: LintWarning[] = [];
@@ -48,12 +55,25 @@ export function lintCuts(doc: Cuts, stats?: Record<string, AudioEdgeStats>): Lin
       });
     }
     const edge = stats?.[clip.id];
-    if (edge && (edge.start.rmsDbfs > EDGE_LOUD_DBFS || edge.end.rmsDbfs > EDGE_LOUD_DBFS)) {
-      warnings.push({
-        code: "edge_loud",
-        clipId: clip.id,
-        message: `${clip.id} starts or ends louder than ${EDGE_LOUD_DBFS} dBFS`,
-      });
+    if (edge) {
+      const beforeLoud = (edge.before?.rmsDbfs ?? -100) > NEIGHBOR_LOUD_DBFS;
+      const afterLoud = (edge.after?.rmsDbfs ?? -100) > NEIGHBOR_LOUD_DBFS;
+      if (beforeLoud || afterLoud) {
+        warnings.push({
+          code: "edge_loud",
+          clipId: clip.id,
+          message: `${clip.id} is cut next to audio louder than ${NEIGHBOR_LOUD_DBFS} dBFS`,
+        });
+      }
+      const startClipped = (edge.startEdge?.rmsDbfs ?? -100) > EDGE_CLIPPED_DBFS && beforeLoud;
+      const endClipped = (edge.endEdge?.rmsDbfs ?? -100) > EDGE_CLIPPED_DBFS && afterLoud;
+      if (startClipped || endClipped) {
+        warnings.push({
+          code: "edge_clipped",
+          clipId: clip.id,
+          message: `${clip.id} starts or ends inside speech (first/last ${EDGE_CHECK_SECONDS * 1000} ms)`,
+        });
+      }
     }
   }
 

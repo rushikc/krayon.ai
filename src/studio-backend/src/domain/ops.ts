@@ -427,6 +427,8 @@ export function applyAlgorithmCut(doc: Cuts): void {
       if (recommended && clip.id === recommended.id) {
         clip.status = "selected";
         order.push(clip.id);
+      } else if (clip.label !== "none") {
+        clip.status = "rejected";
       } else {
         clip.status = "undecided";
       }
