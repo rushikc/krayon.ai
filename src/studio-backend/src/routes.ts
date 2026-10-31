@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -28,7 +28,7 @@ import {
   throwIfBusy,
 } from "./domain/types.js";
 import { EventHub } from "./events.js";
-import { pythonJson, startAndWait } from "./python.js";
+import { pythonJson, startAndWait, waitForPythonJob } from "./python.js";
 import {
   commitRevision,
   createProject,
@@ -41,6 +41,8 @@ import {
   readHistory,
   readMeta,
   resetProjectStatus,
+  DEFAULT_SETTINGS,
+  normalizeSettings,
   saveMeta,
   useProject,
   withLock,
@@ -85,7 +87,10 @@ function clipSummary(clip: Clip) {
     reasons: clip.reasons,
     status: clip.status,
     decidedBy: clip.decidedBy,
+    statusReason: clip.statusReason,
+    statusAt: clip.statusAt,
     note: clip.note,
+    llm: clip.llm,
   };
 }
 
@@ -283,6 +288,29 @@ export function registerRoutes(
     };
   });
 
+  app.get("/api/studio/projects/:slug/settings", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const { meta } = await load(root, slug);
+    return { settings: meta.settings ?? DEFAULT_SETTINGS };
+  });
+
+  app.patch("/api/studio/projects/:slug/settings", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const body = z
+      .object({
+        silenceThreshold: z.number().optional(),
+        pad: z.number().optional(),
+        similarityThreshold: z.number().optional(),
+      })
+      .parse(request.body ?? {});
+    return withLock(slug, async () => {
+      const { dir, meta } = await load(root, slug);
+      meta.settings = normalizeSettings({ ...meta.settings, ...body });
+      await saveMeta(dir, meta);
+      return { settings: meta.settings };
+    });
+  });
+
   app.post("/api/studio/pick-file", async () => pythonJson(python, "/api/audio-studio/pick-file", {}));
 
   app.post("/api/studio/projects/:slug/import", async (request) => {
@@ -334,9 +362,9 @@ export function registerRoutes(
         {
           sourcePath: started.meta.sourcePath,
           analysisDir: path.join(started.dir, "analysis"),
-          silenceThreshold: body.silenceThreshold ?? 0.4,
-          pad: body.pad ?? 0.05,
-          similarityThreshold: body.similarityThreshold ?? 0.7,
+          silenceThreshold: body.silenceThreshold ?? started.meta.settings?.silenceThreshold ?? DEFAULT_SETTINGS.silenceThreshold,
+          pad: body.pad ?? started.meta.settings?.pad ?? DEFAULT_SETTINGS.pad,
+          similarityThreshold: body.similarityThreshold ?? started.meta.settings?.similarityThreshold ?? DEFAULT_SETTINGS.similarityThreshold,
           language: body.language ?? "en",
         },
         (event) => {
@@ -526,9 +554,9 @@ export function registerRoutes(
           mode: body.mode,
           rangeStart,
           rangeEnd,
-          silenceThreshold: body.silenceThreshold ?? 0.4,
-          pad: body.pad ?? 0.05,
-          similarityThreshold: body.similarityThreshold ?? 0.7,
+          silenceThreshold: body.silenceThreshold ?? started.meta.settings?.silenceThreshold ?? DEFAULT_SETTINGS.silenceThreshold,
+          pad: body.pad ?? started.meta.settings?.pad ?? DEFAULT_SETTINGS.pad,
+          similarityThreshold: body.similarityThreshold ?? started.meta.settings?.similarityThreshold ?? DEFAULT_SETTINGS.similarityThreshold,
           clips: started.cuts.clips.map(toPythonClip),
         },
         (event) => deps.hub.publish(slug, { type: "progress", phase: event.phase, message: event.message, ratio: event.progress }),
@@ -744,7 +772,10 @@ export function registerRoutes(
     });
   });
 
-  const renders = new Map<string, { id: string; status: string; ratio: number; message: string; outputName?: string }>();
+  const renders = new Map<
+    string,
+    { id: string; status: string; ratio: number; message: string; outputName?: string; pythonJobId?: string }
+  >();
 
   app.post("/api/studio/projects/:slug/render", async (request) => {
     const { slug } = request.params as { slug: string };
@@ -760,34 +791,42 @@ export function registerRoutes(
     }
     const renderId = `${body.quality}-${cuts.revision}-${Date.now()}`;
     const outputName = `${renderId}.mp4`;
+    const outputPath = path.join(dir, "output", outputName);
     renders.set(renderId, { id: renderId, status: "rendering", ratio: 0, message: "Starting render" });
     meta.status = "rendering";
     await saveMeta(dir, meta);
-    void startAndWait(
-      python,
-      "/api/audio-studio/render/async",
-      {
-        sourcePath: meta.sourcePath,
-        outputPath: path.join(dir, "output", outputName),
-        quality: body.quality,
-        clips: selected.map((clip) => ({ id: clip.id, ranges: playRanges(clip) })),
-      },
-      (event) => {
-        const job = renders.get(renderId);
-        if (job) {
-          job.ratio = event.progress ?? job.ratio;
-          job.message = event.message ?? job.message;
+    const started = await pythonJson<{ jobId: string }>(python, "/api/audio-studio/render/async", {
+      sourcePath: meta.sourcePath,
+      outputPath,
+      quality: body.quality,
+      clips: selected.map((clip) => ({ id: clip.id, ranges: playRanges(clip) })),
+    });
+    const job = renders.get(renderId);
+    if (job) job.pythonJobId = started.jobId;
+    void waitForPythonJob(python, started.jobId, {
+      onProgress: (event) => {
+        const current = renders.get(renderId);
+        if (current) {
+          current.ratio = event.progress ?? current.ratio;
+          current.message = event.message ?? current.message;
         }
-        deps.hub.publish(slug, { type: "render", renderId, phase: "rendering", ratio: event.progress, message: event.message });
+        deps.hub.publish(slug, {
+          type: "render",
+          renderId,
+          phase: "rendering",
+          ratio: event.progress,
+          message: event.message,
+        });
       },
-    )
+    })
       .then(async () => {
-        const job = renders.get(renderId);
-        if (job) {
-          job.status = "done";
-          job.ratio = 1;
-          job.outputName = outputName;
-          job.message = "Render complete";
+        if (renders.get(renderId)?.status === "cancelled") return;
+        const current = renders.get(renderId);
+        if (current) {
+          current.status = "done";
+          current.ratio = 1;
+          current.outputName = outputName;
+          current.message = "Render complete";
         }
         const latest = await readMeta(dir);
         latest.status = "ready";
@@ -797,14 +836,44 @@ export function registerRoutes(
       })
       .catch(async (error: unknown) => {
         const message = error instanceof Error ? error.message : "Render failed";
-        const job = renders.get(renderId);
-        if (job) {
-          job.status = "error";
-          job.message = message;
+        const current = renders.get(renderId);
+        if (message === "cancelled" || current?.status === "cancelled") return;
+        if (current) {
+          current.status = "error";
+          current.message = message;
+        }
+        const latest = await readMeta(dir);
+        if (latest.status === "rendering") {
+          latest.status = "ready";
+          latest.statusMessage = message;
+          await saveMeta(dir, latest);
         }
         deps.hub.publish(slug, { type: "render", renderId, phase: "error", message });
       });
     return { renderId, outputName };
+  });
+
+  app.post("/api/studio/projects/:slug/render/:id/cancel", async (request) => {
+    const { slug, id } = request.params as { slug: string; id: string };
+    const job = renders.get(id);
+    if (!job) throw new NotFoundError(`Unknown render ${id}`);
+    if (job.pythonJobId) {
+      await pythonJson(python, `/api/audio-studio/jobs/${job.pythonJobId}/cancel`, {}).catch(() => undefined);
+    }
+    job.status = "cancelled";
+    job.message = "cancelled";
+    const outputName = job.outputName ?? `${id}.mp4`;
+    await unlink(path.join(projectDir(root, slug), "output", outputName)).catch(() => undefined);
+    await withLock(slug, async () => {
+      const { dir, meta } = await load(root, slug);
+      if (meta.status === "rendering") {
+        meta.status = "ready";
+        meta.statusMessage = "Render cancelled";
+        await saveMeta(dir, meta);
+      }
+    });
+    deps.hub.publish(slug, { type: "render", renderId: id, phase: "cancelled", message: "cancelled", ratio: job.ratio });
+    return { id, status: "cancelled" };
   });
 
   app.get("/api/studio/projects/:slug/render/:id", async (request) => {
@@ -824,13 +893,110 @@ export function registerRoutes(
   app.get("/api/studio/projects/:slug/output", async (request) => {
     const { slug } = request.params as { slug: string };
     const dir = projectDir(root, slug);
-    const { readdir: readDir, readFile: readText } = { readdir, readFile };
-    const names = await readDir(path.join(dir, "output")).catch(() => [] as string[]);
+    const names = await readdir(path.join(dir, "output")).catch(() => [] as string[]);
     const manifests = [];
     for (const name of names.filter((item) => item.endsWith(".json"))) {
-      manifests.push(JSON.parse(await readText(path.join(dir, "output", name), "utf8")));
+      const filePath = path.join(dir, "output", name);
+      const info = await stat(filePath).catch(() => null);
+      const mp4Name = name.replace(/\.json$/, ".mp4");
+      const mp4Info = await stat(path.join(dir, "output", mp4Name)).catch(() => null);
+      const payload = JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>;
+      manifests.push({
+        ...payload,
+        name: mp4Name,
+        size: mp4Info?.size ?? 0,
+        createdAt: (mp4Info ?? info)?.mtime.toISOString() ?? null,
+      });
     }
+    manifests.sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")));
     return { files: names, manifests };
+  });
+
+  app.get("/api/studio/projects/:slug/segments", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const { dir, meta, cuts } = await load(root, slug);
+    const settings = meta.settings ?? DEFAULT_SETTINGS;
+    const payload = await pythonJson<{ sourceDuration: number; segments: Array<{ kind: string; sourceStart: number; sourceEnd: number; duration: number; text: string }> }>(
+      python,
+      "/api/audio-studio/segments",
+      {
+        analysisDir: path.join(dir, "analysis"),
+        silenceThreshold: settings.silenceThreshold,
+        pad: settings.pad,
+        sourceDuration: cuts.clips.reduce((max, clip) => Math.max(max, clip.sourceEnd), 0),
+      },
+    ).catch(() => ({ sourceDuration: 0, segments: [] as Array<{ kind: string; sourceStart: number; sourceEnd: number; duration: number; text: string }> }));
+    const speech = payload.segments;
+    const duration = payload.sourceDuration;
+    const rows: Array<{
+      kind: "speech" | "silence";
+      sourceStart: number;
+      sourceEnd: number;
+      duration: number;
+      text: string;
+      clipId: string | null;
+      status: string | null;
+    }> = [];
+    const pushSilence = (start: number, end: number) => {
+      if (end - start < 0.05) return;
+      rows.push({
+        kind: "silence",
+        sourceStart: start,
+        sourceEnd: end,
+        duration: end - start,
+        text: "",
+        clipId: null,
+        status: null,
+      });
+    };
+    let cursor = 0;
+    for (const segment of speech) {
+      pushSilence(cursor, segment.sourceStart);
+      const clip = cuts.clips
+        .map((item) => {
+          const overlap = Math.max(0, Math.min(item.sourceEnd, segment.sourceEnd) - Math.max(item.sourceStart, segment.sourceStart));
+          return { item, overlap };
+        })
+        .sort((a, b) => b.overlap - a.overlap)[0];
+      const matched = clip && clip.overlap > 0.05 ? clip.item : null;
+      rows.push({
+        kind: "speech",
+        sourceStart: segment.sourceStart,
+        sourceEnd: segment.sourceEnd,
+        duration: segment.duration,
+        text: segment.text,
+        clipId: matched?.id ?? null,
+        status: matched?.status ?? null,
+      });
+      cursor = segment.sourceEnd;
+    }
+    pushSilence(cursor, duration);
+    return { sourceDuration: duration, segments: rows };
+  });
+
+  app.get("/api/studio/projects/:slug/transcript", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const { dir, cuts } = await load(root, slug);
+    const wordsPath = path.join(dir, "analysis", "words.json");
+    const raw = JSON.parse(await readFile(wordsPath, "utf8").catch(() => "{\"words\":[]}")) as
+      | { words?: Array<{ text: string; start: number; end: number }> }
+      | Array<{ text: string; start: number; end: number }>;
+    const words = Array.isArray(raw) ? raw : (raw.words ?? []);
+    const items = words.map((word) => {
+      const hit = cuts.clips
+        .map((clip) => {
+          const overlap = Math.max(0, Math.min(clip.sourceEnd, word.end) - Math.max(clip.sourceStart, word.start));
+          return { clip, overlap };
+        })
+        .sort((a, b) => b.overlap - a.overlap)[0];
+      return {
+        text: word.text,
+        start: word.start,
+        end: word.end,
+        clipId: hit && hit.overlap > 0 ? hit.clip.id : null,
+      };
+    });
+    return { words: items };
   });
 
   app.get("/api/studio/projects/:slug/media/source", async (request, reply) => {

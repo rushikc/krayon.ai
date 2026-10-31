@@ -1,8 +1,20 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { emptyCuts, type Actor, type Cuts } from "./domain/types.js";
+import { emptyCuts, normalizeCuts, type Actor, type Cuts } from "./domain/types.js";
 
 export type ProjectStatus = "empty" | "analyzing" | "ready" | "rendering" | "error";
+
+export type AnalysisSettings = {
+  silenceThreshold: number;
+  pad: number;
+  similarityThreshold: number;
+};
+
+export const DEFAULT_SETTINGS: AnalysisSettings = {
+  silenceThreshold: 0.4,
+  pad: 0.05,
+  similarityThreshold: 0.7,
+};
 
 export type Meta = {
   slug: string;
@@ -16,6 +28,7 @@ export type Meta = {
   statusMessage: string;
   createdAt: string;
   updatedAt: string;
+  settings: AnalysisSettings;
 };
 
 export type HistoryEntry = {
@@ -65,12 +78,32 @@ function historyPath(dir: string, revision: number): string {
   return path.join(dir, "history", `${String(revision).padStart(4, "0")}.json`);
 }
 
+export function normalizeSettings(value: Partial<AnalysisSettings> | undefined): AnalysisSettings {
+  return {
+    silenceThreshold:
+      typeof value?.silenceThreshold === "number" && Number.isFinite(value.silenceThreshold)
+        ? value.silenceThreshold
+        : DEFAULT_SETTINGS.silenceThreshold,
+    pad: typeof value?.pad === "number" && Number.isFinite(value.pad) ? value.pad : DEFAULT_SETTINGS.pad,
+    similarityThreshold:
+      typeof value?.similarityThreshold === "number" && Number.isFinite(value.similarityThreshold)
+        ? value.similarityThreshold
+        : DEFAULT_SETTINGS.similarityThreshold,
+  };
+}
+
+export function normalizeMeta(meta: Meta): Meta {
+  return { ...meta, settings: normalizeSettings(meta.settings) };
+}
+
 export async function readMeta(dir: string): Promise<Meta> {
-  return JSON.parse(await readFile(path.join(dir, "meta.json"), "utf8")) as Meta;
+  const raw = JSON.parse(await readFile(path.join(dir, "meta.json"), "utf8")) as Meta;
+  return normalizeMeta(raw);
 }
 
 export async function readCuts(dir: string): Promise<Cuts> {
-  return JSON.parse(await readFile(path.join(dir, "cuts.json"), "utf8")) as Cuts;
+  const raw = JSON.parse(await readFile(path.join(dir, "cuts.json"), "utf8")) as Cuts;
+  return normalizeCuts(raw);
 }
 
 export async function listProjects(root: string): Promise<Meta[]> {
@@ -106,6 +139,7 @@ export async function createProject(root: string, slug: string, title: string): 
     statusMessage: "Add a source video",
     createdAt: now,
     updatedAt: now,
+    settings: { ...DEFAULT_SETTINGS },
   };
   await writeJson(path.join(dir, "meta.json"), meta);
   await writeJson(path.join(dir, "cuts.json"), emptyCuts());

@@ -25,7 +25,7 @@ export function StudioLanding() {
       const project = await createProject(projectTitle);
       if (file) await importFile(project.slug, file);
       else if (path) await importPath(project.slug, path);
-      navigate(`/studio/${project.slug}?analyze=1`);
+      navigate(`/studio/${project.slug}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
     } finally {

@@ -255,6 +255,57 @@ def test_render_job_reaches_complete_and_writes_manifest(tmp_path: Path, client)
     assert manifest["duration"] == body["duration"]
 
 
+def test_job_hub_cancel_marks_job() -> None:
+    from app.services.jobs import JobHub
+
+    hub = JobHub()
+    assert hub.cancel("missing") is False
+    hub.create_job("j1")
+    assert hub.cancel("j1") is True
+    assert hub.is_cancelled("j1") is True
+
+
+def test_list_segments_from_words(tmp_path: Path) -> None:
+    from app.routers.studio_audio import SegmentsBody, list_segments
+
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    save_words(analysis / "words.json", [Word("hello", 0.2, 0.6), Word("there", 1.4, 1.8)])
+    payload = list_segments(
+        SegmentsBody(analysisDir=str(analysis), silenceThreshold=0.4, pad=0.05, sourceDuration=3.0)
+    )
+    assert payload["segments"]
+    assert payload["segments"][0]["kind"] == "speech"
+    assert "hello" in payload["segments"][0]["text"]
+
+
+def test_render_cancelled_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services.studio.render import RenderCancelled, render_video
+
+    class FakeProc:
+        stdout = iter(())
+        stderr = type("E", (), {"read": lambda self: ""})()
+
+        def wait(self) -> int:
+            return 1
+
+    monkeypatch.setattr("app.services.studio.render.subprocess.Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr("app.services.studio.render.render_command", lambda *a, **k: ["ffmpeg", "-c:v", "libx264", "out"])
+    output = tmp_path / "out.mp4"
+    output.write_bytes(b"partial")
+    try:
+        render_video(
+            tmp_path / "in.mp4",
+            output,
+            [RenderClipIn("c-0001", [(0.2, 0.7)])],
+            quality="preview",
+            cancelled=lambda: True,
+        )
+        raise AssertionError("should cancel")
+    except RenderCancelled:
+        assert not output.exists()
+
+
 def test_audio_stats_edges_and_internal_silence(tmp_path: Path) -> None:
     from app.services.studio.audio_stats import clip_audio_stats
 

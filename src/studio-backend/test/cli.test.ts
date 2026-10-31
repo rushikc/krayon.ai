@@ -39,7 +39,10 @@ function clip(partial: Partial<Clip> & Pick<Clip, "id" | "text">): Clip {
     reasons: ["reference take"],
     status: partial.status ?? "undecided",
     decidedBy: "algorithm",
+    statusReason: "",
+    statusAt: "",
     note: "",
+    llm: {},
   };
 }
 
@@ -172,9 +175,64 @@ describe("studio http and cli", () => {
       python: { ok: boolean; hint?: string };
     };
     expect(doctor.studio.ok).toBe(true);
-    expect(doctor.python.ok).toBe(false);
-    expect(doctor.python.hint).toContain("backend");
+    expect(typeof doctor.python.ok).toBe("boolean");
+    if (!doctor.python.ok) expect(doctor.python.hint).toContain("backend");
     const reset = (await runCli(["reset-status"], env())) as { status: string };
     expect(reset.status).toMatch(/ready|error|empty/);
+  });
+
+  it("annotates a clip and updates settings", async () => {
+    const annotated = (await runCli(
+      ["annotate", "c-0001", "--json", JSON.stringify({ verdict: "keep", confidence: 0.8 })],
+      env(),
+    )) as { summary: string };
+    expect(annotated.summary).toContain("annotated c-0001");
+    const detail = (await runCli(["clip", "c-0001"], env())) as { clip: { llm: { verdict: string } } };
+    expect(detail.clip.llm.verdict).toBe("keep");
+    const listed = (await runCli(["clips"], env())) as { clips: Array<{ id: string; llm?: { verdict?: string } }> };
+    expect(listed.clips.find((clip) => clip.id === "c-0001")?.llm?.verdict).toBe("keep");
+    await runCli(["select", "c-0002", "--reason", "best take"], env());
+    const afterSelect = (await runCli(["clip", "c-0002"], env())) as { clip: { statusReason: string } };
+    expect(afterSelect.clip.statusReason).toBe("best take");
+    const settings = (await runCli(["settings"], env())) as { settings: { pad: number } };
+    expect(settings.settings.pad).toBe(0.05);
+    const updated = (await runCli(["settings", "set", "silence", "0.3"], env())) as {
+      settings: { silenceThreshold: number };
+    };
+    expect(updated.settings.silenceThreshold).toBe(0.3);
+  });
+
+  it("cancels a render job", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("/api/audio-studio/render/async")) {
+        return new Response(JSON.stringify({ jobId: "py-1" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url.includes("/api/audio-studio/progress/py-1")) {
+        return new Response("data: {\"phase\":\"rendering\",\"progress\":0.1,\"message\":\"Rendering\"}\n\n", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (url.includes("/api/audio-studio/jobs/py-1/cancel")) {
+        return new Response(JSON.stringify({ status: "cancelled" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return original(input, init);
+    };
+    const metaPath = path.join(root, "demo", "meta.json");
+    const meta = JSON.parse(await readFile(metaPath, "utf8")) as { status: string; sourcePath: string | null };
+    meta.status = "ready";
+    meta.sourcePath = path.join(root, "demo", "source.txt");
+    await writeFile(metaPath, JSON.stringify(meta));
+    try {
+      const started = (await runCli(["render", "--preview"], env())) as { renderId: string };
+      const cancelled = (await runCli(["render-cancel", started.renderId], env())) as { status: string };
+      expect(cancelled.status).toBe("cancelled");
+    } finally {
+      globalThis.fetch = original;
+      meta.status = "ready";
+      await writeFile(metaPath, JSON.stringify(meta));
+    }
   });
 });

@@ -36,7 +36,10 @@ Re-analysis keeps an existing id when the new time span overlaps it with interse
 | `score` / `reasons` | From the existing reference-take ranking |
 | `status` | `selected`, `rejected`, or `undecided` |
 | `decidedBy` | `algorithm`, `grok`, or `human` |
+| `statusReason` | Optional string from whoever last changed status |
+| `statusAt` | ISO time of that status change |
 | `note` | Free text |
+| `llm` | Free-form JSON object (max 8 KB) for per-clip model notes. Missing files load as `{}` |
 
 `order` is the selected clip ids in cut order. The first pass selects the clip whose reasons include `reference take`, otherwise the group's recommended clip, otherwise the only take. Non-reference takes with a flaw label (`falseStart`, `cut_off`, `starts_late`, `missing_words`, `misstatement`) are rejected; clean alternates stay undecided. Order follows the first appearance of each group.
 
@@ -70,8 +73,10 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `GET /projects/:slug/clips/:id/frame.png?at=`
 - `POST /projects/:slug/ops` — `{ baseRevision, ops, label }`. Mismatch is HTTP 409. Validation errors include `clipId`, `field`, `message`, `allowed`.
 - `POST /projects/:slug/reanalyze` — `mode` is `retranscribe`, `resegment`, or `regroup`
+- `GET/PATCH /projects/:slug/settings` — `{ silenceThreshold, pad, similarityThreshold }` (defaults 0.4 / 0.05 / 0.7). Analyze uses these when the request omits them
+- `GET /projects/:slug/segments`, `GET /projects/:slug/transcript`
 - `POST /projects/:slug/render` — `{ "quality": "preview" \| "final" }`
-- `GET /projects/:slug/render/:id`, `GET /projects/:slug/output`
+- `GET /projects/:slug/render/:id`, `POST /projects/:slug/render/:id/cancel`, `GET /projects/:slug/output`
 - `GET /projects/:slug/lint`, `GET /projects/:slug/history`
 - `POST /projects/:slug/undo`, `/redo`, `/restore`
 - `GET /projects/:slug/events` — server-sent events for progress, revisions, and confirmations
@@ -82,7 +87,7 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 
 Grok never asks for confirmation in chat. It writes a question to `confirmations.json` (`krayon ask … --wait`). The workspace shows the oldest pending item; a human click answers it. If the option has `applyOps`, the server applies `proposedOps` as one history revision with actor `human`. If the project revision moved, the item is `stale` and nothing is applied.
 
-Ops: `select`, `reject`, `undecided`, `reorder`, `split` (`at` or `wordIndex`), `merge`, `trim` (word snap unless `sampleAccurate`), `ungroup`, `moveToGroup`, `note`.
+Ops: `select`, `reject`, `undecided` (optional `statusReason`), `reorder`, `split` (`at` or `wordIndex`), `merge`, `trim` (word snap unless `sampleAccurate`), `ungroup`, `moveToGroup`, `note`, `annotate` (`llm` object, `merge` defaults true).
 
 Undo and redo move the history pointer. Restore copies an older snapshot forward as a new revision. A new edit drops the redo branch. Id counters only increase, including across undo.
 
@@ -92,8 +97,9 @@ Undo and redo move the history pointer. Restore copies an older snapshot forward
 2. `krayon lint`
 3. `krayon clip c-0007` and `krayon play-info c-0007` (padded wav)
 4. `reanalyze`, `split`, `merge`, or `trim`
-5. `krayon select c-0007`
-6. `krayon render --preview`, then listen and look
-7. `krayon render` for the final file
+5. `krayon annotate c-0007 --json '{"verdict":"keep","reason":"…"}'` to store per-clip reasoning
+6. `krayon select c-0007 --reason "cleanest delivery"` (always set `statusReason` when selecting or rejecting)
+7. `krayon render --preview`, then listen and look
+8. `krayon render` for the final file
 
 The UI updates from the event stream when the CLI writes a revision.

@@ -185,6 +185,7 @@ export function describeOpsPreview(ops: Op[] | undefined): string {
       if (op.op === "merge") return `merge ${op.clipIds.join(" ")}`;
       if (op.op === "trim") return `trim ${op.clipId}`;
       if (op.op === "note") return `note ${op.clipId}`;
+      if (op.op === "annotate") return `annotate ${op.clipId}`;
       return op.op;
     })
     .join(", ");

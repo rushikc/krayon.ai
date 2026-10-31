@@ -10,6 +10,11 @@ from app.config import settings
 from app.services.ffmpeg import probe_media
 
 
+class RenderCancelled(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__("cancelled")
+
+
 @dataclass
 class RenderClipIn:
     clip_id: str
@@ -144,6 +149,8 @@ def render_video(
     *,
     quality: str,
     on_progress=None,
+    register_process=None,
+    cancelled=None,
 ) -> dict:
     output.parent.mkdir(parents=True, exist_ok=True)
     command = render_command(source, output, clips, quality=quality)
@@ -158,6 +165,8 @@ def render_video(
         stderr=subprocess.PIPE,
         text=True,
     )
+    if register_process:
+        register_process(process)
     assert process.stdout is not None
     for line in process.stdout:
         text = line.strip()
@@ -177,6 +186,10 @@ def render_video(
     filter_path = output.with_suffix(output.suffix + ".filter")
     if filter_path.exists():
         filter_path.unlink()
+    if cancelled and cancelled():
+        if output.exists():
+            output.unlink()
+        raise RenderCancelled()
     if code != 0:
         tail = stderr[-2000:]
         raise RuntimeError(f"ffmpeg render failed ({code}): {tail}")

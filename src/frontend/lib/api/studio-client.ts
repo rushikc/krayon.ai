@@ -18,7 +18,10 @@ export type StudioClip = {
   reasons: string[];
   status: "selected" | "rejected" | "undecided";
   decidedBy: Actor;
+  statusReason?: string;
+  statusAt?: string;
   note: string;
+  llm?: Record<string, unknown>;
 };
 
 export type StudioGroup = {
@@ -45,6 +48,7 @@ export type StudioProject = {
     revision: number;
     status: string;
     statusMessage: string;
+    settings?: StudioSettings;
   };
   revision: number;
   status: string;
@@ -54,7 +58,24 @@ export type StudioProject = {
   history: HistoryItem[];
 };
 
+export type StudioSettings = {
+  silenceThreshold: number;
+  pad: number;
+  similarityThreshold: number;
+};
+
 export type StudioOp = Record<string, unknown>;
+
+export class StudioConflictError extends Error {
+  status = 409;
+  currentRevision?: number;
+
+  constructor(message: string, currentRevision?: number) {
+    super(message);
+    this.name = "StudioConflictError";
+    this.currentRevision = currentRevision;
+  }
+}
 
 export type ConfirmationOption = {
   id: string;
@@ -95,7 +116,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const payload = text ? JSON.parse(text) : {};
   if (!response.ok) {
     const message = payload.message ?? payload.detail ?? response.statusText;
-    throw new Error(typeof message === "string" ? message : "Request failed");
+    const textMessage = typeof message === "string" ? message : "Request failed";
+    if (response.status === 409) {
+      throw new StudioConflictError(textMessage, payload.currentRevision);
+    }
+    throw new Error(textMessage);
   }
   return payload as T;
 }
@@ -170,6 +195,59 @@ export function restore(slug: string, revision: number) {
 
 export function lintProject(slug: string) {
   return request<{ warnings: { code: string; message: string; clipId?: string }[] }>(`/projects/${slug}/lint`);
+}
+
+export function getSettings(slug: string) {
+  return request<{ settings: StudioSettings }>(`/projects/${slug}/settings`);
+}
+
+export function updateSettings(slug: string, settings: Partial<StudioSettings>) {
+  return request<{ settings: StudioSettings }>(`/projects/${slug}/settings`, {
+    method: "PATCH",
+    body: JSON.stringify(settings),
+  });
+}
+
+export function listSegments(slug: string) {
+  return request<{
+    sourceDuration: number;
+    segments: Array<{
+      kind: "speech" | "silence";
+      sourceStart: number;
+      sourceEnd: number;
+      duration: number;
+      text: string;
+      clipId: string | null;
+      status: string | null;
+    }>;
+  }>(`/projects/${slug}/segments`);
+}
+
+export function getTranscript(slug: string) {
+  return request<{ words: Array<{ text: string; start: number; end: number; clipId: string | null }> }>(
+    `/projects/${slug}/transcript`,
+  );
+}
+
+export function listOutputs(slug: string) {
+  return request<{
+    files: string[];
+    manifests: Array<{
+      name: string;
+      quality?: string;
+      duration?: number;
+      size?: number;
+      createdAt?: string | null;
+      outputPath?: string;
+    }>;
+  }>(`/projects/${slug}/output`);
+}
+
+export function cancelRender(slug: string, id: string) {
+  return request<{ id: string; status: string }>(`/projects/${slug}/render/${id}/cancel`, {
+    method: "POST",
+    body: "{}",
+  });
 }
 
 export function startRender(slug: string, quality: "preview" | "final") {

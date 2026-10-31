@@ -54,6 +54,10 @@ export async function waitForPythonJob<T>(pythonBase: string, jobId: string, opt
       error = data.message ?? "analysis failed";
       return;
     }
+    if (data.phase === "cancelled") {
+      error = "cancelled";
+      return;
+    }
     options.onProgress?.({ phase: data.phase, progress: data.progress, message: data.message });
   };
 

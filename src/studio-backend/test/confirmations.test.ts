@@ -42,7 +42,10 @@ function clip(id: string, extra: Partial<Clip> = {}): Clip {
     reasons: extra.reasons ?? ["reference take"],
     status: extra.status ?? "selected",
     decidedBy: "algorithm",
+    statusReason: "",
+    statusAt: "",
     note: "",
+    llm: {},
   };
 }
 

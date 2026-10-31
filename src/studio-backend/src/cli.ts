@@ -172,15 +172,56 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
       return finish(`${project}/ops`, "POST", { baseRevision, actor, ops, label: flag(flags, "label") });
     }
     if (command === "select" || command === "reject") {
-      const ids = [sub, ...rest].filter(Boolean);
+      const ids = [sub, ...rest].filter((item) => item && !item.startsWith("--"));
       if (ids.length === 0) throw new CliExit(1, { error: "validation", message: `${command} <id...>` }, pretty);
       const baseRevision = await revisionOf(base, actor, slug);
+      const statusReason = flag(flags, "reason");
       return finish(`${project}/ops`, "POST", {
         baseRevision,
         actor,
         label: command,
-        ops: ids.map((clipId) => ({ op: command, clipId })),
+        ops: ids.map((clipId) => ({ op: command, clipId, ...(statusReason ? { statusReason } : {}) })),
       });
+    }
+    if (command === "annotate") {
+      const id = sub;
+      if (!id) throw new CliExit(1, { error: "validation", message: "annotate <id> --json '{...}' | --file" }, pretty);
+      const raw = flag(flags, "file")
+        ? await (await import("node:fs/promises")).readFile(flag(flags, "file")!, "utf8")
+        : flag(flags, "json") ?? stdin;
+      if (!raw?.trim()) throw new CliExit(1, { error: "validation", message: "annotate <id> --json '{...}' | --file" }, pretty);
+      const llm = JSON.parse(raw) as Record<string, unknown>;
+      const baseRevision = await revisionOf(base, actor, slug);
+      return finish(`${project}/ops`, "POST", {
+        baseRevision,
+        actor,
+        label: "annotate",
+        ops: [{ op: "annotate", clipId: id, llm, merge: !flags.map.has("replace") }],
+      });
+    }
+    if (command === "settings") {
+      if (sub === "set") {
+        const key = rest[0];
+        const value = Number(rest[1]);
+        const aliases: Record<string, "silenceThreshold" | "pad" | "similarityThreshold"> = {
+          silence: "silenceThreshold",
+          silenceThreshold: "silenceThreshold",
+          pad: "pad",
+          similarity: "similarityThreshold",
+          similarityThreshold: "similarityThreshold",
+        };
+        const field = key ? aliases[key] : undefined;
+        if (!field || !Number.isFinite(value)) {
+          throw new CliExit(1, { error: "validation", message: "settings set silence|pad|similarity <number>" }, pretty);
+        }
+        return finish(`${project}/settings`, "PATCH", { [field]: value });
+      }
+      return finish(`${project}/settings`);
+    }
+    if (command === "render-cancel") {
+      const id = sub;
+      if (!id) throw new CliExit(1, { error: "validation", message: "render-cancel <id>" }, pretty);
+      return finish(`${project}/render/${id}/cancel`, "POST", {});
     }
     if (command === "split") {
       const id = sub;
@@ -320,7 +361,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     throw new CliExit(1, {
       error: "validation",
       message: "Unknown command",
-      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "schema", "reset-status", "doctor", "ask", "confirmations", "confirmation", "confirm-wait", "cancel-ask"],
+      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "render-cancel", "schema", "reset-status", "doctor", "ask", "confirmations", "confirmation", "confirm-wait", "cancel-ask", "annotate", "settings"],
     }, pretty);
   } catch (error) {
     if (error instanceof CliExit) {

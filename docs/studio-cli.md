@@ -39,7 +39,14 @@ pnpm krayon reset-status
 
 ```bash
 pnpm krayon select c-0007 c-0012
+pnpm krayon select c-0007 --reason "cleanest delivery"
 pnpm krayon reject c-0008
+pnpm krayon reject c-0008 --reason "false start"
+pnpm krayon annotate c-0007 --json '{"verdict":"keep","reason":"cleanest delivery","confidence":0.8}'
+pnpm krayon annotate c-0007 --file notes.json
+pnpm krayon annotate c-0007 --json '{"verdict":"drop"}' --replace
+pnpm krayon settings
+pnpm krayon settings set silence 0.3
 pnpm krayon split c-0007 --at 12.4
 pnpm krayon split c-0007 --word 3
 pnpm krayon merge c-0007 c-0008
@@ -86,7 +93,9 @@ pnpm krayon render --preview
 pnpm krayon render
 ```
 
-`--preview` is a small fast encode. The default final render re-encodes video so cuts can fall on words. The response includes `renderId` and `outputName`. Poll `GET /api/studio/projects/<slug>/render/<renderId>` until `status` is `done`. The manifest next to the mp4 lists `{ clipId, outStart, outEnd }`.
+`--preview` is a small fast encode. The default final render re-encodes video so cuts can fall on words. The response includes `renderId` and `outputName`. The UI follows SSE `render` events (no polling). `pnpm krayon render-cancel <renderId>` stops ffmpeg (`status: cancelled`). The manifest next to the mp4 lists `{ clipId, outStart, outEnd }`.
+
+`clip` and `clips --json` include `llm` and `statusReason`. Store per-clip reasoning with `annotate`. Set `--reason` whenever you select or reject.
 
 ## Errors
 

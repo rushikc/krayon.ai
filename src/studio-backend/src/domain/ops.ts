@@ -7,6 +7,7 @@ import {
   type IdState,
   type SourceRange,
   type Word,
+  LLM_MAX_BYTES,
   OpError,
   clipById,
   mintClipId,
@@ -17,9 +18,9 @@ import {
 } from "./types.js";
 
 export type Op =
-  | { op: "select"; clipId: string }
-  | { op: "reject"; clipId: string }
-  | { op: "undecided"; clipId: string }
+  | { op: "select"; clipId: string; statusReason?: string }
+  | { op: "reject"; clipId: string; statusReason?: string }
+  | { op: "undecided"; clipId: string; statusReason?: string }
   | { op: "reorder"; order: string[] }
   | { op: "split"; clipId: string; at?: number; wordIndex?: number; sampleAccurate?: boolean }
   | { op: "merge"; clipIds: [string, string] }
@@ -32,7 +33,8 @@ export type Op =
     }
   | { op: "ungroup"; clipId: string }
   | { op: "moveToGroup"; clipId: string; groupId: string }
-  | { op: "note"; clipId: string; note: string };
+  | { op: "note"; clipId: string; note: string }
+  | { op: "annotate"; clipId: string; llm: Record<string, unknown>; merge?: boolean };
 
 const ADJACENT_GAP_SECONDS = 1;
 
@@ -70,9 +72,17 @@ function insertSelected(doc: Cuts, clip: Clip): void {
   else doc.order.splice(index, 0, clip.id);
 }
 
-function setStatus(doc: Cuts, clip: Clip, status: Clip["status"], actor: Actor): void {
+function setStatus(
+  doc: Cuts,
+  clip: Clip,
+  status: Clip["status"],
+  actor: Actor,
+  statusReason?: string,
+): void {
   clip.status = status;
   clip.decidedBy = actor;
+  clip.statusAt = new Date().toISOString();
+  if (statusReason !== undefined) clip.statusReason = statusReason;
   if (status === "selected") insertSelected(doc, clip);
   else doc.order = doc.order.filter((id) => id !== clip.id);
 }
@@ -331,8 +341,28 @@ function applyOne(doc: Cuts, ids: IdState, op: Op, actor: Actor): string {
     case "reject":
     case "undecided": {
       const clip = clipById(doc, op.clipId);
-      setStatus(doc, clip, op.op === "select" ? "selected" : op.op === "reject" ? "rejected" : "undecided", actor);
+      setStatus(
+        doc,
+        clip,
+        op.op === "select" ? "selected" : op.op === "reject" ? "rejected" : "undecided",
+        actor,
+        op.statusReason,
+      );
       return `${op.op} ${clip.id}`;
+    }
+    case "annotate": {
+      const clip = clipById(doc, op.clipId);
+      if (!op.llm || typeof op.llm !== "object" || Array.isArray(op.llm)) {
+        fail(clip.id, "llm", "llm must be a JSON object");
+      }
+      const merge = op.merge !== false;
+      const next = merge ? { ...clip.llm, ...op.llm } : { ...op.llm };
+      const size = Buffer.byteLength(JSON.stringify(next), "utf8");
+      if (size > LLM_MAX_BYTES) {
+        fail(clip.id, "llm", `llm is larger than ${LLM_MAX_BYTES} bytes`, { max: LLM_MAX_BYTES, size });
+      }
+      clip.llm = next;
+      return `annotated ${clip.id}`;
     }
     case "reorder": {
       const selected = doc.clips.filter((clip) => clip.status === "selected").map((clip) => clip.id);
@@ -433,6 +463,7 @@ export function applyAlgorithmCut(doc: Cuts): void {
         clip.status = "undecided";
       }
       clip.decidedBy = "algorithm";
+      clip.statusAt = new Date().toISOString();
     }
   }
   doc.order = order;

@@ -7,9 +7,11 @@ import {
   type Clip,
   type Cuts,
   type IdState,
+  LLM_MAX_BYTES,
   emptyCuts,
   mintClipId,
   mintGroupId,
+  normalizeCuts,
   OpError,
 } from "../src/domain/types.js";
 
@@ -30,7 +32,10 @@ function makeClip(partial: Partial<Clip> & Pick<Clip, "id" | "sourceStart" | "so
     reasons: [],
     status: "undecided",
     decidedBy: "algorithm",
+    statusReason: "",
+    statusAt: "",
     note: "",
+    llm: {},
     ...partial,
   };
 }
@@ -260,6 +265,86 @@ describe("lint and schema", () => {
     }).map((warning) => warning.code);
     expect(loud).toContain("edge_loud");
     expect(loud).toContain("edge_clipped");
+  });
+
+  it("annotates llm with merge, replace, size limit, and undo via ops clone", () => {
+    const state = { nextClipSeq: 2, nextGroupSeq: 2 };
+    const doc = emptyCuts();
+    doc.clips = [
+      makeClip({
+        id: "c-0001",
+        groupId: "g-0001",
+        sourceStart: 0,
+        sourceEnd: 1,
+        text: "only",
+        llm: { verdict: "keep", confidence: 0.2 },
+      }),
+    ];
+    doc.groups = [{ id: "g-0001", label: "only", clipIds: ["c-0001"], recommendedClipId: "c-0001" }];
+    const merged = applyOps(
+      doc,
+      state,
+      [{ op: "annotate", clipId: "c-0001", llm: { confidence: 0.8, tags: ["intro"] } }],
+      "grok",
+    );
+    expect(merged.doc.clips[0]?.llm).toEqual({ verdict: "keep", confidence: 0.8, tags: ["intro"] });
+    const replaced = applyOps(
+      merged.doc,
+      state,
+      [{ op: "annotate", clipId: "c-0001", llm: { verdict: "drop" }, merge: false }],
+      "grok",
+    );
+    expect(replaced.doc.clips[0]?.llm).toEqual({ verdict: "drop" });
+    expect(() =>
+      applyOps(
+        replaced.doc,
+        state,
+        [{ op: "annotate", clipId: "c-0001", llm: { notes: "x".repeat(LLM_MAX_BYTES) } }],
+        "grok",
+      ),
+    ).toThrow(OpError);
+    const rejected = applyOps(
+      replaced.doc,
+      state,
+      [{ op: "reject", clipId: "c-0001", statusReason: "weak take" }],
+      "human",
+    );
+    expect(rejected.doc.clips[0]?.status).toBe("rejected");
+    expect(rejected.doc.clips[0]?.statusReason).toBe("weak take");
+    expect(rejected.doc.clips[0]?.decidedBy).toBe("human");
+    expect(rejected.doc.clips[0]?.statusAt).toBeTruthy();
+  });
+
+  it("loads cuts missing llm and statusReason", () => {
+    const raw = {
+      revision: 1,
+      clips: [
+        {
+          id: "c-0001",
+          parentIds: [],
+          sourceStart: 0,
+          sourceEnd: 1,
+          ranges: [],
+          duration: 1,
+          text: "hi",
+          words: [],
+          groupId: "g-0001",
+          label: "none",
+          score: 1,
+          reasons: [],
+          status: "undecided",
+          decidedBy: "algorithm",
+          note: "",
+        },
+      ],
+      groups: [],
+      order: [],
+      canvasDraft: { version: 1, elements: [] },
+    } as unknown as Cuts;
+    const next = normalizeCuts(raw);
+    expect(next.clips[0]?.llm).toEqual({});
+    expect(next.clips[0]?.statusReason).toBe("");
+    expect(next.clips[0]?.statusAt).toBe("");
   });
 
   it("describes ops and the conflict example", () => {

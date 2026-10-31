@@ -1,68 +1,104 @@
+import { Redo2, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { Button } from "@/components/ui/button";
 import {
   type ConfirmationItem,
   type StudioClip,
   type StudioProject,
-  analyze,
+  type StudioSettings,
+  StudioConflictError,
   answerConfirmation,
   applyOps,
-  audioUrl,
+  cancelRender,
   eventsUrl,
   getProject,
+  getTranscript,
   lintProject,
   listConfirmations,
-  outputUrl,
+  listOutputs,
+  listSegments,
   redo,
   renderStatus,
-  restore,
-  sourceUrl,
   startRender,
   undo,
+  updateSettings,
 } from "@/lib/api/studio-client";
-import { describeClips, describeIds } from "@/lib/studio-copy";
 import { formatTimestamp } from "@/lib/format";
-import { ConfirmationTray, pendingLabel } from "@/pages/studio/ConfirmationTray";
+import { clipMatchesFilter, type ClipStatusFilter } from "@/lib/studio-clip";
+import { studioCopy } from "@/lib/studio-copy";
+import { toast } from "@/stores/toast-store";
 
-type PlayTarget =
-  | { kind: "clip"; start: number; end: number }
-  | { kind: "result"; name: string };
+import { StudioClipsPanel } from "@/pages/studio/StudioClipsPanel";
+import { StudioControlsPanel } from "@/pages/studio/StudioControlsPanel";
+import { StudioPreviewPanel, type PreviewTab, type RenderManifest } from "@/pages/studio/StudioPreviewPanel";
+import { StudioStepIndicator } from "@/pages/studio/StudioStepIndicator";
 
-async function copyText(text: string) {
-  await navigator.clipboard.writeText(text);
+function sourceName(sourcePath: string | null | undefined): string {
+  if (!sourcePath) return "studio";
+  const parts = sourcePath.split(/[/\\]/);
+  return parts[parts.length - 1] || sourcePath;
+}
+
+function renderStorageKey(slug: string) {
+  return `krayon-studio-render:${slug}`;
 }
 
 export function StudioWorkspace({ slug }: { slug: string }) {
-  const [params, setParams] = useSearchParams();
   const [project, setProject] = useState<StudioProject | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ message: string; ratio: number } | null>(null);
-  const [warnings, setWarnings] = useState<{ code: string; message: string }[]>([]);
-  const [checked, setChecked] = useState<string[]>([]);
-  const [anchor, setAnchor] = useState<string | null>(null);
-  const [play, setPlay] = useState<PlayTarget | null>(null);
-  const [render, setRender] = useState<{ id: string; message: string; ratio: number; outputName?: string } | null>(null);
-  const [note, setNote] = useState("");
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<{ code: string; message: string; clipId?: string }[]>([]);
   const [asks, setAsks] = useState<ConfirmationItem[]>([]);
   const [highlightAsk, setHighlightAsk] = useState<string | null>(null);
   const [busyAsk, setBusyAsk] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const started = useRef(false);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ClipStatusFilter>("all");
+  const [tab, setTab] = useState<PreviewTab>("clip");
+  const [autoPlayToken, setAutoPlayToken] = useState(0);
+  const [render, setRender] = useState<{ id: string; message: string; ratio: number; outputName?: string; status?: string } | null>(null);
+  const [renders, setRenders] = useState<RenderManifest[]>([]);
+  const [activeRenderName, setActiveRenderName] = useState<string | null>(null);
+  const playingRef = useRef(false);
+
+  const settings: StudioSettings = project?.meta.settings ?? {
+    silenceThreshold: 0.4,
+    pad: 0.05,
+    similarityThreshold: 0.7,
+  };
 
   async function refresh() {
     const next = await getProject(slug);
     setProject(next);
-    const lint = await lintProject(slug).catch(() => ({ warnings: [] }));
-    setWarnings(lint.warnings);
-    const listed = await listConfirmations(slug, "all").catch(() => ({ items: [] as ConfirmationItem[] }));
-    setAsks(listed.items);
+    void lintProject(slug)
+      .then((lint) => setWarnings(lint.warnings))
+      .catch(() => setWarnings([]));
+    void listConfirmations(slug, "all")
+      .then((listed) => setAsks(listed.items))
+      .catch(() => setAsks([]));
+    void listOutputs(slug)
+      .then((outputs) => setRenders(outputs.manifests))
+      .catch(() => undefined);
     return next;
   }
 
   useEffect(() => {
     void refresh().catch((err: unknown) => setError(err instanceof Error ? err.message : "Load failed"));
+    const stored = sessionStorage.getItem(renderStorageKey(slug));
+    if (stored) {
+      void renderStatus(slug, stored)
+        .then((status) => {
+          setRender({
+            id: stored,
+            message: status.message,
+            ratio: status.ratio,
+            outputName: status.outputName,
+            status: status.status,
+          });
+        })
+        .catch(() => sessionStorage.removeItem(renderStorageKey(slug)));
+    }
     const source = new EventSource(eventsUrl(slug));
     source.onmessage = (event) => {
       const data = JSON.parse(event.data) as {
@@ -74,9 +110,6 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         phase?: string;
         id?: string;
       };
-      if (data.type === "progress") {
-        setProgress({ message: data.message ?? "", ratio: data.ratio ?? 0 });
-      }
       if (data.type === "confirmation_created" && data.id) {
         setHighlightAsk(data.id);
         void refresh().catch(() => undefined);
@@ -94,340 +127,211 @@ export function StudioWorkspace({ slug }: { slug: string }) {
           message: data.message ?? "",
           ratio: data.ratio ?? 0,
           outputName: data.outputName ?? current?.outputName,
+          status: data.phase,
         }));
+        if (data.renderId) sessionStorage.setItem(renderStorageKey(slug), data.renderId);
         if (data.phase === "done" && data.outputName) {
-          setPlay({ kind: "result", name: data.outputName });
+          sessionStorage.removeItem(renderStorageKey(slug));
+          setActiveRenderName(data.outputName);
+          void listOutputs(slug).then((result) => setRenders(result.manifests)).catch(() => undefined);
+          if (playingRef.current) toast(studioCopy.renderReady);
+          else setTab("render");
+        }
+        if (data.phase === "cancelled" || data.phase === "error") {
+          sessionStorage.removeItem(renderStorageKey(slug));
         }
       }
     };
     return () => source.close();
-    // refresh identity changes every render; the effect should follow the slug only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
-  useEffect(() => {
-    if (!project || started.current) return;
-    if (params.get("analyze") === "1" && project.clips.length === 0 && project.meta.sourcePath) {
-      started.current = true;
-      setParams({}, { replace: true });
-      void analyze(slug, project.revision).catch((err: unknown) => setError(err instanceof Error ? err.message : "Analyze failed"));
-    }
-  }, [params, project, setParams, slug]);
+  const clips = project?.clips ?? [];
+  const groups = project?.groups ?? [];
+  const visible = useMemo(
+    () =>
+      groups.flatMap((group) =>
+        group.clipIds
+          .map((id) => clips.find((clip) => clip.id === id))
+          .filter((clip): clip is StudioClip => clip != null && clipMatchesFilter(clip, filter)),
+      ),
+    [clips, filter, groups],
+  );
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || play?.kind !== "clip") return;
-    const start = Math.max(0, play.start - 0.35);
-    const stop = play.end + 0.35;
-    const onTime = () => {
-      if (video.currentTime >= stop) video.pause();
-    };
-    const begin = () => {
-      video.currentTime = start;
-      void video.play().catch(() => undefined);
-    };
-    video.addEventListener("timeupdate", onTime);
-    if (video.readyState >= 1) begin();
-    else video.addEventListener("loadedmetadata", begin, { once: true });
-    return () => video.removeEventListener("timeupdate", onTime);
-  }, [play]);
+  const selected = clips.find((clip) => clip.id === selectedClipId) ?? null;
+  const warningClipIds = useMemo(
+    () => new Set(warnings.map((warning) => warning.clipId).filter((id): id is string => Boolean(id))),
+    [warnings],
+  );
 
-  const flat = useMemo(() => {
-    if (!project) return [];
-    return project.groups.flatMap((group) =>
-      group.clipIds
-        .map((id) => project.clips.find((clip) => clip.id === id))
-        .filter((clip): clip is StudioClip => clip != null),
-    );
-  }, [project]);
+  function selectClip(id: string, play = false) {
+    setSelectedClipId(id);
+    setTab("clip");
+    if (play) setAutoPlayToken((token) => token + 1);
+  }
 
-  async function run(ops: Record<string, unknown>[], label: string) {
-    if (!project) return;
-    setError(null);
+  function moveSelection(delta: number) {
+    if (visible.length === 0) return;
+    const index = visible.findIndex((clip) => clip.id === selectedClipId);
+    const next = visible[Math.min(visible.length - 1, Math.max(0, (index < 0 ? 0 : index) + delta))];
+    if (next) selectClip(next.id);
+  }
+
+  async function decide(op: "select" | "reject") {
+    if (!project || !selected) return;
+    setConflictError(null);
     try {
-      await applyOps(slug, project.revision, ops, label);
+      await applyOps(slug, project.revision, [{ op, clipId: selected.id }], op);
       await refresh();
     } catch (err) {
+      if (err instanceof StudioConflictError) {
+        setConflictError(studioCopy.conflict);
+        await refresh();
+        return;
+      }
       setError(err instanceof Error ? err.message : "Edit failed");
     }
   }
 
-  function toggle(id: string, shift: boolean) {
-    if (shift && anchor) {
-      const start = flat.findIndex((clip) => clip.id === anchor);
-      const end = flat.findIndex((clip) => clip.id === id);
-      if (start >= 0 && end >= 0) {
-        const [from, to] = start < end ? [start, end] : [end, start];
-        setChecked(flat.slice(from, to + 1).map((clip) => clip.id));
-        return;
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (event.key === "j" || event.key === "ArrowDown") {
+        event.preventDefault();
+        moveSelection(1);
+      }
+      if (event.key === "k" || event.key === "ArrowUp") {
+        event.preventDefault();
+        moveSelection(-1);
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        moveSelection(-1);
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        moveSelection(1);
+      }
+      if (event.key === "a" || event.key === "A") {
+        event.preventDefault();
+        void decide("select");
+      }
+      if (event.key === "r" || event.key === "R") {
+        event.preventDefault();
+        void decide("reject");
+      }
+      if (event.key === " ") {
+        event.preventDefault();
+        setAutoPlayToken((token) => token + 1);
       }
     }
-    setAnchor(id);
-    setChecked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
-  const focused = project?.clips.find((clip) => clip.id === checked[checked.length - 1]) ?? null;
-  const videoSrc = play?.kind === "result" ? outputUrl(slug, play.name) : sourceUrl(slug);
+  const selectedDuration = (project?.order ?? [])
+    .map((id) => clips.find((clip) => clip.id === id)?.duration ?? 0)
+    .reduce((sum, value) => sum + value, 0);
+  const renderBusy = render?.status === "rendering" || project?.status === "rendering";
 
   return (
-    <AppShell subtitle="studio" showBack backTo="/studio" backLabel="Projects">
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex items-center gap-3 border-b border-border px-4 py-2 text-xs">
-          <Link className="font-medium" to="/studio">
-            {project?.meta.title ?? slug}
-          </Link>
-          <span className="text-muted-foreground">rev {project?.revision ?? "–"}</span>
-          <span className="text-muted-foreground">{project?.status}</span>
-          {asks.filter((item) => item.status === "pending").length > 0 ? (
-            <span className="rounded bg-primary/15 px-2 py-0.5">{pendingLabel(asks.filter((item) => item.status === "pending").length)}</span>
-          ) : null}
-          {progress ? (
-            <span className="text-muted-foreground">
-              {progress.message} {Math.round(progress.ratio * 100)}%
-            </span>
-          ) : null}
-          <div className="ml-auto flex gap-2">
-            <button className="rounded border border-border px-2 py-1" type="button" onClick={() => void undo(slug).then(refresh)}>
-              Undo
-            </button>
-            <button className="rounded border border-border px-2 py-1" type="button" onClick={() => void redo(slug).then(refresh)}>
-              Redo
-            </button>
-          </div>
-        </div>
-        {error ? <p className="px-4 py-2 text-xs text-destructive">{error}</p> : null}
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,380px)_1fr]">
-          <section className="flex min-h-0 flex-col border-r border-border">
-            <div className="flex flex-1 items-center justify-center bg-muted/30 p-4">
-              <div className="aspect-[9/16] h-full max-h-full overflow-hidden rounded-lg bg-black">
-                <video ref={videoRef} key={videoSrc} className="h-full w-full object-contain" src={videoSrc} controls />
-              </div>
-            </div>
-            <div className="space-y-2 border-t border-border p-3 text-xs">
-              <div className="flex gap-1 overflow-x-auto">
-                {project?.order.map((id) => (
-                  <button
-                    key={id}
-                    className="shrink-0 rounded bg-primary/15 px-2 py-1"
-                    type="button"
-                    onClick={() => {
-                      const clip = project.clips.find((item) => item.id === id);
-                      if (clip) setPlay({ kind: "clip", start: clip.sourceStart, end: clip.sourceEnd });
-                    }}
-                  >
-                    {id}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="rounded border border-border px-2 py-1"
-                  type="button"
-                  onClick={() => {
-                    void startRender(slug, "preview").then((job) => {
-                      setRender({ id: job.renderId, message: "Rendering preview", ratio: 0, outputName: job.outputName });
-                      const timer = window.setInterval(() => {
-                        void renderStatus(slug, job.renderId).then((status) => {
-                          setRender({ id: job.renderId, message: status.message, ratio: status.ratio, outputName: status.outputName });
-                          if (status.status === "done" || status.status === "error") {
-                            window.clearInterval(timer);
-                            if (status.outputName) setPlay({ kind: "result", name: status.outputName });
-                          }
-                        });
-                      }, 1000);
-                    });
-                  }}
-                >
-                  Preview
-                </button>
-                <button
-                  className="rounded bg-primary px-2 py-1 text-primary-foreground"
-                  type="button"
-                  onClick={() => {
-                    void startRender(slug, "final").then((job) => {
-                      setRender({ id: job.renderId, message: "Rendering final", ratio: 0 });
-                    });
-                  }}
-                >
-                  Render final
-                </button>
-              </div>
-              {render ? (
-                <p className="text-muted-foreground">
-                  {render.message} {Math.round((render.ratio ?? 0) * 100)}%
-                </p>
-              ) : null}
-            </div>
-          </section>
-          <section className="flex min-h-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-auto p-3">
-              <ConfirmationTray
-                items={asks}
-                highlightId={highlightAsk}
-                busyId={busyAsk}
-                onDismiss={() => setHighlightAsk(null)}
-                onSelectClip={(id) => {
-                  const clip = project?.clips.find((item) => item.id === id);
-                  setChecked([id]);
-                  document.getElementById(`clip-${id}`)?.scrollIntoView({ block: "nearest" });
-                  if (clip) setPlay({ kind: "clip", start: clip.sourceStart, end: clip.sourceEnd });
-                }}
-                onAnswer={(item, optionId, askNote) => {
-                  setBusyAsk(item.id);
-                  void answerConfirmation(slug, item.id, optionId, askNote)
-                    .then(() => refresh())
-                    .catch((err: unknown) => setError(err instanceof Error ? err.message : "Answer failed"))
-                    .finally(() => setBusyAsk(null));
-                }}
-              />
-              {project?.groups.map((group) => (
-                <div key={group.id} className="mb-4">
-                  <h3 className="mb-1 text-xs font-medium text-muted-foreground">
-                    {group.id}
-                    {group.recommendedClipId ? ` · pick ${group.recommendedClipId}` : ""}
-                  </h3>
-                  <ul className="space-y-1">
-                    {group.clipIds.map((id) => {
-                      const clip = project.clips.find((item) => item.id === id);
-                      if (!clip) return null;
-                      return (
-                        <li id={`clip-${clip.id}`} key={clip.id} className="rounded-md border border-border px-2 py-1.5 text-xs">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={checked.includes(clip.id)}
-                              onChange={() => undefined}
-                              onClick={(event) => toggle(clip.id, event.shiftKey)}
-                            />
-                            <button className="font-mono text-primary" type="button" onClick={() => void copyText(clip.id)}>
-                              {clip.id}
-                            </button>
-                            <span className="text-muted-foreground">{formatTimestamp(clip.duration)}</span>
-                            {clip.label !== "none" ? (
-                              <span className="rounded bg-destructive/10 px-1 text-destructive">{clip.label}</span>
-                            ) : null}
-                            <span className="rounded bg-muted px-1">{clip.status}</span>
-                            <span className="ml-auto flex gap-1">
-                              <button type="button" className="underline" onClick={() => void run([{ op: "select", clipId: clip.id }], "select")}>
-                                Select
-                              </button>
-                              <button type="button" className="underline" onClick={() => void run([{ op: "reject", clipId: clip.id }], "reject")}>
-                                Reject
-                              </button>
-                              <button
-                                type="button"
-                                className="underline"
-                                onClick={() => setPlay({ kind: "clip", start: clip.sourceStart, end: clip.sourceEnd })}
-                              >
-                                Play
-                              </button>
-                            </span>
-                          </div>
-                          <p className="mt-1">{clip.text}</p>
-                          {clip.reasons.length ? <p className="text-muted-foreground">{clip.reasons.join(" · ")}</p> : null}
-                          <audio className="mt-1 h-6 w-full" controls src={audioUrl(slug, clip.id, 0.5)} preload="none" />
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ))}
-            </div>
-            {checked.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2 text-xs">
-                <span>{checked.length} selected</span>
-                <button type="button" className="rounded border border-border px-2 py-1" onClick={() => void copyText(describeIds(checked))}>
-                  Copy ids
-                </button>
-                <button
-                  type="button"
-                  className="rounded border border-border px-2 py-1"
-                  onClick={() => {
-                    const clips = checked
-                      .map((id) => project?.clips.find((clip) => clip.id === id))
-                      .filter((clip): clip is StudioClip => clip != null);
-                    void copyText(describeClips(clips));
-                  }}
-                >
-                  Copy for Grok
-                </button>
-                <button
-                  type="button"
-                  className="rounded border border-border px-2 py-1"
-                  disabled={checked.length !== 2}
-                  onClick={() => void run([{ op: "merge", clipIds: [checked[0], checked[1]] }], "merge")}
-                >
-                  Merge
-                </button>
-                <button
-                  type="button"
-                  className="rounded border border-border px-2 py-1"
-                  disabled={checked.length !== 1}
-                  onClick={() => {
-                    const at = Number(window.prompt("Split at source seconds") ?? "");
-                    if (!Number.isFinite(at)) return;
-                    void run([{ op: "split", clipId: checked[0], at }], "split");
-                  }}
-                >
-                  Split
-                </button>
-                <button
-                  type="button"
-                  className="rounded border border-border px-2 py-1"
-                  disabled={checked.length !== 1}
-                  onClick={() => {
-                    const start = Number(window.prompt("Trim start") ?? "");
-                    const end = Number(window.prompt("Trim end") ?? "");
-                    if (!Number.isFinite(start) || !Number.isFinite(end)) return;
-                    void run([{ op: "trim", clipId: checked[0], start, end }], "trim");
-                  }}
-                >
-                  Trim
-                </button>
-              </div>
-            ) : null}
-            <div className="grid grid-cols-2 gap-3 border-t border-border p-3 text-xs">
-              <div>
-                <p className="mb-1 font-medium">Note {focused ? focused.id : ""}</p>
-                <textarea
-                  className="h-16 w-full rounded border border-border bg-background p-1"
-                  value={focused ? note || focused.note : ""}
-                  onChange={(event) => setNote(event.target.value)}
-                  onBlur={() => {
-                    if (!focused || note === "" || note === focused.note) return;
-                    void run([{ op: "note", clipId: focused.id, note }], "note").then(() => setNote(""));
-                  }}
-                />
-              </div>
-              <div className="max-h-28 overflow-auto">
-                <p className="mb-1 font-medium">Activity</p>
-                <ul className="space-y-1">
-                  {project?.history.slice().reverse().map((entry) => (
-                    <li key={entry.revision} className="flex items-start justify-between gap-2">
-                      <span>
-                        <span className="text-muted-foreground">{entry.actor}</span> {entry.label}: {entry.summary}
-                        {entry.current ? " · current" : ""}
-                      </span>
-                      {!entry.current ? (
-                        <button type="button" className="underline" onClick={() => void restore(slug, entry.revision).then(refresh)}>
-                          Restore
-                        </button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-                {warnings.length ? (
-                  <ul className="mt-2 space-y-1 text-muted-foreground">
-                    {warnings.map((warning) => (
-                      <li key={`${warning.code}-${warning.message}`}>{warning.message}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
+    <AppShell
+      showBack
+      backTo="/studio"
+      backLabel={studioCopy.backToLibrary}
+      subtitle={sourceName(project?.meta.sourcePath)}
+      afterTitle={
+        <span className="ml-3 truncate text-xs text-muted-foreground">{project?.meta.title ?? slug}</span>
+      }
+      actions={
+        <>
+          <StudioStepIndicator />
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Undo" onClick={() => void undo(slug).then(refresh)}>
+            <Undo2 className="size-3.5" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Redo" onClick={() => void redo(slug).then(refresh)}>
+            <Redo2 className="size-3.5" />
+          </Button>
+        </>
+      }
+    >
+      {error ? <p className="absolute left-4 top-12 z-10 text-xs text-destructive">{error}</p> : null}
+      <StudioClipsPanel
+        clips={clips}
+        groups={groups}
+        selectedClipId={selectedClipId}
+        filter={filter}
+        warningClipIds={warningClipIds}
+        onFilterChange={setFilter}
+        onSelect={(id) => selectClip(id, false)}
+        onPlay={(id) => selectClip(id, true)}
+      />
+      <StudioPreviewPanel
+        slug={slug}
+        clip={selected}
+        groups={groups}
+        pad={settings.pad}
+        tab={tab}
+        onTabChange={setTab}
+        conflictError={conflictError}
+        renders={renders}
+        activeRenderName={activeRenderName}
+        onSelectRender={(name) => {
+          setActiveRenderName(name);
+          setTab("render");
+        }}
+        onAccept={() => void decide("select")}
+        onReject={() => void decide("reject")}
+        onPrev={() => moveSelection(-1)}
+        onNext={() => moveSelection(1)}
+        autoPlayToken={autoPlayToken}
+        playingRef={playingRef}
+      />
+      <StudioControlsPanel
+        asks={asks}
+        highlightAsk={highlightAsk}
+        busyAsk={busyAsk}
+        onAnswer={(item, optionId, askNote) => {
+          setBusyAsk(item.id);
+          void answerConfirmation(slug, item.id, optionId, askNote)
+            .then(() => refresh())
+            .catch((err: unknown) => setError(err instanceof Error ? err.message : "Answer failed"))
+            .finally(() => setBusyAsk(null));
+        }}
+        onSelectClip={(id) => selectClip(id, false)}
+        onDismissAsk={() => setHighlightAsk(null)}
+        settings={settings}
+        onSaveSettings={(next) => {
+          void updateSettings(slug, next).then(() => refresh());
+        }}
+        selectedCount={project?.order.length ?? 0}
+        selectedClock={formatTimestamp(selectedDuration)}
+        warnings={warnings}
+        onSelectWarning={(id) => selectClip(id, false)}
+        renderBusy={Boolean(renderBusy)}
+        renderProgress={render}
+        onRender={(quality) => {
+          void startRender(slug, quality).then((job) => {
+            sessionStorage.setItem(renderStorageKey(slug), job.renderId);
+            setRender({ id: job.renderId, message: "Starting render", ratio: 0, outputName: job.outputName, status: "rendering" });
+          });
+        }}
+        onCancelRender={() => {
+          if (!render?.id) return;
+          void cancelRender(slug, render.id).then(() => {
+            sessionStorage.removeItem(renderStorageKey(slug));
+            setRender((current) => (current ? { ...current, status: "cancelled", message: "cancelled" } : current));
+          });
+        }}
+        renders={renders}
+        onPlayRender={(name) => {
+          setActiveRenderName(name);
+          setTab("render");
+        }}
+        onLoadSegments={() => listSegments(slug)}
+        onLoadTranscript={() => getTranscript(slug)}
+      />
     </AppShell>
   );
 }

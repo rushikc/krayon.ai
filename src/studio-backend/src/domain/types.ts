@@ -26,7 +26,10 @@ export type Clip = {
   reasons: string[];
   status: ClipStatus;
   decidedBy: Actor;
+  statusReason: string;
+  statusAt: string;
   note: string;
+  llm: Record<string, unknown>;
 };
 
 export type Group = {
@@ -96,6 +99,36 @@ export class NotFoundError extends Error {
 export function throwIfBusy(status: string): void {
   if (status === "analyzing") throw new BusyError("Project is analyzing");
   if (status === "rendering") throw new BusyError("Project is rendering");
+}
+
+export const LLM_MAX_BYTES = 8 * 1024;
+
+export function emptyLlm(): Record<string, unknown> {
+  return {};
+}
+
+export function normalizeClip(clip: Clip): Clip {
+  return {
+    ...clip,
+    statusReason: typeof clip.statusReason === "string" ? clip.statusReason : "",
+    statusAt: typeof clip.statusAt === "string" ? clip.statusAt : "",
+    note: typeof clip.note === "string" ? clip.note : "",
+    llm: clip.llm && typeof clip.llm === "object" && !Array.isArray(clip.llm) ? clip.llm : {},
+    parentIds: Array.isArray(clip.parentIds) ? clip.parentIds : [],
+    ranges: Array.isArray(clip.ranges) ? clip.ranges : [],
+    words: Array.isArray(clip.words) ? clip.words : [],
+    reasons: Array.isArray(clip.reasons) ? clip.reasons : [],
+  };
+}
+
+export function normalizeCuts(doc: Cuts): Cuts {
+  return {
+    ...doc,
+    clips: (doc.clips ?? []).map(normalizeClip),
+    groups: doc.groups ?? [],
+    order: doc.order ?? [],
+    canvasDraft: doc.canvasDraft ?? { version: 1, elements: [] },
+  };
 }
 
 export function emptyCuts(): Cuts {

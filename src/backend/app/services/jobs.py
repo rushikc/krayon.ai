@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
-from typing import AsyncGenerator
+import threading
+from typing import Any, AsyncGenerator
 
 from app.schemas import JobProgress
 
@@ -17,9 +18,35 @@ SSE_HEADERS = {
 class JobHub:
     def __init__(self) -> None:
         self._queues: dict[str, queue.Queue[JobProgress | None]] = {}
+        self._cancel: dict[str, threading.Event] = {}
+        self._processes: dict[str, Any] = {}
 
     def create_job(self, job_id: str) -> None:
         self._queues[job_id] = queue.Queue()
+        self._cancel[job_id] = threading.Event()
+
+    def register_process(self, job_id: str, process: Any) -> None:
+        self._processes[job_id] = process
+
+    def is_cancelled(self, job_id: str) -> bool:
+        event = self._cancel.get(job_id)
+        return bool(event and event.is_set())
+
+    def cancel(self, job_id: str) -> bool:
+        event = self._cancel.get(job_id)
+        if not event:
+            return False
+        event.set()
+        process = self._processes.get(job_id)
+        if process is not None and getattr(process, "poll", lambda: 0)() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except Exception:
+                kill = getattr(process, "kill", None)
+                if kill:
+                    kill()
+        return True
 
     def publish(
         self,
@@ -63,6 +90,8 @@ class JobHub:
                 yield f"data: {item.model_dump_json(by_alias=True)}\n\n"
         finally:
             self._queues.pop(job_id, None)
+            self._cancel.pop(job_id, None)
+            self._processes.pop(job_id, None)
 
 
 job_hub = JobHub()

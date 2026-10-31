@@ -37,7 +37,7 @@ A project is `studio/<slug>/`: `meta.json`, `cuts.json`, `analysis/` (WAV + `wor
 
 Clip ids look like `c-0007` and group ids like `g-0001`. They are never reused in that project. Split and merge mint new ids and set `parentIds`. Re-analysis keeps an id when the new span overlaps the old one with IoU ≥ 0.7.
 
-Grok loop, all local: `krayon status` → `krayon lint` → `krayon clip <id>` and `play-info` (audio with padding) → `reanalyze` / `split` / `merge` / `trim` → `select` → `render --preview` → check → `render --final`. Send `X-Krayon-Actor: grok` (the CLI does this by default). Ops need `baseRevision` from status.
+Grok loop, all local: `krayon status` → `krayon lint` → `krayon clip <id>` and `play-info` (audio with padding) → `reanalyze` / `split` / `merge` / `trim` → `krayon annotate <id> --json '{...}'` (store per-clip reasoning in `llm`) → `select` / `reject` with `--reason` (`statusReason`) → `render --preview` → check → `render --final`. Send `X-Krayon-Actor: grok` (the CLI does this by default). Ops need `baseRevision` from status. Project analysis settings live in `meta.settings` (`krayon settings`, `krayon settings set silence 0.3`).
 
 Never ask the human to confirm Studio edits in chat. Write a confirmation with `krayon ask confirm|choice … --wait` (run it as a background shell command) and continue when it finishes. The Studio UI shows the question; the answer is stored on the project.
 

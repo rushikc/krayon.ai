@@ -12,13 +12,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas import ClipItem
 from app.services.jobs import SSE_HEADERS, job_hub
+from app.services.segments import build_segments_from_words
 from app.services.studio.analyze import StudioAnalysis, analyze_project
 from app.services.studio.audio_stats import clip_audio_stats
 from app.services.studio.clip_preview import slice_clip_audio
 from app.services.studio.frame import extract_frame
 from app.services.studio.pick_file import pick_video_macos
 from app.services.studio.reanalyze import reanalyze_project
-from app.services.studio.render import RenderClipIn, render_video
+from app.services.studio.render import RenderCancelled, RenderClipIn, render_video
+from app.services.studio.transcribe_resume import load_words
 
 router = APIRouter(prefix="/api/audio-studio", tags=["audio-studio"])
 
@@ -84,10 +86,18 @@ def _start_job(work) -> dict:
             job_hub.publish(job_id, phase, ratio, message, step_progress=ratio)
 
         try:
-            payload = work(on_progress)
-            job_hub.publish(job_id, "complete", 1.0, json.dumps(payload), step_progress=1.0)
+            payload = work(on_progress, job_id)
+            if job_hub.is_cancelled(job_id):
+                job_hub.publish(job_id, "cancelled", 1.0, "cancelled", step_progress=1.0)
+            else:
+                job_hub.publish(job_id, "complete", 1.0, json.dumps(payload), step_progress=1.0)
+        except RenderCancelled:
+            job_hub.publish(job_id, "cancelled", 1.0, "cancelled", step_progress=1.0)
         except Exception as exc:
-            job_hub.publish(job_id, "error", 1.0, str(exc), step_progress=1.0)
+            if job_hub.is_cancelled(job_id):
+                job_hub.publish(job_id, "cancelled", 1.0, "cancelled", step_progress=1.0)
+            else:
+                job_hub.publish(job_id, "error", 1.0, str(exc), step_progress=1.0)
         finally:
             job_hub.finish(job_id)
 
@@ -118,7 +128,7 @@ def analyze_async(body: AnalyzeBody) -> dict:
     source = _require_file(Path(body.source_path), "Source")
     analysis_dir = Path(body.analysis_dir).expanduser().resolve()
 
-    def work(on_progress):
+    def work(on_progress, _job_id=None):
         result = analyze_project(
             source,
             analysis_dir,
@@ -140,7 +150,7 @@ def reanalyze_async(body: ReanalyzeBody) -> dict:
     if not analysis_dir.is_dir():
         raise HTTPException(status_code=404, detail="Analysis directory not found")
 
-    def work(on_progress):
+    def work(on_progress, _job_id=None):
         return reanalyze_project(
             source,
             analysis_dir,
@@ -230,7 +240,64 @@ def render_async(body: RenderBody) -> dict:
         for clip in body.clips
     ]
 
-    def work(on_progress):
-        return render_video(source, output, clips, quality=body.quality, on_progress=on_progress)
+    def work(on_progress, job_id=None):
+        return render_video(
+            source,
+            output,
+            clips,
+            quality=body.quality,
+            on_progress=on_progress,
+            register_process=lambda process: job_hub.register_process(job_id, process) if job_id else None,
+            cancelled=lambda: job_hub.is_cancelled(job_id) if job_id else False,
+        )
 
     return _start_job(work)
+
+
+class SegmentsBody(_Camel):
+    analysis_dir: str = Field(alias="analysisDir")
+    silence_threshold: float = Field(default=0.4, alias="silenceThreshold")
+    pad: float = 0.05
+    source_duration: float | None = Field(default=None, alias="sourceDuration")
+
+
+@router.post("/segments")
+def list_segments(body: SegmentsBody) -> dict:
+    analysis_dir = Path(body.analysis_dir).expanduser().resolve()
+    words_path = analysis_dir / "words.json"
+    if not words_path.is_file():
+        raise HTTPException(status_code=404, detail="words.json is missing; run analysis first")
+    words = load_words(words_path)
+    duration = body.source_duration
+    if duration is None:
+        duration = words[-1].end if words else 0.0
+    segments = build_segments_from_words(
+        words,
+        silence_threshold=body.silence_threshold,
+        pad=body.pad,
+        source_duration=duration,
+    )
+    items = []
+    for segment in segments:
+        text = " ".join(
+            word.text
+            for word in words
+            if word.end > segment.source_start and word.start < segment.source_end
+        )
+        items.append(
+            {
+                "kind": "speech",
+                "sourceStart": segment.source_start,
+                "sourceEnd": segment.source_end,
+                "duration": segment.duration,
+                "text": text,
+            }
+        )
+    return {"sourceDuration": duration, "segments": items}
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> dict:
+    if not job_hub.cancel(job_id):
+        raise HTTPException(status_code=404, detail="Unknown job")
+    return {"jobId": job_id, "status": "cancelled"}

@@ -189,7 +189,10 @@ export function adoptAnalysis(
       reasons: score?.reasons ?? [],
       status: hit && hit.decidedBy !== "algorithm" ? hit.status : "undecided",
       decidedBy: hit && hit.decidedBy !== "algorithm" ? hit.decidedBy : "algorithm",
+      statusReason: hit?.statusReason ?? "",
+      statusAt: hit?.statusAt ?? "",
       note: hit?.note ?? "",
+      llm: hit?.llm ?? {},
     };
     if (regroup && hit) {
       clip.groupId = groupOfPy.get(incoming.groupId)!;
