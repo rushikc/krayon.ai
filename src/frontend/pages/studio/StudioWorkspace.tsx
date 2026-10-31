@@ -401,6 +401,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         onLoadTranscript={() => getTranscript(slug)}
         clipCount={clips.length}
         hasTranscript={Boolean(project?.hasTranscript)}
+        hasSource={Boolean(project?.meta.sourcePath)}
         analysisBusy={Boolean(analysisBusy)}
         analysisMessage={analysisProgress ?? (project?.status === "analyzing" ? project.meta.statusMessage : null)}
         onAnalyze={() => void runAnalyze()}

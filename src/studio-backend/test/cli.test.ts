@@ -259,4 +259,38 @@ describe("studio http and cli", () => {
     expect(peaks.ok).toBe(true);
     expect(await peaks.json()).toEqual(payload);
   });
+
+  it("serves clip audio with HTTP byte ranges", async () => {
+    const wav = Buffer.alloc(64, 9);
+    const original = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      if (String(input).includes("/api/audio-studio/clip-audio")) {
+        return new Response(wav, { status: 200, headers: { "content-type": "audio/wav" } });
+      }
+      return original(input, init);
+    };
+    try {
+      const url = `${base}/api/studio/projects/demo/clips/c-0001/audio.wav?pad=0`;
+      const full = await fetch(url);
+      expect(full.status).toBe(200);
+      expect(full.headers.get("accept-ranges")).toBe("bytes");
+      expect(full.headers.get("content-type")).toMatch(/audio\/wav/);
+      expect((await full.arrayBuffer()).byteLength).toBe(64);
+
+      const ranged = await fetch(url, { headers: { Range: "bytes=0-10" } });
+      expect(ranged.status).toBe(206);
+      expect(ranged.headers.get("content-range")).toBe("bytes 0-10/64");
+      expect((await ranged.arrayBuffer()).byteLength).toBe(11);
+
+      const open = await fetch(url, { headers: { Range: "bytes=5-" } });
+      expect(open.status).toBe(206);
+      expect(open.headers.get("content-range")).toBe("bytes 5-63/64");
+
+      const unsatisfiable = await fetch(url, { headers: { Range: "bytes=999999-" } });
+      expect(unsatisfiable.status).toBe(416);
+      expect(unsatisfiable.headers.get("content-range")).toBe("bytes */64");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });

@@ -72,6 +72,7 @@ export const studioCopy = {
   searchTranscript: "Search transcript",
   noClipSelected: "Select a clip from the sidebar to preview audio.",
   analyzeAudio: "Analyze audio",
+  addSourceVideo: "Add a source video",
   rebuild: "Rebuild",
   rebuildFirst: "Run Analyze first",
   rebuildConfirmTitle: "Rebuild from saved transcript?",

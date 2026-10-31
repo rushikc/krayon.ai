@@ -88,6 +88,8 @@ export function StudioWaveform({
         ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
         for (let index = 0; index < bounds.length - 1; index += 1) {
           const left = (sourceToPlayhead(bounds[index]!, sourceStart, pad) / widthDuration) * cssWidth;
+          const right = (sourceToPlayhead(bounds[index + 1]!, sourceStart, pad) / widthDuration) * cssWidth;
+          if (right - left < 36) continue;
           ctx.fillText(`Part ${index + 1}`, left + 6, 14);
         }
       }
@@ -179,14 +181,15 @@ export function StudioWaveform({
         ))}
       </div>
       {editing
-        ? cuts.map((cut) => {
+        ? cuts.map((cut, index) => {
             const left = (sourceToPlayhead(cut, sourceStart, pad) / widthDuration) * 100;
             return (
               <button
                 key={cut}
                 type="button"
                 className={cn(
-                  "absolute top-1 z-10 -translate-x-1/2 rounded bg-amber-500 px-1 text-[10px] text-black",
+                  "absolute z-10 -translate-x-1/2 rounded bg-amber-500 px-1 text-[10px] text-black",
+                  index % 2 === 0 ? "top-1" : "top-6",
                 )}
                 style={{ left: `${left}%` }}
                 onClick={(event) => {

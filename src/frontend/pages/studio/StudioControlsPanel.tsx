@@ -48,6 +48,7 @@ export function StudioControlsPanel({
   onLoadTranscript,
   clipCount,
   hasTranscript,
+  hasSource,
   analysisBusy,
   analysisMessage,
   onAnalyze,
@@ -75,6 +76,7 @@ export function StudioControlsPanel({
   onLoadTranscript: () => Promise<{ words: Array<{ text: string; start: number; end: number; clipId: string | null }> }>;
   clipCount: number;
   hasTranscript: boolean;
+  hasSource: boolean;
   analysisBusy: boolean;
   analysisMessage?: string | null;
   onAnalyze: () => void;
@@ -202,15 +204,26 @@ export function StudioControlsPanel({
 
         <section className="space-y-2 rounded-xl border border-border bg-card/50 p-4">
           {analysisMessage ? <p className="text-xs text-muted-foreground">{analysisMessage}</p> : null}
-          <Button
-            type="button"
-            className="w-full"
-            variant={empty ? "default" : "outline"}
-            disabled={analysisBusy}
-            onClick={onAnalyze}
-          >
-            {studioCopy.analyzeAudio}
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span className="block w-full">
+                    <Button
+                      type="button"
+                      className="w-full"
+                      variant={empty ? "default" : "outline"}
+                      disabled={analysisBusy || !hasSource}
+                      onClick={onAnalyze}
+                    >
+                      {studioCopy.analyzeAudio}
+                    </Button>
+                  </span>
+                }
+              />
+              {!hasSource ? <TooltipContent>{studioCopy.addSourceVideo}</TooltipContent> : null}
+            </Tooltip>
+          </TooltipProvider>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger

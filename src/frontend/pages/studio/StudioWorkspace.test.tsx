@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -226,11 +226,28 @@ describe("StudioWorkspace", () => {
     expect(screen.getByRole("button", { name: "Rebuild" })).toBeDisabled();
   });
 
+  it("disables Analyze when the project has no source video", async () => {
+    getProject.mockResolvedValue({
+      ...project([]),
+      status: "empty",
+      hasTranscript: false,
+      meta: { ...project([]).meta, sourcePath: null, status: "empty" },
+    });
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("button", { name: "Analyze audio" });
+    expect(screen.getByRole("button", { name: "Analyze audio" })).toBeDisabled();
+  });
+
   it("toggles edit mode, adds cuts with S, and saves splitMany once", async () => {
     const clips = [clip({ id: "c-0007", status: "undecided", text: "open me", sourceStart: 0, sourceEnd: 8, duration: 8 })];
     getProject.mockResolvedValue(project(clips));
     const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
-    const { container } = render(
+    render(
       <MemoryRouter>
         <StudioWorkspace slug="real" />
       </MemoryRouter>,
@@ -245,15 +262,20 @@ describe("StudioWorkspace", () => {
     await userEvent.keyboard("s");
     expect(screen.getByRole("button", { name: /Save \(0 cuts/ })).toBeDisabled();
 
-    const audio = container.querySelector("audio") as HTMLAudioElement;
-    let playhead = 2;
-    Object.defineProperty(audio, "currentTime", {
-      configurable: true,
-      get: () => playhead,
-      set: (value: number) => {
-        playhead = value;
-      },
+    const wave = screen.getByTestId("studio-waveform");
+    Object.defineProperty(wave, "clientWidth", { configurable: true, value: 800 });
+    vi.spyOn(wave, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 800,
+      bottom: 120,
+      width: 800,
+      height: 120,
+      toJSON: () => ({}),
     });
+    fireEvent.pointerDown(wave, { clientX: 400 });
     await userEvent.keyboard("s");
     await waitFor(() => expect(screen.getByRole("button", { name: /Save \(1 cuts/ })).toBeEnabled());
 
@@ -264,13 +286,17 @@ describe("StudioWorkspace", () => {
     expect(screen.getByRole("button", { name: /Save \(1 cuts/ })).toBeTruthy();
     typing.remove();
 
-    playhead = 4;
+    fireEvent.pointerDown(wave, { clientX: 700 });
     await userEvent.keyboard("s");
     await userEvent.click(screen.getByRole("button", { name: /Save \(2 cuts/ }));
     expect(applyOps).toHaveBeenCalledTimes(1);
     expect(applyOps.mock.calls[0][2]).toEqual([
       { op: "splitMany", clipId: "c-0007", at: expect.any(Array) },
     ]);
-    expect((applyOps.mock.calls[0][2][0] as { at: number[] }).at).toHaveLength(2);
+    const at = (applyOps.mock.calls[0][2][0] as { at: number[] }).at;
+    expect(at).toHaveLength(2);
+    expect(at[0]).toBeCloseTo(2, 1);
+    expect(at[1]).toBeCloseTo(3.5, 1);
+    expect(at[0]).toBeGreaterThan(0.5);
   });
 });

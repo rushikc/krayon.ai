@@ -459,16 +459,23 @@ export function registerRoutes(
     const { dir, cuts } = await load(root, slug);
     const clip = cuts.clips.find((item) => item.id === id);
     if (!clip) throw new OpError([{ clipId: id, field: "id", message: `Unknown clip ${id}` }]);
-    const wav = path.join(dir, "analysis", "source.wav");
-    const ranges = playRanges(clip).map((range) => `${range.sourceStart},${range.sourceEnd}`).join(";");
-    const url = new URL("/api/audio-studio/clip-audio", python);
-    url.searchParams.set("wav", wav);
-    url.searchParams.set("ranges", ranges);
-    url.searchParams.set("pad", String(Number.isFinite(pad) ? pad : 0));
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(await response.text());
-    reply.header("content-type", "audio/wav");
-    return reply.send(Buffer.from(await response.arrayBuffer()));
+    const cacheDir = path.join(dir, "analysis", "previews");
+    const cachePath = path.join(cacheDir, `${id}-r${cuts.revision}-p${Number.isFinite(pad) ? pad : 0}.wav`);
+    try {
+      await stat(cachePath);
+    } catch {
+      const wav = path.join(dir, "analysis", "source.wav");
+      const ranges = playRanges(clip).map((range) => `${range.sourceStart},${range.sourceEnd}`).join(";");
+      const url = new URL("/api/audio-studio/clip-audio", python);
+      url.searchParams.set("wav", wav);
+      url.searchParams.set("ranges", ranges);
+      url.searchParams.set("pad", String(Number.isFinite(pad) ? pad : 0));
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(await response.text());
+      await mkdir(cacheDir, { recursive: true });
+      await writeFile(cachePath, Buffer.from(await response.arrayBuffer()));
+    }
+    return sendFile(request, reply, cachePath, "audio/wav");
   });
 
   app.get("/api/studio/projects/:slug/clips/:id/peaks", async (request) => {
@@ -1074,23 +1081,48 @@ export function registerRoutes(
   });
 }
 
-async function sendFile(request: FastifyRequest, reply: FastifyReply, filePath: string) {
-  const info = await stat(filePath);
-  const rangeHeader = request.headers.range;
-  reply.header("Accept-Ranges", "bytes");
-  reply.header("Content-Type", filePath.endsWith(".mp4") ? "video/mp4" : "application/octet-stream");
-  if (rangeHeader) {
-    const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
-    if (!match) throw new OpError([{ clipId: null, field: "range", message: "Invalid range" }]);
-    const start = Number(match[1]);
-    const end = match[2] ? Number(match[2]) : info.size - 1;
-    reply.code(206);
-    reply.header("Content-Range", `bytes ${start}-${end}/${info.size}`);
-    reply.header("Content-Length", String(end - start + 1));
-    return reply.send(createReadStream(filePath, { start, end }));
+export function parseByteRange(
+  header: string | undefined,
+  size: number,
+): { kind: "all" } | { kind: "range"; start: number; end: number } | { kind: "unsatisfiable" } {
+  if (!header) return { kind: "all" };
+  const suffix = /^bytes=-(\d+)$/.exec(header.trim());
+  if (suffix) {
+    const length = Number(suffix[1]);
+    if (!Number.isFinite(length) || length <= 0 || size <= 0) return { kind: "unsatisfiable" };
+    return { kind: "range", start: Math.max(0, size - length), end: size - 1 };
   }
-  reply.header("Content-Length", String(info.size));
-  return reply.send(createReadStream(filePath));
+  const match = /^bytes=(\d+)-(\d*)$/.exec(header.trim());
+  if (!match) return { kind: "unsatisfiable" };
+  const start = Number(match[1]);
+  if (!Number.isFinite(start) || start < 0 || start >= size) return { kind: "unsatisfiable" };
+  const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  if (!Number.isFinite(end) || end < start) return { kind: "unsatisfiable" };
+  return { kind: "range", start, end };
+}
+
+async function sendFile(request: FastifyRequest, reply: FastifyReply, filePath: string, contentType?: string) {
+  const info = await stat(filePath);
+  const type =
+    contentType ??
+    (filePath.endsWith(".mp4") ? "video/mp4" : filePath.endsWith(".wav") ? "audio/wav" : "application/octet-stream");
+  reply.header("Accept-Ranges", "bytes");
+  reply.header("Content-Type", type);
+  const rangeHeader = request.headers.range;
+  const parsed = parseByteRange(Array.isArray(rangeHeader) ? rangeHeader[0] : rangeHeader, info.size);
+  if (parsed.kind === "unsatisfiable") {
+    reply.code(416);
+    reply.header("Content-Range", `bytes */${info.size}`);
+    return reply.send();
+  }
+  if (parsed.kind === "all") {
+    reply.header("Content-Length", String(info.size));
+    return reply.send(createReadStream(filePath));
+  }
+  reply.code(206);
+  reply.header("Content-Range", `bytes ${parsed.start}-${parsed.end}/${info.size}`);
+  reply.header("Content-Length", String(parsed.end - parsed.start + 1));
+  return reply.send(createReadStream(filePath, { start: parsed.start, end: parsed.end }));
 }
 
 export function errorBody(error: unknown): { status: number; body: unknown } | null {

@@ -72,6 +72,8 @@ export function StudioPreviewPanel({
   onSaveCuts?: (clipId: string, at: number[]) => Promise<boolean>;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const playheadRef = useRef(0);
+  const ignorePausedZeroRef = useRef(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -116,6 +118,7 @@ export function StudioPreviewPanel({
 
   useEffect(() => {
     setIsPlaying(false);
+    playheadRef.current = 0;
     setCurrentTime(0);
     handledAutoPlay.current = 0;
     if (clip?.id === activeClipId.current) return;
@@ -161,7 +164,15 @@ export function StudioPreviewPanel({
     }
   };
 
+  function setPlayhead(value: number) {
+    const next = Number.isFinite(value) ? Math.max(0, value) : 0;
+    playheadRef.current = next;
+    setCurrentTime(next);
+  }
+
   const seek = (value: number) => {
+    ignorePausedZeroRef.current = audioRef.current?.paused !== false;
+    setPlayhead(value);
     const audio = audioRef.current;
     if (audio && Number.isFinite(value)) {
       try {
@@ -170,13 +181,11 @@ export function StudioPreviewPanel({
         /* jsdom / some webviews ignore currentTime writes */
       }
     }
-    setCurrentTime(value);
   };
 
   function addCutAtPlayhead() {
     if (!clip || !editing) return;
-    const playhead = Math.max(currentTime, audioRef.current?.currentTime ?? 0);
-    const at = playheadToSource(playhead, clip.sourceStart, pad);
+    const at = playheadToSource(playheadRef.current, clip.sourceStart, pad);
     const error = validateCut(at, clip.sourceStart, clip.sourceEnd, cuts);
     if (error) {
       setCutError(studioCopy.cutTooClose);
@@ -341,9 +350,17 @@ export function StudioPreviewPanel({
                       className="hidden"
                       onLoadedMetadata={(event) => {
                         setDuration(event.currentTarget.duration);
-                        setCurrentTime(0);
+                        setPlayhead(0);
                       }}
-                      onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+                      onTimeUpdate={(event) => {
+                        const audio = event.currentTarget;
+                        if (audio.paused) {
+                          if (ignorePausedZeroRef.current && audio.currentTime === 0) return;
+                          return;
+                        }
+                        ignorePausedZeroRef.current = false;
+                        setPlayhead(audio.currentTime);
+                      }}
                       onPlay={() => setIsPlaying(true)}
                       onPause={() => setIsPlaying(false)}
                       onEnded={() => setIsPlaying(false)}
