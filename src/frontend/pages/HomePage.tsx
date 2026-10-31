@@ -1,4 +1,4 @@
-import { Clapperboard, Volume2 } from "lucide-react";
+import { Clapperboard, Scissors, Volume2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -16,13 +16,19 @@ const tiles = [
     description: "Coming soon",
     icon: Clapperboard,
   },
+  {
+    to: "/studio",
+    title: "Studio",
+    description: "Pick the best takes from a long recording",
+    icon: Scissors,
+  },
 ] as const;
 
 export function HomePage() {
   return (
     <AppShell subtitle="home">
       <div className="flex flex-1 items-center justify-center p-8">
-        <div className="grid w-full max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3">
           {tiles.map(({ to, title, description, icon: Icon }) => (
             <Link
               key={to}

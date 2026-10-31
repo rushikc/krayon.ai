@@ -22,6 +22,10 @@ src/backend/logs/*.log
 src/reel-backend/data/
 src/reel-backend/logs/
 
+# Studio project folders (source videos and cuts). Not the source packages.
+/studio/
+src/studio-backend/logs/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,6 +1,7 @@
 packages:
   - "."
   - "src/reel-backend"
+  - "src/studio-backend"
 
 allowBuilds:
   esbuild: true

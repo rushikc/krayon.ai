@@ -11,7 +11,7 @@ from app.config import settings
 from app.logging_setup import setup_logging, start_log_retention
 from app.middleware.errors import http_exception_handler, unhandled_exception_handler
 from app.middleware.request_logging import RequestLoggingMiddleware
-from app.routers import clips, editor_state, fs, media, silence, tools
+from app.routers import clips, editor_state, fs, media, silence, studio_audio, tools
 from app.services.transcribe import warmup_whisper_model
 
 setup_logging()
@@ -39,6 +39,7 @@ app.include_router(media.router)
 app.include_router(silence.router)
 app.include_router(clips.router)
 app.include_router(editor_state.router)
+app.include_router(studio_audio.router)
 
 
 @app.on_event("startup")
