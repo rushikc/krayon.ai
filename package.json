@@ -13,6 +13,7 @@
     "reel-backend": "pnpm --filter @krayon/reel-backend dev",
     "studio-backend": "pnpm --filter @krayon/studio-backend dev",
     "krayon": "pnpm --filter @krayon/studio-backend krayon",
+    "studio:doctor": "pnpm --filter @krayon/studio-backend krayon doctor",
     "lint": "pnpm --filter @krayon/reel-backend lint && pnpm --filter @krayon/studio-backend lint",
     "typecheck": "tsc --noEmit && pnpm --filter @krayon/reel-backend typecheck && pnpm --filter @krayon/studio-backend typecheck",
     "test": "vitest run && pnpm --filter @krayon/reel-backend test && pnpm --filter @krayon/studio-backend test",
