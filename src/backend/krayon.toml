@@ -10,6 +10,7 @@ condition_on_previous_text = false
 threshold = 0.4
 pad = 0.05
 min_segment_seconds = 0.05
+tail_max_extend_s = 0.3
 
 [clips]
 similarity_threshold = 0.7

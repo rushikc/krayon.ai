@@ -63,6 +63,8 @@ export type StudioSettings = {
   silenceThreshold: number;
   pad: number;
   similarityThreshold: number;
+  snapToAudio?: boolean;
+  snapSearchSeconds?: number;
 };
 
 export type StudioOp = Record<string, unknown>;

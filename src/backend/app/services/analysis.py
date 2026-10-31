@@ -8,6 +8,7 @@ from app.schemas import SilenceAnalysis, SourceSegment, WordTiming
 from app.services.ffmpeg import krayon_cache_dir, probe_media
 from app.services.pipeline_log import PipelineContext
 from app.services.segments import (
+    LEGACY_TAIL_MAX_EXTEND_S,
     build_segments_from_words,
     extend_segment_tails,
     removed_seconds,
@@ -60,7 +61,14 @@ def analyze_silence(
         pad=options.pad,
         source_duration=probe.duration,
     )
-    segments = extend_segment_tails(wav_path, segments, probe.duration or 0.0)
+    segments = extend_segment_tails(
+        wav_path,
+        segments,
+        probe.duration or 0.0,
+        max_extend_s=LEGACY_TAIL_MAX_EXTEND_S,
+        neighbor_guard_s=0.0,
+        stop_on_reloud=False,
+    )
     removed = removed_seconds(probe.duration or 0.0, segments)
 
     if pipeline:

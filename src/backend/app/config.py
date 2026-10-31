@@ -32,6 +32,7 @@ def _load_toml_defaults() -> dict[str, Any]:
         "silence_threshold": silence.get("threshold", 0.4),
         "silence_pad": silence.get("pad", 0.05),
         "min_segment_seconds": silence.get("min_segment_seconds", 0.05),
+        "tail_max_extend_s": silence.get("tail_max_extend_s", 0.3),
         "clip_similarity_threshold": clips.get("similarity_threshold", 0.7),
     }
 
@@ -52,6 +53,7 @@ class Settings(BaseSettings):
     silence_threshold: float = 0.4
     silence_pad: float = 0.05
     min_segment_seconds: float = 0.05
+    tail_max_extend_s: float = 0.3
 
     clip_similarity_threshold: float = 0.7
 

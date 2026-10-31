@@ -9,7 +9,13 @@ from app.services.clip_pipeline import group_and_extract
 from app.services.editor_state import load_manifest, prepare_version, save_version
 from app.services.ffmpeg import krayon_cache_dir
 from app.services.pipeline_log import PipelineContext
-from app.services.segments import Word, build_segments_from_words, extend_segment_tails, removed_seconds
+from app.services.segments import (
+    LEGACY_TAIL_MAX_EXTEND_S,
+    Word,
+    build_segments_from_words,
+    extend_segment_tails,
+    removed_seconds,
+)
 
 ProgressFn = Callable[[str, float, str], None]
 
@@ -83,7 +89,14 @@ def rebuild_audio(
         source_duration=source_duration,
     )
     wav_path = krayon_cache_dir(source.parent) / f"{source.stem}.wav"
-    segments = extend_segment_tails(wav_path, segments, source_duration or 0.0)
+    segments = extend_segment_tails(
+        wav_path,
+        segments,
+        source_duration or 0.0,
+        max_extend_s=LEGACY_TAIL_MAX_EXTEND_S,
+        neighbor_guard_s=0.0,
+        stop_on_reloud=False,
+    )
     removed = removed_seconds(source_duration or 0.0, segments)
 
     if pipeline:

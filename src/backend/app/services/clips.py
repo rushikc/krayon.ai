@@ -21,6 +21,70 @@ MIN_CONTAINMENT_WORDS = 3
 MAX_CONTINUATION_GAP_SECONDS = 5.0
 MIN_SHORT_PREFIX_WORDS = 3
 MIN_FUZZY_WORD_COUNT = 4
+UNTRUSTED_WORD_MIN_S = 0.02
+UNTRUSTED_WORD_MAX_S = 1.0
+_WORD_MARKERS = {"'", "’", "-"}
+
+
+def word_timing_untrusted(word: Word | WordTiming) -> bool:
+    duration = word.end - word.start
+    return duration < UNTRUSTED_WORD_MIN_S or duration > UNTRUSTED_WORD_MAX_S
+
+
+def _is_latin_letter(char: str) -> bool:
+    return "A" <= char <= "Z" or "a" <= char <= "z"
+
+
+def transcript_is_latin(words: list[Word] | list[WordTiming], language: str | None = None) -> bool:
+    if language and language.lower().startswith("en"):
+        return True
+    latin = 0
+    other = 0
+    for word in words:
+        for char in word.text:
+            if not char.isalpha():
+                continue
+            if _is_latin_letter(char):
+                latin += 1
+            else:
+                other += 1
+    return latin >= other
+
+
+def is_junk_token(text: str, *, latin_transcript: bool = True) -> bool:
+    token = text.strip()
+    if not token:
+        return True
+    letters = 0
+    punct = 0
+    other_script = 0
+    for char in token:
+        if char in _WORD_MARKERS:
+            continue
+        if char.isalnum():
+            letters += 1
+            if char.isalpha() and not _is_latin_letter(char) and not char.isdigit():
+                other_script += 1
+        else:
+            punct += 1
+    if letters == 0:
+        return True
+    if punct >= letters:
+        return True
+    if latin_transcript and other_script:
+        return True
+    return False
+
+
+def filter_clip_words(
+    words: list[Word] | list[WordTiming],
+    *,
+    drop_junk: bool,
+    latin_transcript: bool,
+) -> list:
+    if not drop_junk:
+        return list(words)
+    return [word for word in words if not is_junk_token(word.text, latin_transcript=latin_transcript)]
 
 
 def normalize_text(text: str) -> str:
@@ -329,8 +393,11 @@ def _clip_slice(
     source_start: float,
     source_end: float,
     false_start: bool,
+    drop_junk: bool = False,
+    latin_transcript: bool = True,
 ) -> ClipItem:
-    text = " ".join(word.text for word in words).strip()
+    kept = filter_clip_words(words, drop_junk=drop_junk, latin_transcript=latin_transcript)
+    text = " ".join(word.text for word in kept).strip()
     span = SourceSegment(source_start=source_start, source_end=source_end)
     return ClipItem(
         id=clip.id,
@@ -340,14 +407,35 @@ def _clip_slice(
         duration=max(0.0, source_end - source_start),
         text=text or clip.text,
         group_id=clip.group_id,
-        words=words,
+        words=kept,
         false_start=false_start,
         delivery_issue=None,
         ranges=[span],
     )
 
 
-def _split_clip_at_restarts(clip: ClipItem, pad: float) -> list[ClipItem]:
+def _nearest_trusted_end(words: list[WordTiming]) -> float:
+    for word in reversed(words):
+        if not word_timing_untrusted(word):
+            return word.end
+    return words[-1].end
+
+
+def _nearest_trusted_start(words: list[WordTiming]) -> float:
+    for word in words:
+        if not word_timing_untrusted(word):
+            return word.start
+    return words[0].start
+
+
+def _split_clip_at_restarts(
+    clip: ClipItem,
+    pad: float,
+    *,
+    avoid_untrusted_cuts: bool = False,
+    drop_junk: bool = False,
+    latin_transcript: bool = True,
+) -> list[ClipItem]:
     words = list(clip.words or [])
     restart_at = find_restart_index(words)
     if restart_at is None:
@@ -358,10 +446,17 @@ def _split_clip_at_restarts(clip: ClipItem, pad: float) -> list[ClipItem]:
     if not left_words or not right_words:
         return [clip]
 
-    raw_left_end = left_words[-1].end + pad
-    raw_right_start = max(0.0, right_words[0].start - pad)
-    left_end = min(raw_left_end, right_words[0].start)
-    right_start = max(raw_right_start, left_end)
+    if avoid_untrusted_cuts and (
+        word_timing_untrusted(left_words[-1]) or word_timing_untrusted(right_words[0])
+    ):
+        cut = (_nearest_trusted_end(left_words) + _nearest_trusted_start(right_words)) / 2.0
+        left_end = min(max(clip.source_start, cut), clip.source_end)
+        right_start = left_end
+    else:
+        raw_left_end = left_words[-1].end + pad
+        raw_right_start = max(0.0, right_words[0].start - pad)
+        left_end = min(raw_left_end, right_words[0].start)
+        right_start = max(raw_right_start, left_end)
 
     left = _clip_slice(
         clip,
@@ -369,6 +464,8 @@ def _split_clip_at_restarts(clip: ClipItem, pad: float) -> list[ClipItem]:
         source_start=clip.source_start,
         source_end=left_end,
         false_start=True,
+        drop_junk=drop_junk,
+        latin_transcript=latin_transcript,
     )
     right = _clip_slice(
         clip,
@@ -376,8 +473,19 @@ def _split_clip_at_restarts(clip: ClipItem, pad: float) -> list[ClipItem]:
         source_start=right_start,
         source_end=clip.source_end,
         false_start=False,
+        drop_junk=drop_junk,
+        latin_transcript=latin_transcript,
     )
-    return [left, *_split_clip_at_restarts(right, pad)]
+    return [
+        left,
+        *_split_clip_at_restarts(
+            right,
+            pad,
+            avoid_untrusted_cuts=avoid_untrusted_cuts,
+            drop_junk=drop_junk,
+            latin_transcript=latin_transcript,
+        ),
+    ]
 
 
 def _reindex_clips(clips: list[ClipItem], stem: str) -> list[ClipItem]:
@@ -392,11 +500,22 @@ def split_restart_clips(
     stem: str,
     *,
     pad: float | None = None,
+    avoid_untrusted_cuts: bool = False,
+    drop_junk: bool = False,
+    latin_transcript: bool = True,
 ) -> list[ClipItem]:
     edge_pad = settings.silence_pad if pad is None else pad
     split: list[ClipItem] = []
     for clip in clips:
-        split.extend(_split_clip_at_restarts(clip, edge_pad))
+        split.extend(
+            _split_clip_at_restarts(
+                clip,
+                edge_pad,
+                avoid_untrusted_cuts=avoid_untrusted_cuts,
+                drop_junk=drop_junk,
+                latin_transcript=latin_transcript,
+            )
+        )
     return _reindex_clips(split, stem)
 
 
@@ -554,14 +673,22 @@ def build_segment_clips(
     similarity_threshold: float | None = None,
     pad: float | None = None,
     on_progress: Callable[[int, int, str], None] | None = None,
+    drop_junk_tokens: bool = False,
+    avoid_untrusted_cuts: bool = False,
+    language: str | None = None,
 ) -> tuple[list[ClipItem], list[ClipGroup]]:
     raw_clips: list[ClipItem] = []
     total = len(segments)
     edge_pad = settings.silence_pad if pad is None else pad
+    latin_transcript = transcript_is_latin(words, language)
 
     for index, segment in enumerate(segments):
         clip_id = f"{stem}_seg_{index:03d}"
-        seg_words = words_in_segment(words, segment)
+        seg_words = filter_clip_words(
+            words_in_segment(words, segment),
+            drop_junk=drop_junk_tokens,
+            latin_transcript=latin_transcript,
+        )
         text = " ".join(w.text for w in seg_words).strip()
         duration = segment.source_end - segment.source_start
 
@@ -591,6 +718,13 @@ def build_segment_clips(
     for clip in raw_clips:
         clip.group_id = group_map[clip.id]
 
-    raw_clips = split_restart_clips(raw_clips, stem, pad=edge_pad)
+    raw_clips = split_restart_clips(
+        raw_clips,
+        stem,
+        pad=edge_pad,
+        avoid_untrusted_cuts=avoid_untrusted_cuts,
+        drop_junk=drop_junk_tokens,
+        latin_transcript=latin_transcript,
+    )
     references = flag_incomplete_takes(raw_clips)
     return raw_clips, _groups_from_clips(raw_clips, references)

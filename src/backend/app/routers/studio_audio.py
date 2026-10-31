@@ -36,6 +36,8 @@ class AnalyzeBody(_Camel):
     pad: float = 0.05
     similarity_threshold: float = Field(default=0.7, alias="similarityThreshold")
     language: str | None = "en"
+    snap_to_audio: bool = Field(default=True, alias="snapToAudio")
+    snap_search_seconds: float = Field(default=0.3, alias="snapSearchSeconds")
 
 
 class ReanalyzeBody(AnalyzeBody):
@@ -136,6 +138,8 @@ def analyze_async(body: AnalyzeBody) -> dict:
             pad=body.pad,
             similarity_threshold=body.similarity_threshold,
             language=body.language,
+            snap_to_audio=body.snap_to_audio,
+            snap_search_seconds=body.snap_search_seconds,
             on_progress=on_progress,
         )
         return _analysis_payload(result)
@@ -162,6 +166,8 @@ def reanalyze_async(body: ReanalyzeBody) -> dict:
             pad=body.pad,
             similarity_threshold=body.similarity_threshold,
             language=body.language,
+            snap_to_audio=body.snap_to_audio,
+            snap_search_seconds=body.snap_search_seconds,
             on_progress=on_progress,
         )
 

@@ -5,9 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.schemas import ClipGroup, ClipItem, WordTiming
+from app.config import settings
+from app.services.boundary_snap import snap_studio_clips
 from app.services.clips import build_segment_clips
 from app.services.ffmpeg import probe_media
-from app.services.segments import build_segments_from_words, extend_segment_tails
+from app.services.segments import (
+    TAIL_NEIGHBOR_GUARD_S,
+    build_segments_from_words,
+    extend_segment_tails,
+)
 from app.services.studio.scoring import score_clips
 from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words
 
@@ -36,6 +42,8 @@ def analyze_project(
     pad: float,
     similarity_threshold: float,
     language: str | None = "en",
+    snap_to_audio: bool = True,
+    snap_search_seconds: float = 0.3,
     on_progress=None,
 ) -> StudioAnalysis:
     """First-pass analysis. Skips extract/Whisper when analysis/ caches exist."""
@@ -71,7 +79,14 @@ def analyze_project(
         pad=pad,
         source_duration=source_duration,
     )
-    segments = extend_segment_tails(wav_path, segments, source_duration)
+    segments = extend_segment_tails(
+        wav_path,
+        segments,
+        source_duration,
+        max_extend_s=settings.tail_max_extend_s,
+        neighbor_guard_s=TAIL_NEIGHBOR_GUARD_S,
+        stop_on_reloud=True,
+    )
     progress("segmenting", 1.0, f"Found {len(segments)} segments")
 
     progress("grouping", 0.2, "Grouping retakes…")
@@ -81,7 +96,12 @@ def analyze_project(
         words,
         similarity_threshold=similarity_threshold,
         pad=pad,
+        drop_junk_tokens=True,
+        avoid_untrusted_cuts=True,
+        language=language,
     )
+    if snap_to_audio:
+        clips = snap_studio_clips(clips, wav_path, pad=pad, search=snap_search_seconds)
     scores = score_clips(clips)
     progress("grouping", 1.0, f"Grouped {len(clips)} clips")
 

@@ -8,12 +8,16 @@ export type AnalysisSettings = {
   silenceThreshold: number;
   pad: number;
   similarityThreshold: number;
+  snapToAudio: boolean;
+  snapSearchSeconds: number;
 };
 
 export const DEFAULT_SETTINGS: AnalysisSettings = {
   silenceThreshold: 0.4,
   pad: 0.05,
   similarityThreshold: 0.7,
+  snapToAudio: true,
+  snapSearchSeconds: 0.3,
 };
 
 export type Meta = {
@@ -89,6 +93,11 @@ export function normalizeSettings(value: Partial<AnalysisSettings> | undefined):
       typeof value?.similarityThreshold === "number" && Number.isFinite(value.similarityThreshold)
         ? value.similarityThreshold
         : DEFAULT_SETTINGS.similarityThreshold,
+    snapToAudio: typeof value?.snapToAudio === "boolean" ? value.snapToAudio : DEFAULT_SETTINGS.snapToAudio,
+    snapSearchSeconds:
+      typeof value?.snapSearchSeconds === "number" && Number.isFinite(value.snapSearchSeconds)
+        ? value.snapSearchSeconds
+        : DEFAULT_SETTINGS.snapSearchSeconds,
   };
 }
 

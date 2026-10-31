@@ -202,17 +202,33 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     if (command === "settings") {
       if (sub === "set") {
         const key = rest[0];
-        const value = Number(rest[1]);
-        const aliases: Record<string, "silenceThreshold" | "pad" | "similarityThreshold"> = {
+        const raw = rest[1];
+        const aliases: Record<string, keyof import("./store.js").AnalysisSettings> = {
           silence: "silenceThreshold",
           silenceThreshold: "silenceThreshold",
           pad: "pad",
           similarity: "similarityThreshold",
           similarityThreshold: "similarityThreshold",
+          snap: "snapToAudio",
+          snapToAudio: "snapToAudio",
+          snapSearch: "snapSearchSeconds",
+          snapSearchSeconds: "snapSearchSeconds",
         };
         const field = key ? aliases[key] : undefined;
-        if (!field || !Number.isFinite(value)) {
-          throw new CliExit(1, { error: "validation", message: "settings set silence|pad|similarity <number>" }, pretty);
+        if (!field || raw == null) {
+          throw new CliExit(1, { error: "validation", message: "settings set silence|pad|similarity|snap|snapSearch <value>" }, pretty);
+        }
+        if (field === "snapToAudio") {
+          const lowered = raw.toLowerCase();
+          const value = lowered === "true" || lowered === "1" || lowered === "on";
+          if (!value && lowered !== "false" && lowered !== "0" && lowered !== "off") {
+            throw new CliExit(1, { error: "validation", message: "settings set snap true|false" }, pretty);
+          }
+          return finish(`${project}/settings`, "PATCH", { snapToAudio: value });
+        }
+        const value = Number(raw);
+        if (!Number.isFinite(value)) {
+          throw new CliExit(1, { error: "validation", message: "settings set silence|pad|similarity|snapSearch <number>" }, pretty);
         }
         return finish(`${project}/settings`, "PATCH", { [field]: value });
       }

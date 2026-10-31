@@ -8,6 +8,8 @@ export type LintWarning = {
 };
 
 const SHORT_SECONDS = 0.35;
+const UNTRUSTED_WORD_MIN_S = 0.02;
+const UNTRUSTED_WORD_MAX_S = 1.0;
 
 export const STATS_WINDOW_SECONDS = 0.15;
 export const EDGE_CHECK_SECONDS = 0.02;
@@ -52,6 +54,18 @@ export function lintCuts(doc: Cuts, stats?: Record<string, AudioEdgeStats>): Lin
         code: "mid_word",
         clipId: clip.id,
         message: `${clip.id} is cut in the middle of a word`,
+      });
+    }
+    if (
+      clip.words.some((word) => {
+        const duration = word.end - word.start;
+        return duration < UNTRUSTED_WORD_MIN_S || duration > UNTRUSTED_WORD_MAX_S;
+      })
+    ) {
+      warnings.push({
+        code: "bad_word_timing",
+        clipId: clip.id,
+        message: `${clip.id} has a word timestamp under ${UNTRUSTED_WORD_MIN_S}s or over ${UNTRUSTED_WORD_MAX_S}s`,
       });
     }
     const edge = stats?.[clip.id];

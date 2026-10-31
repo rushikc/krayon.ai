@@ -339,6 +339,26 @@ describe("lint and schema", () => {
     expect(loud).toContain("edge_clipped");
   });
 
+  it("flags untrusted word timestamps", () => {
+    const doc = emptyCuts();
+    doc.clips = [
+      makeClip({
+        id: "c-0001",
+        groupId: "g-0001",
+        sourceStart: 0,
+        sourceEnd: 2,
+        text: "hello there",
+        words: [
+          { text: "hello", start: 0.1, end: 0.1 },
+          { text: "there", start: 0.4, end: 1.8 },
+        ],
+      }),
+    ];
+    doc.groups = [{ id: "g-0001", label: "hello there", clipIds: ["c-0001"], recommendedClipId: "c-0001" }];
+    doc.order = ["c-0001"];
+    expect(lintCuts(doc).map((warning) => warning.code)).toContain("bad_word_timing");
+  });
+
   it("annotates llm with merge, replace, size limit, and undo via ops clone", () => {
     const state = { nextClipSeq: 2, nextGroupSeq: 2 };
     const doc = emptyCuts();

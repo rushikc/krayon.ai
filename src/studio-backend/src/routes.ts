@@ -302,6 +302,8 @@ export function registerRoutes(
         silenceThreshold: z.number().optional(),
         pad: z.number().optional(),
         similarityThreshold: z.number().optional(),
+        snapToAudio: z.boolean().optional(),
+        snapSearchSeconds: z.number().optional(),
       })
       .parse(request.body ?? {});
     return withLock(slug, async () => {
@@ -367,6 +369,8 @@ export function registerRoutes(
           pad: body.pad ?? started.meta.settings?.pad ?? DEFAULT_SETTINGS.pad,
           similarityThreshold: body.similarityThreshold ?? started.meta.settings?.similarityThreshold ?? DEFAULT_SETTINGS.similarityThreshold,
           language: body.language ?? "en",
+          snapToAudio: started.meta.settings?.snapToAudio ?? DEFAULT_SETTINGS.snapToAudio,
+          snapSearchSeconds: started.meta.settings?.snapSearchSeconds ?? DEFAULT_SETTINGS.snapSearchSeconds,
         },
         (event) => {
           deps.hub.publish(slug, {
@@ -601,6 +605,8 @@ export function registerRoutes(
           silenceThreshold: body.silenceThreshold ?? started.meta.settings?.silenceThreshold ?? DEFAULT_SETTINGS.silenceThreshold,
           pad: body.pad ?? started.meta.settings?.pad ?? DEFAULT_SETTINGS.pad,
           similarityThreshold: body.similarityThreshold ?? started.meta.settings?.similarityThreshold ?? DEFAULT_SETTINGS.similarityThreshold,
+          snapToAudio: started.meta.settings?.snapToAudio ?? DEFAULT_SETTINGS.snapToAudio,
+          snapSearchSeconds: started.meta.settings?.snapSearchSeconds ?? DEFAULT_SETTINGS.snapSearchSeconds,
           clips: started.cuts.clips.map(toPythonClip),
         },
         (event) => deps.hub.publish(slug, { type: "progress", phase: event.phase, message: event.message, ratio: event.progress }),

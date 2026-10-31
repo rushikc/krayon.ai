@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.schemas import ClipGroup, ClipItem, WordTiming
+from app.config import settings
+from app.services.boundary_snap import snap_studio_clips
 from app.services.clips import (
     _groups_from_clips,
     build_segment_clips,
@@ -10,10 +12,14 @@ from app.services.clips import (
     group_clips_by_text,
 )
 from app.services.ffmpeg import probe_media, run_command
-from app.services.segments import Word, build_segments_from_words, extend_segment_tails
+from app.services.segments import (
+    TAIL_NEIGHBOR_GUARD_S,
+    Word,
+    build_segments_from_words,
+    extend_segment_tails,
+)
 from app.services.studio.scoring import score_clips
 from app.services.studio.transcribe_resume import load_words, save_words, transcribe_wav
-from app.config import settings
 
 
 def splice_words(words: list[Word], start: float, end: float, replacement: list[Word]) -> list[Word]:
@@ -81,6 +87,9 @@ def _build_range_clips(
     silence_threshold: float,
     pad: float,
     similarity_threshold: float,
+    language: str | None = "en",
+    snap_to_audio: bool = True,
+    snap_search_seconds: float = 0.3,
 ) -> tuple[list[ClipItem], list[ClipGroup]]:
     inside = _words_overlapping(words, start, end)
     segments = build_segments_from_words(
@@ -95,14 +104,27 @@ def _build_range_clips(
         if segment.source_end > start and segment.source_start < end
     ]
     if wav_path.is_file():
-        segments = extend_segment_tails(wav_path, segments, source_duration)
-    return build_segment_clips(
+        segments = extend_segment_tails(
+            wav_path,
+            segments,
+            source_duration,
+            max_extend_s=settings.tail_max_extend_s,
+            neighbor_guard_s=TAIL_NEIGHBOR_GUARD_S,
+            stop_on_reloud=True,
+        )
+    clips, groups = build_segment_clips(
         "range",
         segments,
         inside,
         similarity_threshold=similarity_threshold,
         pad=pad,
+        drop_junk_tokens=True,
+        avoid_untrusted_cuts=True,
+        language=language,
     )
+    if snap_to_audio and wav_path.is_file():
+        clips = snap_studio_clips(clips, wav_path, pad=pad, search=snap_search_seconds)
+    return clips, groups
 
 
 def regroup_clips(clips: list[ClipItem], similarity_threshold: float) -> tuple[list[ClipItem], list[ClipGroup]]:
@@ -139,6 +161,8 @@ def reanalyze_project(
     pad: float,
     similarity_threshold: float,
     language: str | None = "en",
+    snap_to_audio: bool = True,
+    snap_search_seconds: float = 0.3,
     on_progress=None,
 ) -> dict:
     words_path = analysis_dir / "words.json"
@@ -200,6 +224,9 @@ def reanalyze_project(
             silence_threshold=silence_threshold,
             pad=pad,
             similarity_threshold=similarity_threshold,
+            language=language,
+            snap_to_audio=snap_to_audio,
+            snap_search_seconds=snap_search_seconds,
         )
         next_clips = outside + created
         groups = _groups_from_clips(next_clips)

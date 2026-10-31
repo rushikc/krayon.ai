@@ -6,9 +6,11 @@ from app.services.clips import (
     build_segment_clips,
     find_restart_index,
     group_clips_by_text,
+    is_junk_token,
     normalize_text,
     similarity,
     split_restart_clips,
+    word_timing_untrusted,
 )
 from app.services.segments import Segment, Word
 
@@ -463,4 +465,63 @@ def test_false_start_split_applies_pad() -> None:
     assert split[0].source_end == pytest.approx(min(left_last + 0.05, right_first))
     assert split[1].source_start <= right_first
     assert split[0].source_end <= split[1].source_start
+
+
+def test_junk_tokens_are_dropped_from_clip_text() -> None:
+    assert is_junk_token("oミ", latin_transcript=True)
+    assert is_junk_token(".C", latin_transcript=True)
+    assert is_junk_token("id.?", latin_transcript=True)
+    assert not is_junk_token("don't", latin_transcript=True)
+    words = [
+        Word("hello", 0.1, 0.4),
+        Word("oミ", 0.45, 0.5),
+        Word(".C", 0.52, 0.55),
+        Word("id.?", 0.56, 0.6),
+        Word("there", 0.7, 1.0),
+    ]
+    clips, _groups = build_segment_clips(
+        "take",
+        [Segment(source_start=0.0, source_end=1.1)],
+        words,
+        drop_junk_tokens=True,
+        language="en",
+    )
+    assert clips[0].text == "hello there"
+    assert [word.text for word in clips[0].words] == ["hello", "there"]
+    assert clips[0].words[0].start == pytest.approx(0.1)
+    assert clips[0].words[1].end == pytest.approx(1.0)
+
+
+def test_untrusted_restart_cut_ignores_bad_word_times() -> None:
+    from app.schemas import ClipItem, WordTiming
+
+    tokens = OPENING + COMPLETED
+    words = [WordTiming(text=w.text, start=w.start, end=w.end) for w in _word_timings(tokens)]
+    boundary = words[len(OPENING)]
+    words[len(OPENING)] = WordTiming(text=boundary.text, start=boundary.start, end=boundary.start)
+    words[len(OPENING) - 1] = WordTiming(
+        text=words[len(OPENING) - 1].text,
+        start=words[len(OPENING) - 1].start,
+        end=words[len(OPENING) - 1].start + 1.5,
+    )
+    assert word_timing_untrusted(words[len(OPENING)])
+    assert word_timing_untrusted(words[len(OPENING) - 1])
+    clip = ClipItem(
+        id="take_seg_000",
+        index=0,
+        source_start=0.0,
+        source_end=words[-1].end + 0.1,
+        duration=words[-1].end + 0.1,
+        text=" ".join(t.text for t in words),
+        group_id="g1",
+        words=words,
+    )
+    trusted_left = words[len(OPENING) - 2].end
+    trusted_right = words[len(OPENING) + 1].start
+    split = split_restart_clips([clip], "take", pad=0.05, avoid_untrusted_cuts=True)
+    mid = (trusted_left + trusted_right) / 2.0
+    assert split[0].source_end == pytest.approx(mid)
+    assert split[1].source_start == pytest.approx(mid)
+    assert split[0].source_end != pytest.approx(words[len(OPENING) - 1].end)
+    assert split[1].source_start != pytest.approx(boundary.start)
 
