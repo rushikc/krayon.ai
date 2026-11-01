@@ -59,5 +59,10 @@ export default defineConfig({
     setupFiles: path.resolve(__dirname, "src/frontend/test/setup.ts"),
     include: ["src/frontend/**/*.test.{ts,tsx}"],
     root: path.resolve(__dirname),
+    coverage: {
+      provider: "v8",
+      reportsDirectory: path.resolve(__dirname, "tmp/coverage/frontend"),
+      reporter: ["text", "json-summary", "html"],
+    },
   },
 });

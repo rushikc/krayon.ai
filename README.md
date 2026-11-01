@@ -28,7 +28,11 @@ pnpm krayon           # studio CLI (status, clips, op, render, …)
 pnpm studio:doctor    # studio + python + ffmpeg + av + Whisper checks
 pnpm test             # unit tests (frontend, reel, studio)
 pnpm test:backend     # Python backend tests
+pnpm test:fast        # unit tests plus Python (no e2e)
+pnpm test:all         # test:fast then Playwright (needs pnpm dev)
 pnpm test:e2e         # Playwright; needs pnpm dev already running
+pnpm test:e2e:slow    # also @slow render and Whisper
+pnpm coverage         # Vitest + pytest coverage into tmp/coverage
 ```
 
 Open **http://localhost:5173**
