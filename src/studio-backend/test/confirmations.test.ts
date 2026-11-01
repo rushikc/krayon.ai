@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -267,6 +267,55 @@ describe("confirmation http", () => {
 });
 
 describe("confirmation cli exit codes", () => {
+  it("waits for the second of two pending questions", async () => {
+    const first = await http("POST", "/api/studio/projects/ask/confirmations", {
+      kind: "choice",
+      title: "First",
+      options: [
+        { id: "a", label: "A" },
+        { id: "b", label: "B" },
+      ],
+    });
+    const second = await http("POST", "/api/studio/projects/ask/confirmations", {
+      kind: "choice",
+      title: "Second",
+      options: [
+        { id: "a", label: "A" },
+        { id: "b", label: "B" },
+      ],
+    });
+    const since = (first.payload.seq as number) - 1;
+    const waiting = fetch(`${base}/api/studio/projects/ask/confirmations/wait-any?timeoutMs=2000&since=${since}`);
+    await http("POST", `/api/studio/projects/ask/confirmations/${second.payload.id}/answer`, { optionId: "b" });
+    const resolved = (await (await waiting).json()) as { id: string; status: string };
+    expect(resolved.id).toBe(second.payload.id);
+    expect(resolved.status).toBe("answered");
+    await http("POST", `/api/studio/projects/ask/confirmations/${first.payload.id}/cancel`, {});
+  });
+
+  it("returns an error when proposed ops fail because the clip is gone", async () => {
+    const state = await http("GET", "/api/studio/projects/ask");
+    const revision = Number(state.payload.revision);
+    const created = await http("POST", "/api/studio/projects/ask/confirmations", {
+      kind: "confirm",
+      title: "Reject missing",
+      options: [
+        { id: "accept", label: "Accept", applyOps: true },
+        { id: "decline", label: "Decline" },
+      ],
+      proposedOps: { baseRevision: revision, ops: [{ op: "reject", clipId: "c-0002" }] },
+    });
+    const cutsPath = path.join(root, "ask", "cuts.json");
+    const cuts = JSON.parse(await readFile(cutsPath, "utf8")) as { clips: { id: string }[]; groups: { clipIds: string[] }[]; order: string[] };
+    cuts.clips = cuts.clips.filter((item) => item.id !== "c-0002");
+    for (const group of cuts.groups) group.clipIds = group.clipIds.filter((id) => id !== "c-0002");
+    cuts.order = cuts.order.filter((id) => id !== "c-0002");
+    await writeFile(cutsPath, JSON.stringify(cuts));
+    const answered = await http("POST", `/api/studio/projects/ask/confirmations/${created.payload.id}/answer`, { optionId: "accept" });
+    expect(answered.status).toBe(400);
+    expect(JSON.stringify(answered.payload)).toContain("c-0002");
+  });
+
   it("maps decline to 3", async () => {
     const created = (await runCli(["ask", "confirm", "Decline me"], env())) as { id: string };
     const waiting = runCli(["confirm-wait", created.id, "--timeout", "5"], env()).then(
@@ -280,6 +329,43 @@ describe("confirmation cli exit codes", () => {
     const error = await waiting;
     expect(error).toBeInstanceOf(CliExit);
     expect((error as CliExit).code).toBe(3);
+  });
+
+  it("maps timeout, stale, and cancel to 4, 5, and 6", async () => {
+    const pending = (await runCli(["ask", "confirm", "Timeout me"], env())) as { id: string };
+    await expect(runCli(["confirm-wait", pending.id, "--timeout", "0.05"], env())).rejects.toMatchObject({ code: 4 });
+    await http("POST", `/api/studio/projects/ask/confirmations/${pending.id}/cancel`, {});
+
+    const state = await http("GET", "/api/studio/projects/ask");
+    const revision = Number(state.payload.revision);
+    const stale = await http("POST", "/api/studio/projects/ask/confirmations", {
+      kind: "confirm",
+      title: "Stale me",
+      options: [
+        { id: "accept", label: "Accept", applyOps: true },
+        { id: "decline", label: "Decline" },
+      ],
+      proposedOps: { baseRevision: revision, ops: [{ op: "note", clipId: "c-0001", note: "later" }] },
+    });
+    await http("POST", "/api/studio/projects/ask/ops", {
+      baseRevision: revision,
+      ops: [{ op: "note", clipId: "c-0001", note: "now" }],
+    });
+    await http("POST", `/api/studio/projects/ask/confirmations/${stale.payload.id}/answer`, { optionId: "accept" });
+    await expect(runCli(["confirm-wait", String(stale.payload.id), "--timeout", "2"], env())).rejects.toMatchObject({ code: 5 });
+
+    const live = (await runCli(["ask", "confirm", "Cancel me"], env())) as { id: string };
+    const waiting = runCli(["confirm-wait", live.id, "--timeout", "5"], env()).then(
+      () => {
+        throw new Error("expected cancel exit");
+      },
+      (error: unknown) => error,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await runCli(["cancel-ask", live.id], env());
+    const error = await waiting;
+    expect(error).toBeInstanceOf(CliExit);
+    expect((error as CliExit).code).toBe(6);
   });
 });
 
