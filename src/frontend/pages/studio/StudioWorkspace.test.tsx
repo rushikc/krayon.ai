@@ -17,6 +17,7 @@ const listSegments = vi.fn();
 const getTranscript = vi.fn();
 const renderStatus = vi.fn();
 const startRender = vi.fn();
+const undo = vi.fn();
 const listeners: Array<(event: MessageEvent) => void> = [];
 
 vi.mock("@/lib/api/studio-client", async () => {
@@ -35,6 +36,8 @@ vi.mock("@/lib/api/studio-client", async () => {
     getTranscript: (...args: unknown[]) => getTranscript(...args),
     renderStatus: (...args: unknown[]) => renderStatus(...args),
     startRender: (...args: unknown[]) => startRender(...args),
+    undo: (...args: unknown[]) => undo(...args),
+    redo: vi.fn(),
     eventsUrl: () => "/events",
     audioUrl: () => "/audio.wav",
     outputUrl: (_slug: string, name: string) => `/output/${name}`,
@@ -117,6 +120,7 @@ describe("StudioWorkspace", () => {
     getTranscript.mockResolvedValue({ words: [] });
     renderStatus.mockResolvedValue({ status: "done", ratio: 1, message: "done" });
     startRender.mockResolvedValue({ renderId: "preview-1", outputName: "preview-1.mp4" });
+    undo.mockReset();
   });
 
   it("renders clip rows with green and red status dots and filters them", async () => {
@@ -477,5 +481,43 @@ describe("StudioWorkspace", () => {
     expect(body).toHaveTextContent("world");
     expect(body).toHaveTextContent("aside");
     expect(screen.getByText("1 matches")).toBeTruthy();
+  });
+
+  it("moves the selection with j and k", async () => {
+    getProject.mockResolvedValue(
+      project([
+        clip({ id: "c-0001", status: "undecided", text: "first take" }),
+        clip({ id: "c-0002", status: "undecided", text: "second take" }),
+      ]),
+    );
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByText("first take");
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(window, { key: "a" });
+    await waitFor(() => expect(applyOps).toHaveBeenCalled());
+    expect(applyOps.mock.calls.at(-1)?.[2]).toEqual([expect.objectContaining({ op: "select", clipId: "c-0002" })]);
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    fireEvent.keyDown(window, { key: "r" });
+    await waitFor(() => expect(applyOps.mock.calls.length).toBeGreaterThan(1));
+    expect(applyOps.mock.calls.at(-1)?.[2]).toEqual([expect.objectContaining({ op: "reject", clipId: "c-0001" })]);
+  });
+
+  it.fails("BUG: Studio has no undo/redo keyboard shortcut", async () => {
+    getProject.mockResolvedValue(project([clip({ id: "c-0001", status: "selected", text: "kept" })]));
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByText("kept");
+    fireEvent.keyDown(window, { key: "z", metaKey: true });
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(undo).toHaveBeenCalled();
   });
 });

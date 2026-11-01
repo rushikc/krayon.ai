@@ -363,6 +363,27 @@ describe("canvas geometry", () => {
     expect(clampBoxFontSize(3)).toBe(10);
     expect(clampBoxFontSize(99)).toBe(48);
   });
+
+  it("routes an arrow between overlapping boxes and skips a zero-length arrow", () => {
+    const source = {
+      id: "a",
+      type: "box" as const,
+      matrix: [0, 0, 6, 6] as const,
+      label: "A",
+      colorTheme: "ink" as const,
+      time: { start: 0, end: 10, track: 0 },
+    };
+    const overlap = {
+      ...source,
+      id: "b",
+      matrix: [3, 3, 8, 8] as const,
+      label: "B",
+    };
+    const geom = getArrowGeometry(source, overlap);
+    expect(geom).not.toBeNull();
+    expect(Math.hypot(geom!.x2 - geom!.x1, geom!.y2 - geom!.y1)).toBeGreaterThan(0);
+    expect(getArrowGeometry(source, { ...source, id: "same" })).toBeNull();
+  });
 });
 
 describe("element labels and zoom keys", () => {
