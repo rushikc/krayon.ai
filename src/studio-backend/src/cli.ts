@@ -60,14 +60,22 @@ async function request(
   const response = await fetch(`${base}${pathname}`, {
     method,
     headers: {
-      "content-type": "application/json",
       "x-krayon-actor": actor,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new CliExit(response.status === 409 ? 2 : 1, payload, false);
+  if (!response.ok) {
+    const message = payload && typeof payload === "object" && "message" in payload ? String(payload.message) : "";
+    const conflictRevision =
+      response.status === 409 && payload && typeof payload === "object" && "currentRevision" in payload;
+    const nameTaken = response.status === 409 && message.includes("already exists");
+    const code = response.status === 409 && !nameTaken ? 2 : 1;
+    void conflictRevision;
+    throw new CliExit(code, payload, false);
+  }
   return payload;
 }
 
@@ -119,11 +127,23 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     }
     if (command === "projects" && sub === "list") return finish("/api/studio/projects");
     if (command === "projects" && sub === "new") {
-      return finish("/api/studio/projects", "POST", { title: rest[0] ?? flag(flags, "title") ?? "Untitled", slug: flag(flags, "slug") });
+      const title = rest[0] ?? flag(flags, "title");
+      if (!title) throw new CliExit(1, { error: "validation", message: "projects new <title>" }, pretty);
+      return finish("/api/studio/projects", "POST", { title, slug: flag(flags, "slug") });
     }
     if (command === "projects" && sub === "use") {
       if (!rest[0]) throw new CliExit(1, { error: "validation", message: "projects use <slug>" }, pretty);
       return finish("/api/studio/projects/use", "POST", { slug: rest[0] });
+    }
+    if (command === "projects" && sub === "delete") {
+      if (!rest[0]) throw new CliExit(1, { error: "validation", message: "projects delete <slug>" }, pretty);
+      return finish(`/api/studio/projects/${rest[0]}`, "DELETE");
+    }
+    if (command === "projects" && sub === "delete-all") {
+      if (!flags.map.has("yes")) {
+        throw new CliExit(1, { error: "validation", message: "Pass --yes to delete all Studio projects" }, pretty);
+      }
+      return finish("/api/studio/projects?confirm=delete-all", "DELETE");
     }
 
     const slug = await currentSlug(base, actor, projectFlag);

@@ -125,6 +125,24 @@ describe("cli commands", () => {
     expect(await exitOf(["confirm-wait"], { } )).toBe(1);
   });
 
+  it("deletes a project, refuses delete-all without --yes, and rejects a duplicate name", async () => {
+    const created = (await runCli(["projects", "new", "Cli Delete Target"], env())) as { slug: string };
+    const removed = (await runCli(["projects", "delete", created.slug], env())) as { deleted: string };
+    expect(removed.deleted).toBe(created.slug);
+    expect(await exitOf(["projects", "delete-all"])).toBe(1);
+    await runCli(["projects", "new", "Cli Unique"], env());
+    expect(await exitOf(["projects", "new", "Cli Unique"])).toBe(1);
+    const extra = await listenStudio();
+    try {
+      const extraEnv = env({ KRAYON_STUDIO_URL: extra.base });
+      await runCli(["projects", "new", "Temp All"], extraEnv);
+      const all = (await runCli(["projects", "delete-all", "--yes"], extraEnv)) as { deleted: string[] };
+      expect(all.deleted).toContain("temp-all");
+    } finally {
+      await extra.close();
+    }
+  });
+
   it("exits 2 when the server reports a conflict", async () => {
     const status = (await runCli(["status", "--project", "cli-demo"], env())) as { revision: number };
     const code = await exitOf([

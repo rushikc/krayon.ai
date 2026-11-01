@@ -22,24 +22,32 @@ import {
   type Clip,
   BusyError,
   ConflictError,
+  InvalidSlugError,
+  NameConflictError,
   NotFoundError,
   OpError,
   playRanges,
   throwIfBusy,
 } from "./domain/types.js";
 import { EventHub } from "./events.js";
-import { pythonJson, startAndWait, waitForPythonJob } from "./python.js";
+import { checkNameAvailability, slugifyName } from "./names.js";
+import { cancelPythonJob, pythonJson, startPythonJob, waitForPythonJob } from "./python.js";
 import {
+  assertProjectPath,
+  clearCurrent,
   commitRevision,
   countScriptLines,
   createProject,
   currentFile,
+  deleteProjectDir,
   listHistory,
   listProjects,
   moveHistory,
   projectDir,
+  projectExists,
   readCuts,
   readHistory,
+  readJobCheckpoint,
   readMeta,
   readScript,
   resetProjectStatus,
@@ -62,12 +70,7 @@ const opSchema = z.custom<Op>((value) => {
 });
 
 function slugify(input: string): string {
-  const base = input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-  return base || "project";
+  return slugifyName(input) || "project";
 }
 
 function actorOf(header: string | undefined, body: unknown): Actor {
@@ -166,9 +169,15 @@ function toPythonClip(clip: Clip, index: number) {
 
 async function load(root: string, slug: string) {
   const dir = projectDir(root, slug);
-  const meta = await readMeta(dir);
-  const cuts = await readCuts(dir);
-  return { dir, meta, cuts };
+  try {
+    const meta = await readMeta(dir);
+    const cuts = await readCuts(dir);
+    return { dir, meta, cuts };
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String((error as { code: string }).code) : "";
+    if (code === "ENOENT") throw new NotFoundError(`Unknown project ${slug}`);
+    throw error;
+  }
 }
 
 export function registerRoutes(
@@ -178,7 +187,22 @@ export function registerRoutes(
   const root = deps.config.projectsDir;
   const python = deps.config.pythonBase;
 
+  const deletedSlugs = new Set<string>();
+  const analyses = new Map<
+    string,
+    { pythonJobId: string; generation: number; wait: Promise<unknown> }
+  >();
+  const renders = new Map<
+    string,
+    { id: string; slug: string; status: string; ratio: number; message: string; outputName?: string; pythonJobId?: string }
+  >();
+
+  function isDeleted(slug: string): boolean {
+    return deletedSlugs.has(slug);
+  }
+
   async function claimAnalysis(slug: string, baseRevision: number | undefined, message: string) {
+    if (isDeleted(slug)) throw new NotFoundError(`Unknown project ${slug}`);
     return withLock(slug, async () => {
       const loaded = await load(root, slug);
       throwIfBusy(loaded.meta.status);
@@ -188,19 +212,131 @@ export function registerRoutes(
       if (!loaded.meta.sourcePath) throw new OpError([{ clipId: null, field: "source", message: "Import a video first" }]);
       loaded.meta.status = "analyzing";
       loaded.meta.statusMessage = message;
+      loaded.meta.analysisStartedAt = new Date().toISOString();
+      loaded.meta.lastPhase = "extracting";
+      loaded.meta.lastPhaseMessage = message;
+      loaded.meta.lastPhaseRatio = 0;
       await saveMeta(loaded.dir, loaded.meta);
       return loaded;
     });
   }
 
   async function failAnalysis(slug: string, message: string) {
+    if (isDeleted(slug)) return;
     await withLock(slug, async () => {
-      const loaded = await load(root, slug);
-      if (loaded.meta.status !== "analyzing") return;
-      loaded.meta.status = "error";
-      loaded.meta.statusMessage = message;
-      await saveMeta(loaded.dir, loaded.meta);
+      if (isDeleted(slug)) return;
+      try {
+        const loaded = await load(root, slug);
+        if (loaded.meta.status !== "analyzing") return;
+        loaded.meta.status = "error";
+        loaded.meta.statusMessage = message;
+        await saveMeta(loaded.dir, loaded.meta);
+      } catch (error) {
+        if (error instanceof NotFoundError) return;
+        throw error;
+      }
     });
+  }
+
+  async function recordProgress(slug: string, phase?: string, message?: string, ratio?: number) {
+    if (!phase || isDeleted(slug)) return;
+    deps.hub.publish(slug, { type: "progress", phase, message, ratio });
+    await withLock(slug, async () => {
+      if (isDeleted(slug)) return;
+      try {
+        const loaded = await load(root, slug);
+        loaded.meta.lastPhase = phase;
+        loaded.meta.lastPhaseMessage = message ?? loaded.meta.lastPhaseMessage;
+        loaded.meta.lastPhaseRatio = typeof ratio === "number" ? ratio : loaded.meta.lastPhaseRatio;
+        await saveMeta(loaded.dir, loaded.meta);
+      } catch (error) {
+        if (error instanceof NotFoundError) return;
+        throw error;
+      }
+    });
+  }
+
+  async function runPythonAnalysis<T>(
+    slug: string,
+    path: string,
+    body: unknown,
+  ): Promise<T> {
+    const started = await startPythonJob(python, path, body);
+    const generation = Date.now();
+    const wait = waitForPythonJob<T>(python, started.jobId, {
+      onProgress: (event) => {
+        void recordProgress(slug, event.phase, event.message, event.progress);
+      },
+    });
+    analyses.set(slug, { pythonJobId: started.jobId, generation, wait });
+    try {
+      return await wait;
+    } finally {
+      const current = analyses.get(slug);
+      if (current?.generation === generation) analyses.delete(slug);
+    }
+  }
+
+  async function cancelJobsForSlug(slug: string): Promise<void> {
+    const analysis = analyses.get(slug);
+    if (analysis) {
+      await cancelPythonJob(python, analysis.pythonJobId);
+      const stopped = await Promise.race([
+        analysis.wait.then(
+          () => true,
+          () => true,
+        ),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 8000)),
+      ]);
+      if (!stopped) {
+        throw new BusyError("Could not stop the running analysis. Try again after it finishes or after reset-status.");
+      }
+    }
+    for (const [id, job] of [...renders.entries()]) {
+      if (job.slug !== slug) continue;
+      if (job.pythonJobId) await cancelPythonJob(python, job.pythonJobId);
+      job.status = "cancelled";
+      const stopped = job.status === "cancelled";
+      if (!stopped) {
+        throw new BusyError("Could not stop the running render. Cancel it first, then delete.");
+      }
+      renders.delete(id);
+    }
+  }
+
+  async function cancelPendingConfirmations(slug: string): Promise<void> {
+    try {
+      const dir = projectDir(root, slug);
+      const file = await readConfirmations(dir);
+      for (const item of file.items) {
+        clearExpiry(slug, item.id);
+        if (item.status !== "pending") continue;
+        item.status = "cancelled";
+        item.result = { applied: false, revision: null, error: "deleted" };
+        publishConfirmation(slug, "confirmation_cancelled", item);
+      }
+    } catch {
+      /* project may already be gone */
+    }
+  }
+
+  async function destroyProject(slug: string): Promise<void> {
+    let parsed: string;
+    try {
+      parsed = assertProjectPath(root, slug);
+    } catch {
+      throw new InvalidSlugError("Invalid project slug");
+    }
+    if (!(await projectExists(root, slug))) throw new NotFoundError(`Unknown project ${slug}`);
+    await cancelJobsForSlug(slug);
+    await cancelPendingConfirmations(slug);
+    deletedSlugs.add(slug);
+    deps.hub.publish(slug, { type: "deleted", message: "Project deleted" });
+    deps.hub.drop(slug);
+    await withLock(slug, async () => {
+      await deleteProjectDir(root, slug);
+    });
+    void parsed;
   }
 
   async function audioStatsFor(dir: string, clip: Clip): Promise<AudioEdgeStats | null> {
@@ -299,7 +435,7 @@ export function registerRoutes(
     expiryTimers.clear();
   });
 
-  app.get("/api/studio/health", async () => ({ status: "ok" }));
+  app.get("/api/studio/health", async () => ({ status: "ok", projectsDir: root }));
   app.get("/api/studio/schema", async () => studioSchema);
 
   app.get("/api/studio/projects", async () => {
@@ -307,20 +443,54 @@ export function registerRoutes(
     return { projects, current: await currentFile(root) };
   });
 
+  app.get("/api/studio/projects/check-name", async (request) => {
+    const name = String((request.query as { name?: string }).name ?? "");
+    const existing = await listProjects(root);
+    const checked = checkNameAvailability(existing, name);
+    return { available: checked.available, reason: checked.reason };
+  });
+
   app.post("/api/studio/projects", async (request, reply) => {
     const body = z
       .object({ title: z.string().optional(), slug: z.string().optional(), script: z.string().optional() })
       .parse(request.body ?? {});
-    const title = body.title?.trim() || "Untitled";
-    let slug = body.slug ? slugify(body.slug) : slugify(title);
-    const existing = new Set((await listProjects(root)).map((item) => item.slug));
-    if (existing.has(slug)) {
-      let n = 2;
-      while (existing.has(`${slug}-${n}`)) n += 1;
-      slug = `${slug}-${n}`;
+    return withLock("__create__", async () => {
+      const existing = await listProjects(root);
+      const checked = checkNameAvailability(existing, body.title ?? "", body.slug);
+      if (!checked.available || !checked.title || !checked.slug) {
+        if (checked.reason?.includes("already exists")) throw new NameConflictError(body.title?.trim() || "");
+        throw new OpError([{ clipId: null, field: "title", message: checked.reason ?? "Invalid project name" }]);
+      }
+      const meta = await createProject(root, checked.slug, checked.title, body.script ?? "");
+      return reply.code(201).send(meta);
+    });
+  });
+
+  app.delete("/api/studio/projects", async (request) => {
+    const query = request.query as { confirm?: string };
+    const body = (request.body ?? {}) as { confirm?: string };
+    if ((body.confirm ?? query.confirm) !== "delete-all") {
+      throw new OpError([{ clipId: null, field: "confirm", message: 'Pass confirm: "delete-all" to delete every project' }]);
     }
-    const meta = await createProject(root, slug, title, body.script ?? "");
-    return reply.code(201).send(meta);
+    const projects = await listProjects(root);
+    const deleted: string[] = [];
+    const skipped: Array<{ slug: string; reason: string }> = [];
+    for (const meta of projects) {
+      try {
+        await destroyProject(meta.slug);
+        deleted.push(meta.slug);
+      } catch (error) {
+        skipped.push({ slug: meta.slug, reason: error instanceof Error ? error.message : "Could not delete" });
+      }
+    }
+    await clearCurrent(root);
+    return { deleted, skipped };
+  });
+
+  app.delete("/api/studio/projects/:slug", async (request) => {
+    const { slug } = request.params as { slug: string };
+    await destroyProject(slug);
+    return { deleted: slug };
   });
 
   app.post("/api/studio/projects/use", async (request) => {
@@ -332,10 +502,15 @@ export function registerRoutes(
   app.get("/api/studio/projects/:slug", async (request) => {
     const { slug } = request.params as { slug: string };
     const { dir, meta, cuts } = await load(root, slug);
+    const checkpoint = await readJobCheckpoint(dir);
     return {
       meta,
       revision: meta.revision,
       status: meta.status,
+      lastPhase: checkpoint?.phase ?? meta.lastPhase ?? null,
+      lastPhaseMessage: checkpoint?.message ?? meta.lastPhaseMessage ?? null,
+      lastPhaseRatio: checkpoint?.ratio ?? meta.lastPhaseRatio ?? null,
+      analysisStartedAt: meta.analysisStartedAt ?? null,
       script: await readScript(dir),
       pipeline: meta.pipeline,
       hasTranscript: existsSync(path.join(projectDir(root, slug), "analysis", "words.json")),
@@ -459,8 +634,8 @@ export function registerRoutes(
     const started = await claimAnalysis(slug, body.baseRevision, "Starting analysis");
     try {
       const script = await readScript(started.dir);
-      const result = await startAndWait<AnalysisPayload>(
-        python,
+      const result = await runPythonAnalysis<AnalysisPayload>(
+        slug,
         "/api/audio-studio/analyze/async",
         {
           sourcePath: started.meta.sourcePath,
@@ -470,16 +645,9 @@ export function registerRoutes(
           script,
           ...pythonSettings(started.meta, body),
         },
-        (event) => {
-          deps.hub.publish(slug, {
-            type: "progress",
-            phase: event.phase,
-            message: event.message,
-            ratio: event.progress,
-          });
-        },
       );
       return await withLock(slug, async () => {
+        if (isDeleted(slug)) throw new NotFoundError(`Unknown project ${slug}`);
         const fresh = await load(root, slug);
         if (fresh.meta.revision !== started.meta.revision) {
           fresh.meta.status = "ready";
@@ -514,7 +682,10 @@ export function registerRoutes(
         return { revision: entry.revision, clipCount: adopted.doc.clips.length, summary: entry.summary };
       });
     } catch (error) {
-      if (!(error instanceof ConflictError) && !(error instanceof BusyError)) {
+      if (isDeleted(slug) || (error instanceof Error && error.message === "cancelled")) {
+        return { cancelled: true };
+      }
+      if (!(error instanceof ConflictError) && !(error instanceof BusyError) && !(error instanceof NotFoundError)) {
         await failAnalysis(slug, error instanceof Error ? error.message : "Analysis failed");
         deps.hub.publish(slug, { type: "status", status: "error", message: error instanceof Error ? error.message : "Analysis failed" });
       }
@@ -705,8 +876,8 @@ export function registerRoutes(
     const fullResegment = body.mode === "resegment" && rangeStart == null && rangeEnd == null && (!body.clipIds || body.clipIds.length === 0);
     try {
       const script = await readScript(started.dir);
-      const result = await startAndWait<AnalysisPayload>(
-        python,
+      const result = await runPythonAnalysis<AnalysisPayload>(
+        slug,
         fullResegment
           ? "/api/audio-studio/analyze/async"
           : "/api/audio-studio/reanalyze/async",
@@ -732,9 +903,9 @@ export function registerRoutes(
           snapSearchSeconds: started.meta.settings?.snapSearchSeconds ?? DEFAULT_SETTINGS.snapSearchSeconds,
           clips: started.cuts.clips.map(toPythonClip),
         },
-        (event) => deps.hub.publish(slug, { type: "progress", phase: event.phase, message: event.message, ratio: event.progress }),
       );
       return await withLock(slug, async () => {
+        if (isDeleted(slug)) throw new NotFoundError(`Unknown project ${slug}`);
         const fresh = await load(root, slug);
         if (fresh.meta.revision !== started.meta.revision) {
           fresh.meta.status = "ready";
@@ -763,7 +934,10 @@ export function registerRoutes(
         return { revision: entry.revision, summary: entry.summary, created: adopted.created, retired: adopted.retired };
       });
     } catch (error) {
-      if (!(error instanceof ConflictError) && !(error instanceof BusyError) && !(error instanceof OpError)) {
+      if (isDeleted(slug) || (error instanceof Error && error.message === "cancelled")) {
+        return { cancelled: true };
+      }
+      if (!(error instanceof ConflictError) && !(error instanceof BusyError) && !(error instanceof OpError) && !(error instanceof NotFoundError)) {
         await failAnalysis(slug, error instanceof Error ? error.message : "Reanalysis failed");
       }
       throw error;
@@ -953,11 +1127,6 @@ export function registerRoutes(
     });
   });
 
-  const renders = new Map<
-    string,
-    { id: string; status: string; ratio: number; message: string; outputName?: string; pythonJobId?: string }
-  >();
-
   app.post("/api/studio/projects/:slug/render", async (request) => {
     const { slug } = request.params as { slug: string };
     const body = z.object({ quality: z.enum(["preview", "final"]).default("final") }).parse(request.body ?? {});
@@ -973,7 +1142,7 @@ export function registerRoutes(
     const renderId = `${body.quality}-${cuts.revision}-${Date.now()}`;
     const outputName = `${renderId}.mp4`;
     const outputPath = path.join(dir, "output", outputName);
-    renders.set(renderId, { id: renderId, status: "rendering", ratio: 0, message: "Starting render" });
+    renders.set(renderId, { id: renderId, slug, status: "rendering", ratio: 0, message: "Starting render" });
     meta.status = "rendering";
     await saveMeta(dir, meta);
     const started = await pythonJson<{ jobId: string }>(python, "/api/audio-studio/render/async", {
@@ -1001,7 +1170,7 @@ export function registerRoutes(
       },
     })
       .then(async () => {
-        if (renders.get(renderId)?.status === "cancelled") return;
+        if (isDeleted(slug) || renders.get(renderId)?.status === "cancelled") return;
         const current = renders.get(renderId);
         if (current) {
           current.status = "done";
@@ -1016,6 +1185,7 @@ export function registerRoutes(
         deps.hub.publish(slug, { type: "render", renderId, phase: "done", ratio: 1, message: "Render complete", outputName });
       })
       .catch(async (error: unknown) => {
+        if (isDeleted(slug)) return;
         const message = error instanceof Error ? error.message : "Render failed";
         const current = renders.get(renderId);
         if (message === "cancelled" || current?.status === "cancelled") return;
@@ -1023,11 +1193,15 @@ export function registerRoutes(
           current.status = "error";
           current.message = message;
         }
-        const latest = await readMeta(dir);
-        if (latest.status === "rendering") {
-          latest.status = "ready";
-          latest.statusMessage = message;
-          await saveMeta(dir, latest);
+        try {
+          const latest = await readMeta(dir);
+          if (latest.status === "rendering") {
+            latest.status = "ready";
+            latest.statusMessage = message;
+            await saveMeta(dir, latest);
+          }
+        } catch {
+          return;
         }
         deps.hub.publish(slug, { type: "render", renderId, phase: "error", message });
       });
@@ -1038,9 +1212,7 @@ export function registerRoutes(
     const { slug, id } = request.params as { slug: string; id: string };
     const job = renders.get(id);
     if (!job) throw new NotFoundError(`Unknown render ${id}`);
-    if (job.pythonJobId) {
-      await pythonJson(python, `/api/audio-studio/jobs/${job.pythonJobId}/cancel`, {}).catch(() => undefined);
-    }
+    if (job.pythonJobId) await cancelPythonJob(python, job.pythonJobId);
     job.status = "cancelled";
     job.message = "cancelled";
     const outputName = job.outputName ?? `${id}.mp4`;
@@ -1266,6 +1438,12 @@ export function errorBody(error: unknown): { status: number; body: unknown } | n
   }
   if (error instanceof OpError) {
     return { status: 400, body: { error: "validation", message: error.message, errors: error.errors } };
+  }
+  if (error instanceof NameConflictError) {
+    return { status: 409, body: { error: "conflict", message: error.message } };
+  }
+  if (error instanceof InvalidSlugError) {
+    return { status: 400, body: { error: "validation", message: error.message } };
   }
   if (error instanceof ConflictError || error instanceof BusyError) {
     return {

@@ -7,10 +7,11 @@ test.describe.configure({ timeout: 120_000 });
 
 test("a bad video path returns a readable message", async ({ page }) => {
   await page.goto("/studio");
+  await page.getByPlaceholder("Lecture 12").fill(`e2e-missing-${Date.now()}`);
   await page.getByPlaceholder("/path/to/recording.mp4").fill("/tmp/krayon-missing-video.mp4");
   await page.getByRole("button", { name: "Create" }).click();
-  await expect(page.locator(".text-destructive")).toBeVisible();
-  await expect(page.locator(".text-destructive")).toContainText(/ENOENT|no such file|not a file|failed/i);
+  await expect(page.locator("p.text-destructive")).toBeVisible();
+  await expect(page.locator("p.text-destructive")).toContainText(/ENOENT|no such file|not a file|failed/i);
 });
 
 test("aborting the Studio API shows an error and recovers after the route is restored", async ({ page }) => {
@@ -23,7 +24,7 @@ test("aborting the Studio API shows an error and recovers after the route is res
       return route.continue();
     });
     await page.goto(`/studio/${fixture.slug}`);
-    await expect(page.locator(".text-destructive")).toBeVisible();
+    await expect(page.locator("p.text-destructive")).toBeVisible();
     await page.unroute("**/api/studio/projects/**");
     await page.reload();
     await expect(page.getByTestId("studio-clips")).toBeVisible();
@@ -38,7 +39,7 @@ test("analysis failure surfaces Retry; reset-status recovers a stuck analyzing p
     await page.route("**/api/studio/projects/*/analyze", (route) => route.abort("failed"));
     await openStudio(page, fixture.slug);
     await page.getByRole("button", { name: "Analyze audio" }).click();
-    await expect(page.locator(".text-destructive")).toBeVisible();
+    await expect(page.locator("p.text-destructive")).toBeVisible();
     await page.unroute("**/api/studio/projects/*/analyze");
     const reset = await studioApi.resetStatus(fixture.slug);
     expect(["ready", "error", "empty"]).toContain(reset.status);

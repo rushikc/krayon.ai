@@ -62,13 +62,14 @@ Portrait reels only (9:16). No landscape editor.
 
 ## Studio layout
 
-`/studio` is a single column: project name, video path (typed or Choose file), an optional Script box, and the recent project list.
+`/studio` is a single column: required unique project name (live check, red border on duplicates), video path (typed or Choose file), an optional Script box, a Drop a video zone, Delete all, and a bounded project list. Each row opens the project; a separate trash button deletes it after a dialog (same dialog shell as Rebuild). Delete all requires typing `DELETE`. The landing scroller is full width with a thin themed scrollbar; the list scrolls on its own.
 
 `/studio/:slug` is three columns: clip list, preview, controls.
 
 - **Clip list** — single click opens the clip. Double click collapses that group. Collapse all / Expand all toggles every visible group.
-- **Preview** — tabs for clip audio, rendered video, and full source. Undo and Redo sit on that tabs row. The waveform playhead (`waveform-playhead`) tracks the padded clip audio.
-- **Controls** — Analyze, Rebuild (with script / without script when a script exists), View transcript (one scrollable wrapping dialog; click a word to open its clip), and the confirmation tray for the oldest pending ask.
+- **Preview** — tabs for clip audio, rendered video, and full source. Undo and Redo sit on that tabs row. The waveform playhead (`waveform-playhead`) tracks the padded clip audio. While analyzing, this column shows a staged vertical stepper (overall bar, elapsed time, per-step spinner/check/X).
+- **Header** — Audio / Video steps, then a Delete project control.
+- **Controls** — Analyze, Rebuild (with script / without script when a script exists), View transcript (one scrollable wrapping dialog; click a word to open its clip), and the confirmation tray for the oldest pending ask. The text status line still updates during analysis.
 
 ### App chrome tokens (Velo-like)
 

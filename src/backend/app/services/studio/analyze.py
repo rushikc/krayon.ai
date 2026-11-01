@@ -28,7 +28,7 @@ def run_transcript_pipeline(project: ProjectAudio, options: PipelineOptions, on_
     words_path = analysis_dir / "words.json"
 
     def progress(phase: str, ratio: float, message: str) -> None:
-        write_checkpoint(analysis_dir, phase, message)
+        write_checkpoint(analysis_dir, phase, message, ratio)
         if on_progress:
             on_progress(phase, ratio, message)
 
@@ -83,9 +83,12 @@ def run_transcript_pipeline(project: ProjectAudio, options: PipelineOptions, on_
         language=options.language,
     )
     if options.snap_to_audio:
+        progress("snapping", 0.2, "Snapping cuts to the waveform…")
         clips = snap_studio_clips(clips, wav_path, pad=options.pad, search=options.snap_search_seconds)
+        progress("snapping", 1.0, "Snapped cuts")
     scores = score_clips(clips)
     progress("grouping", 1.0, f"Grouped {len(clips)} clips")
+    progress("saving", 1.0, "Save clips")
 
     return StudioAnalysis(
         source_duration=source_duration,

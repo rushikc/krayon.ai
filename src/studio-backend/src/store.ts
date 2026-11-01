@@ -49,6 +49,10 @@ export type Meta = {
   scriptLineCount: number;
   needsRebuild: boolean;
   scriptOriginal: string;
+  lastPhase?: string | null;
+  lastPhaseMessage?: string | null;
+  lastPhaseRatio?: number | null;
+  analysisStartedAt?: string | null;
 };
 
 export type HistoryEntry = {
@@ -87,6 +91,60 @@ export function projectDir(root: string, slug: string): string {
   const dir = path.resolve(root, slug);
   if (!dir.startsWith(path.resolve(root) + path.sep)) throw new Error("Invalid project path");
   return dir;
+}
+
+export function assertProjectPath(root: string, slug: string): string {
+  if (!slug || slug.includes("/") || slug.includes("\\") || slug.includes("..") || path.isAbsolute(slug)) {
+    throw new Error("Invalid project path");
+  }
+  assertSlug(slug);
+  const resolvedRoot = path.resolve(root);
+  const dir = path.resolve(root, slug);
+  if (dir !== path.join(resolvedRoot, slug) || !dir.startsWith(resolvedRoot + path.sep)) {
+    throw new Error("Invalid project path");
+  }
+  return dir;
+}
+
+export async function projectExists(root: string, slug: string): Promise<boolean> {
+  try {
+    await readMeta(assertProjectPath(root, slug));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function readJobCheckpoint(
+  dir: string,
+): Promise<{ phase: string; message: string; ratio?: number } | null> {
+  try {
+    const raw = JSON.parse(await readFile(path.join(dir, "analysis", "job.json"), "utf8")) as {
+      phase?: string;
+      message?: string;
+      ratio?: number;
+    };
+    if (!raw.phase) return null;
+    return { phase: raw.phase, message: raw.message ?? "", ratio: raw.ratio };
+  } catch {
+    return null;
+  }
+}
+
+export async function clearCurrentIf(root: string, slug: string): Promise<void> {
+  const current = await currentFile(root);
+  if (current !== slug) return;
+  await writeFile(path.join(root, ".current"), "");
+}
+
+export async function clearCurrent(root: string): Promise<void> {
+  await writeFile(path.join(root, ".current"), "");
+}
+
+export async function deleteProjectDir(root: string, slug: string): Promise<void> {
+  const dir = assertProjectPath(root, slug);
+  await rm(dir, { recursive: true, force: true });
+  await clearCurrentIf(root, slug);
 }
 
 async function writeJson(file: string, value: unknown): Promise<void> {
@@ -187,6 +245,10 @@ export function normalizeMeta(meta: Meta): Meta {
     scriptLineCount: typeof meta.scriptLineCount === "number" ? meta.scriptLineCount : 0,
     needsRebuild: Boolean(meta.needsRebuild),
     scriptOriginal: typeof meta.scriptOriginal === "string" ? meta.scriptOriginal : "",
+    lastPhase: typeof meta.lastPhase === "string" ? meta.lastPhase : null,
+    lastPhaseMessage: typeof meta.lastPhaseMessage === "string" ? meta.lastPhaseMessage : null,
+    lastPhaseRatio: typeof meta.lastPhaseRatio === "number" ? meta.lastPhaseRatio : null,
+    analysisStartedAt: typeof meta.analysisStartedAt === "string" ? meta.analysisStartedAt : null,
   };
 }
 
@@ -316,6 +378,11 @@ export async function commitRevision(
   label: string,
   summary: string,
 ): Promise<HistoryEntry> {
+  try {
+    await readMeta(dir);
+  } catch {
+    throw new Error("Project no longer exists");
+  }
   if (meta.revision < meta.head) {
     for (let revision = meta.revision + 1; revision <= meta.head; revision += 1) {
       await rm(historyPath(dir, revision), { force: true });

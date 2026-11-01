@@ -81,6 +81,18 @@ export async function startAndWait<T>(
   body: unknown,
   onProgress?: WaitOptions["onProgress"],
 ): Promise<T> {
-  const started = await pythonJson<{ jobId: string }>(pythonBase, path, body);
+  const started = await startPythonJob(pythonBase, path, body);
   return waitForPythonJob<T>(pythonBase, started.jobId, { onProgress });
+}
+
+export async function startPythonJob(
+  pythonBase: string,
+  path: string,
+  body: unknown,
+): Promise<{ jobId: string }> {
+  return pythonJson<{ jobId: string }>(pythonBase, path, body);
+}
+
+export async function cancelPythonJob(pythonBase: string, jobId: string): Promise<void> {
+  await pythonJson(pythonBase, `/api/audio-studio/jobs/${jobId}/cancel`, {}).catch(() => undefined);
 }

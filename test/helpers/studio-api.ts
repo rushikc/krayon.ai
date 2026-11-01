@@ -69,6 +69,9 @@ export const studioApi = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title }),
     }).then((r) => json<{ slug: string }>(r)),
+  deleteProject: (slug: string) =>
+    fetch(`${API}/projects/${slug}`, { method: "DELETE" }).then((r) => json<{ deleted: string }>(r)),
+  health: () => fetch(`${API}/health`).then((r) => json<{ status: string; projectsDir?: string }>(r)),
   async currentRevision(slug: string) {
     const h = await studioApi.history(slug);
     return h.history.find((entry) => entry.current)?.revision ?? 0;

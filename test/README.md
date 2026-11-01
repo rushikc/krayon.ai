@@ -42,6 +42,7 @@ If Vite or the Studio API is down, the suite stops immediately with a message te
 - `e2e/legacy-audio.spec.ts`: seeded Rebuild; Analyze-silence is `@slow` + `E2E_WHISPER=1`.
 - `e2e/reel.spec.ts`: `/reel-animations` with `route.fulfill` on `/api/reel` (no Gemini).
 - `e2e/home-nav.spec.ts`: three tiles, logo, back control.
+- `e2e/studio-projects.spec.ts`: unique names, landing/workspace delete, thin landing scrollbar, analysis stepper. Delete-all is skipped unless `KRAYON_STUDIO_ROOT` is a temp directory (never against the default `studio/` folder).
 
 ## Data safety
 
@@ -62,6 +63,7 @@ If Vite or the Studio API is down, the suite stops immediately with a message te
 | `E2E_RENDER` | off | Set to `1` to include the slow real-render tests |
 | `E2E_WHISPER` | off | Set to `1` to include real Whisper tests |
 | `E2E_SLOW` | off | Set to `1` to run `@slow` tests (`pnpm test:e2e:slow` sets this plus render and Whisper; it does not set `E2E_REAL`) |
+| `KRAYON_STUDIO_ROOT` | `studio/` | Studio backend project root. Point it at a directory under `tmp/` only if you intend to run the delete-all e2e. Default `pnpm dev` must keep using `studio/`. |
 
 ## Screenshots
 

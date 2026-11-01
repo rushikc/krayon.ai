@@ -55,9 +55,14 @@ export type StudioProject = {
     lastPipeline?: "transcript" | "scripted" | null;
     scriptLineCount?: number;
     needsRebuild?: boolean;
+    analysisStartedAt?: string | null;
   };
   revision: number;
   status: string;
+  lastPhase?: string | null;
+  lastPhaseMessage?: string | null;
+  lastPhaseRatio?: number | null;
+  analysisStartedAt?: string | null;
   script?: string;
   pipeline?: "auto" | "transcript" | "scripted";
   hasTranscript?: boolean;
@@ -92,6 +97,15 @@ export class StudioConflictError extends Error {
   }
 }
 
+export class StudioNotFoundError extends Error {
+  status = 404;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "StudioNotFoundError";
+  }
+}
+
 export type ConfirmationOption = {
   id: string;
   label: string;
@@ -119,13 +133,14 @@ export type ConfirmationItem = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set("x-krayon-actor", headers.get("x-krayon-actor") ?? "human");
+  if (init?.body != null && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
   const response = await fetch(`${API}${path}`, {
     ...init,
-    headers: {
-      "content-type": "application/json",
-      "x-krayon-actor": "human",
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
@@ -134,6 +149,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const textMessage = typeof message === "string" ? message : "Request failed";
     if (response.status === 409) {
       throw new StudioConflictError(textMessage, payload.currentRevision);
+    }
+    if (response.status === 404) {
+      throw new StudioNotFoundError(textMessage);
     }
     throw new Error(textMessage);
   }
@@ -148,6 +166,28 @@ export function createProject(title: string, script?: string) {
   return request<StudioProject["meta"]>("/projects", {
     method: "POST",
     body: JSON.stringify({ title, ...(script != null && script !== "" ? { script } : {}) }),
+  });
+}
+
+export function checkProjectName(name: string) {
+  return request<{ available: boolean; reason?: string }>(`/projects/check-name?name=${encodeURIComponent(name)}`);
+}
+
+export function deleteProject(slug: string) {
+  return request<{ deleted: string }>(`/projects/${slug}`, { method: "DELETE" });
+}
+
+export function deleteAllProjects() {
+  return request<{ deleted: string[]; skipped: Array<{ slug: string; reason: string }> }>("/projects", {
+    method: "DELETE",
+    body: JSON.stringify({ confirm: "delete-all" }),
+  });
+}
+
+export function resetStatus(slug: string) {
+  return request<{ status: string; statusMessage: string }>(`/projects/${slug}/reset-status`, {
+    method: "POST",
+    body: "{}",
   });
 }
 

@@ -1,4 +1,6 @@
-import { Copy, Loader2, Redo2, Undo2 } from "lucide-react";
+import { Copy, Redo2, Undo2 } from "lucide-react";
+import { StudioAnalysisStepper } from "@/pages/studio/StudioAnalysisStepper";
+import type { StagedProgressStep } from "@/components/pipeline/StagedProgress";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ClipPlayerCard } from "@/components/player/ClipPlayerCard";
@@ -45,6 +47,10 @@ export function StudioPreviewPanel({
   projectStatus,
   statusMessage,
   onRetryAnalyze,
+  onResetStatus,
+  analysisSteps,
+  analysisStartedAt,
+  analysisError,
   onEditingChange,
   onSaveCuts,
   onUndo,
@@ -69,6 +75,10 @@ export function StudioPreviewPanel({
   projectStatus?: string;
   statusMessage?: string;
   onRetryAnalyze?: () => void;
+  onResetStatus?: () => void;
+  analysisSteps?: StagedProgressStep[];
+  analysisStartedAt?: number | null;
+  analysisError?: string | null;
   onEditingChange?: (editing: boolean) => void;
   onStayOnClip?: (id: string) => void;
   onSaveCuts?: (clipId: string, at: number[]) => Promise<boolean>;
@@ -293,7 +303,16 @@ export function StudioPreviewPanel({
         </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-        {tab === "clip" ? (
+        {tab === "clip" && (projectStatus === "analyzing" || (projectStatus === "error" && (analysisSteps?.length ?? 0) > 0)) ? (
+          <StudioAnalysisStepper
+            message={statusMessage || studioCopy.analyzing}
+            steps={analysisSteps ?? []}
+            startedAt={analysisStartedAt}
+            error={projectStatus === "error" ? analysisError || statusMessage || studioCopy.analyzeFailed : null}
+            onRetry={onRetryAnalyze}
+            onReset={onResetStatus}
+          />
+        ) : tab === "clip" ? (
           <div className="flex w-full min-w-0 flex-1 flex-col items-center gap-4 p-6">
             {clip ? (
               <div className="flex w-full max-w-3xl min-w-0 flex-col gap-4">
@@ -531,19 +550,14 @@ export function StudioPreviewPanel({
                       {studioCopy.rawJson}
                     </button>
                     {rawOpen ? (
-                      <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2">{JSON.stringify(clip, null, 2)}</pre>
+                      <pre className="mt-2 max-h-48 overflow-auto scroll-thin rounded bg-muted p-2">{JSON.stringify(clip, null, 2)}</pre>
                     ) : null}
                   </section>
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center gap-3 p-8 text-center" data-testid="studio-empty">
-                {projectStatus === "analyzing" ? (
-                  <>
-                    <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">{statusMessage || studioCopy.analyzing}</p>
-                  </>
-                ) : projectStatus === "error" ? (
+              <div className="flex min-h-0 flex-1 flex-col items-center gap-3 p-8 text-center" data-testid="studio-empty">
+                {projectStatus === "error" ? (
                   <>
                     <p className="text-sm text-destructive">{statusMessage || studioCopy.analyzeFailed}</p>
                     <Button type="button" onClick={onRetryAnalyze}>

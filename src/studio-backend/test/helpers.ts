@@ -98,7 +98,10 @@ export async function listenStudio() {
       }
       return json({ jobId: "render-1" });
     }
-    if (url.includes("/jobs/") && url.endsWith("/cancel")) return json({ status: "cancelled" });
+    if (url.includes("/jobs/") && url.endsWith("/cancel")) {
+      state.release?.();
+      return json({ status: "cancelled" });
+    }
     if (url.includes("/analyze/async") || url.includes("/reanalyze/async")) return json({ jobId: "job-1" });
     if (url.includes("/progress/")) return progressResponse(state);
     return json({ ok: true });
@@ -128,7 +131,7 @@ function progressResponse(state: PythonState): Response {
       new ReadableStream({
         start(controller) {
           state.release = () => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ phase: "error", message: "stopped", progress: 1 })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ phase: "cancelled", message: "cancelled", progress: 1 })}\n\n`));
             controller.close();
             state.release = null;
           };

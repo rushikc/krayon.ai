@@ -34,7 +34,7 @@ def execute_scripted_pipeline(
     words_path = analysis_dir / "words.json"
 
     def progress(phase: str, ratio: float, message: str) -> None:
-        write_checkpoint(analysis_dir, phase, message)
+        write_checkpoint(analysis_dir, phase, message, ratio)
         if on_progress:
             on_progress(phase, ratio, message)
 
@@ -74,10 +74,13 @@ def execute_scripted_pipeline(
     )
     clips, groups, clip_meta, group_meta, scores = build_scripted_clips(aligned, options)
     if options.snap_to_audio and wav_path.is_file():
+        progress("snapping", 0.2, "Snapping cuts to the waveform…")
         clips = snap_studio_clips(clips, wav_path, pad=options.pad, search=options.snap_search_seconds)
         clips = clamp_clips_to_matches(clips, aligned, words)
+        progress("snapping", 1.0, "Snapped cuts")
     clips = drop_overlapping_rejects(clips, clip_meta)
     progress("grouping", 1.0, f"Matched {sum(1 for item in aligned.line_results if item.chosen)} lines")
+    progress("saving", 1.0, "Save clips")
 
     timings = [WordTiming(text=word.text, start=word.start, end=word.end) for word in words]
     selected = [clip for clip in clips if clip_meta.get(clip.id, {}).get("status") == "selected"]

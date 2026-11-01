@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { StudioClip, StudioProject } from "@/lib/api/studio-client";
@@ -505,6 +505,22 @@ describe("StudioWorkspace", () => {
     fireEvent.keyDown(window, { key: "r" });
     await waitFor(() => expect(applyOps.mock.calls.length).toBeGreaterThan(1));
     expect(applyOps.mock.calls.at(-1)?.[2]).toEqual([expect.objectContaining({ op: "reject", clipId: "c-0001" })]);
+  });
+
+  it("goes to the studio home when the project is deleted over SSE", async () => {
+    getProject.mockResolvedValue(project([clip({ id: "c-0001", status: "selected", text: "kept" })]));
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter initialEntries={["/studio/real"]}>
+        <Routes>
+          <Route path="/studio" element={<div>studio home</div>} />
+          <Route path="/studio/:slug" element={<StudioWorkspace slug="real" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("kept");
+    emit({ type: "deleted" });
+    expect(await screen.findByText("studio home")).toBeInTheDocument();
   });
 
   it.fails("BUG: Studio has no undo/redo keyboard shortcut", async () => {

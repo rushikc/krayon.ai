@@ -175,7 +175,7 @@ export function StudioControlsPanel({
           </p>
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto scroll-thin p-4">
         {issueLabel ? (
           <span className="w-fit rounded bg-yellow-500/15 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-yellow-400" data-testid="controls-issue">
             {issueLabel}
@@ -474,7 +474,7 @@ export function StudioControlsPanel({
           <div
             ref={transcriptBodyRef}
             data-testid="transcript-body"
-            className="mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto text-sm leading-relaxed break-words"
+            className="mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto scroll-thin text-sm leading-relaxed break-words"
           >
             {highlighted.map((item, index) => (
               <span key={item.key}>

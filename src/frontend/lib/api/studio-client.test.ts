@@ -74,6 +74,10 @@ describe("studio client", () => {
     await client.getClipPeaks("demo", "c-0001", 40, 0.2);
     await client.listConfirmations("demo", "pending");
     await client.answerConfirmation("demo", "q-0001", "accept", "ok");
+    await client.checkProjectName("Demo");
+    await client.deleteProject("demo");
+    await client.deleteAllProjects();
+    await client.resetStatus("demo");
     const file = new File(["x"], "talk.mp4", { type: "video/mp4" });
     await client.importFile("demo", file);
     expect(urls.some((url) => url.endsWith("/projects"))).toBe(true);

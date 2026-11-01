@@ -8,7 +8,7 @@ pnpm krayon status
 
 The studio server must be up (`pnpm studio-backend`, `127.0.0.1:8789`). The CLI talks only to that server. Override the base URL with `KRAYON_STUDIO_URL` (default `http://127.0.0.1:8789`).
 
-Output is one JSON object. `--pretty` indents it. Default actor is `grok`. Override with `--actor human`. Pick a project with `--project <slug>` or `projects use`. Most failures exit `1`. HTTP 409 (stale `baseRevision`, or the project is busy) exits `2`. Confirmation waits use `0` and `3`–`6`, listed below.
+Output is one JSON object. `--pretty` indents it. Default actor is `grok`. Override with `--actor human`. Pick a project with `--project <slug>` or `projects use`. Most failures exit `1`. HTTP 409 (stale `baseRevision`, or the project is busy) exits `2`. A duplicate project name is also HTTP 409 but exits `1`. `projects new` requires a title. `projects delete-all` refuses without `--yes`. Confirmation waits use `0` and `3`–`6`, listed below.
 
 ## Commands
 
@@ -17,6 +17,8 @@ pnpm krayon projects list
 pnpm krayon projects new "Lecture 12"
 pnpm krayon projects new --title "Lecture 12" --slug lecture-12
 pnpm krayon projects use lecture-12
+pnpm krayon projects delete lecture-12
+pnpm krayon projects delete-all --yes
 pnpm krayon import /absolute/path/video.mp4
 pnpm krayon status
 pnpm krayon clips --label falseStart --status rejected

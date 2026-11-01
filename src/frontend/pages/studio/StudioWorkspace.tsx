@@ -1,16 +1,21 @@
+import { Loader2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { Button } from "@/components/ui/button";
 import {
   type ConfirmationItem,
   type StudioClip,
   type StudioProject,
   type StudioSettings,
   StudioConflictError,
+  StudioNotFoundError,
   analyze,
   answerConfirmation,
   applyOps,
   cancelRender,
+  deleteProject,
   eventsUrl,
   getProject,
   getTranscript,
@@ -20,6 +25,7 @@ import {
   reanalyze,
   redo,
   renderStatus,
+  resetStatus,
   startRender,
   undo,
   updateScript,
@@ -31,7 +37,15 @@ import { clipMatchesFilter, type ClipStatusFilter } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
 import { toast } from "@/stores/toast-store";
 
+import {
+  applyStudioPhase,
+  initialStudioSteps,
+  markActiveStepError,
+  type StudioPipelineStep,
+  type StudioRunMode,
+} from "@/lib/studio-analysis-steps";
 import { StudioClipsPanel } from "@/pages/studio/StudioClipsPanel";
+import { StudioConfirmDialog } from "@/pages/studio/StudioConfirmDialog";
 import { StudioControlsPanel } from "@/pages/studio/StudioControlsPanel";
 import { StudioPreviewPanel, type PreviewTab, type RenderManifest } from "@/pages/studio/StudioPreviewPanel";
 import { StudioStepIndicator } from "@/pages/studio/StudioStepIndicator";
@@ -47,6 +61,7 @@ function renderStorageKey(slug: string) {
 }
 
 export function StudioWorkspace({ slug }: { slug: string }) {
+  const navigate = useNavigate();
   const [project, setProject] = useState<StudioProject | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [conflictError, setConflictError] = useState<string | null>(null);
@@ -62,9 +77,33 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   const [renders, setRenders] = useState<RenderManifest[]>([]);
   const [activeRenderName, setActiveRenderName] = useState<string | null>(null);
   const [analysisProgress, setAnalysisProgress] = useState<string | null>(null);
+  const [analysisSteps, setAnalysisSteps] = useState<StudioPipelineStep[]>([]);
+  const [analysisStartedAt, setAnalysisStartedAt] = useState<number | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const playingRef = useRef(false);
   const editingRef = useRef(false);
   const autoAnalyze = useRef<string | null>(null);
+  const stepsHydrated = useRef(false);
+
+  function pipelineOf(next: StudioProject): "transcript" | "scripted" {
+    if (next.meta.lastPipeline === "scripted" || next.pipeline === "scripted") return "scripted";
+    if ((next.meta.scriptLineCount ?? 0) > 0 && next.pipeline !== "transcript") return "scripted";
+    return "transcript";
+  }
+
+  function hydrateSteps(next: StudioProject, mode: StudioRunMode = "analyze") {
+    const snap = next.meta.settings?.snapToAudio !== false;
+    let steps = initialStudioSteps(pipelineOf(next), snap, mode, Boolean(next.hasTranscript));
+    if (next.lastPhase) {
+      steps = applyStudioPhase(steps, next.lastPhase, next.lastPhaseRatio ?? 0, next.lastPhaseMessage);
+    }
+    setAnalysisSteps(steps);
+    const started = next.analysisStartedAt ?? next.meta.analysisStartedAt;
+    setAnalysisStartedAt(started ? Date.parse(started) : Date.now());
+    stepsHydrated.current = true;
+  }
 
   const settings: StudioSettings = project?.meta.settings ?? {
     silenceThreshold: 0.4,
@@ -88,7 +127,14 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   }
 
   useEffect(() => {
-    void refresh().catch((err: unknown) => setError(err instanceof Error ? err.message : "Load failed"));
+    stepsHydrated.current = false;
+    void refresh().catch((err: unknown) => {
+      if (err instanceof StudioNotFoundError) {
+        navigate("/studio", { state: { notice: studioCopy.projectDeleted } });
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Load failed");
+    });
     const stored = sessionStorage.getItem(renderStorageKey(slug));
     if (stored) {
       void renderStatus(slug, stored)
@@ -113,6 +159,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         outputName?: string;
         phase?: string;
         id?: string;
+        status?: string;
       };
       if (data.type === "confirmation_created" && data.id) {
         setHighlightAsk(data.id);
@@ -122,15 +169,32 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         setBusyAsk(null);
         void refresh().catch(() => undefined);
       }
+      if (data.type === "deleted") {
+        navigate("/studio", { state: { notice: studioCopy.projectDeleted } });
+        return;
+      }
       if (data.type === "progress") {
         setAnalysisProgress(formatProgressLabel(data.message, data.ratio));
-        void refresh().catch(() => undefined);
+        if (data.phase) {
+          setAnalysisSteps((current) => applyStudioPhase(current, data.phase!, data.ratio ?? 0, data.message));
+        }
       }
       if (data.type === "status") {
         setAnalysisProgress(data.message ?? null);
+        if (data.phase === "error" || data.status === "error") {
+          setAnalysisError(data.message ?? studioCopy.analyzeFailed);
+          setAnalysisSteps((current) => markActiveStepError(current, data.message ?? studioCopy.analyzeFailed));
+        }
         void refresh().catch(() => undefined);
       }
-      if (data.type === "revision" || data.type === "snapshot") {
+      if (data.type === "snapshot") {
+        void refresh().catch((err: unknown) => {
+          if (err instanceof StudioNotFoundError) {
+            navigate("/studio", { state: { notice: studioCopy.projectDeleted } });
+          }
+        });
+      }
+      if (data.type === "revision") {
         setAnalysisProgress(null);
         void refresh().catch(() => undefined);
       }
@@ -250,12 +314,21 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   async function runAnalyze() {
     if (!project || analysisBusy) return;
     setError(null);
+    setAnalysisError(null);
     setAnalysisProgress(studioCopy.startingAnalysis);
+    hydrateSteps(project, "analyze");
     try {
       await analyze(slug, project.revision);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Analyze failed");
+      if (err instanceof StudioNotFoundError) {
+        navigate("/studio", { state: { notice: studioCopy.projectDeleted } });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Analyze failed";
+      setError(message);
+      setAnalysisError(message);
+      setAnalysisSteps((current) => markActiveStepError(current, message));
       await refresh().catch(() => undefined);
     }
   }
@@ -271,6 +344,16 @@ export function StudioWorkspace({ slug }: { slug: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, slug]);
 
+  useEffect(() => {
+    if (!project) return;
+    if (project.status === "analyzing" && !stepsHydrated.current) {
+      hydrateSteps(project, project.meta.statusMessage === "retranscribe" ? "retranscribe" : project.meta.statusMessage === "regroup" ? "regroup" : project.hasTranscript ? "resegment" : "analyze");
+    }
+    if (project.status === "ready") {
+      stepsHydrated.current = false;
+    }
+  }, [project]);
+
   return (
     <AppShell
       showBack
@@ -278,7 +361,21 @@ export function StudioWorkspace({ slug }: { slug: string }) {
       backLabel={studioCopy.backToLibrary}
       title={sourceName(project?.meta.sourcePath)}
       subtitle={project?.meta.title ?? slug}
-      actions={<StudioStepIndicator />}
+      actions={
+        <div className="flex items-center gap-2">
+          <StudioStepIndicator />
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={deleting}
+            onClick={() => setDeleteOpen(true)}
+          >
+            {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            {studioCopy.delete}
+          </Button>
+        </div>
+      }
     >
       {error ? <p className="absolute left-4 top-12 z-10 text-xs text-destructive">{error}</p> : null}
       <StudioClipsPanel
@@ -313,6 +410,12 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         projectStatus={project?.status}
         statusMessage={analysisProgress ?? project?.meta.statusMessage}
         onRetryAnalyze={() => void runAnalyze()}
+        onResetStatus={() => {
+          void resetStatus(slug).then(() => refresh());
+        }}
+        analysisSteps={analysisSteps}
+        analysisStartedAt={analysisStartedAt}
+        analysisError={analysisError}
         onEditingChange={(value) => {
           editingRef.current = value;
         }}
@@ -404,6 +507,8 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         onRebuild={(pipeline) => {
           if (!project) return;
           const scripted = pipeline === "scripted";
+          setAnalysisError(null);
+          hydrateSteps(project, "resegment");
           void reanalyze(slug, project.revision, {
             mode: "resegment",
             reset: scripted ? false : true,
@@ -413,6 +518,37 @@ export function StudioWorkspace({ slug }: { slug: string }) {
             .catch((err: unknown) => setError(err instanceof Error ? err.message : "Rebuild failed"));
         }}
       />
+      <StudioConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={studioCopy.deleteConfirmTitle(project?.meta.title ?? slug)}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>
+              {studioCopy.cancel}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => {
+                setDeleting(true);
+                void deleteProject(slug)
+                  .then(() => navigate("/studio"))
+                  .catch((err: unknown) => {
+                    setDeleting(false);
+                    setError(err instanceof Error ? err.message : "Delete failed");
+                    setDeleteOpen(false);
+                  });
+              }}
+            >
+              {studioCopy.delete}
+            </Button>
+          </>
+        }
+      >
+        <p className="mt-2 text-sm text-muted-foreground">{studioCopy.deleteConfirm}</p>
+      </StudioConfirmDialog>
     </AppShell>
   );
 }

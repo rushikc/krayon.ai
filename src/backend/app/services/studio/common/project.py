@@ -39,9 +39,12 @@ INTERNAL_PAUSE_PENALTY = 0.15
 WHISPER_PROMPT_MAX_CHARS = 800
 
 
-def write_checkpoint(analysis_dir: Path, phase: str, message: str) -> None:
+def write_checkpoint(analysis_dir: Path, phase: str, message: str, ratio: float | None = None) -> None:
     path = analysis_dir / "job.json"
-    path.write_text(json.dumps({"phase": phase, "message": message}))
+    payload: dict[str, object] = {"phase": phase, "message": message}
+    if ratio is not None:
+        payload["ratio"] = ratio
+    path.write_text(json.dumps(payload))
 
 
 @dataclass

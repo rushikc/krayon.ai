@@ -6,6 +6,7 @@ export type StudioEvent = {
     | "revision"
     | "render"
     | "status"
+    | "deleted"
     | "confirmation_created"
     | "confirmation_resolved"
     | "confirmation_cancelled";
@@ -45,5 +46,12 @@ export class EventHub {
     const emitter = this.emitter(slug);
     emitter.on("event", listener);
     return () => emitter.off("event", listener);
+  }
+
+  drop(slug: string): void {
+    const emitter = this.emitters.get(slug);
+    if (!emitter) return;
+    emitter.removeAllListeners();
+    this.emitters.delete(slug);
   }
 }

@@ -98,6 +98,24 @@ export class NotFoundError extends Error {
   }
 }
 
+export class NameConflictError extends Error {
+  readonly status = 409;
+
+  constructor(name: string) {
+    super(`A project named "${name}" already exists`);
+    this.name = "NameConflictError";
+  }
+}
+
+export class InvalidSlugError extends Error {
+  readonly status = 400;
+
+  constructor(message = "Invalid project slug") {
+    super(message);
+    this.name = "InvalidSlugError";
+  }
+}
+
 export function throwIfBusy(status: string): void {
   if (status === "analyzing") throw new BusyError("Project is analyzing");
   if (status === "rendering") throw new BusyError("Project is rendering");

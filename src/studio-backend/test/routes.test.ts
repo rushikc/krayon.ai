@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { analysisOf, clip, http, listenStudio, seedProject, type PythonState } from "./helpers.js";
@@ -25,16 +25,17 @@ async function project(slug: string) {
 }
 
 describe("projects", () => {
-  it("creates, lists, switches, and suffixes a slug collision", async () => {
+  it("creates, lists, switches, and rejects a duplicate name", async () => {
     const created = await http(base, "POST", "/api/studio/projects", { title: "Routes Demo", slug: "routes-demo" });
     expect(created.status).toBe(201);
     expect(created.payload.slug).toBe("routes-demo");
     const again = await http(base, "POST", "/api/studio/projects", { title: "Routes Demo", slug: "routes-demo" });
-    expect(again.status).toBe(201);
-    expect(again.payload.slug).toBe("routes-demo-2");
+    expect(again.status).toBe(409);
+    expect(again.payload.message).toContain("already exists");
     const listed = await http(base, "GET", "/api/studio/projects");
     const slugs = (listed.payload.projects as { slug: string }[]).map((item) => item.slug);
-    expect(slugs).toEqual(expect.arrayContaining(["routes-demo", "routes-demo-2"]));
+    expect(slugs).toEqual(expect.arrayContaining(["routes-demo"]));
+    expect(slugs.filter((item) => item.startsWith("routes-demo")).length).toBe(1);
     const used = await http(base, "POST", "/api/studio/projects/use", { slug: "routes-demo" });
     expect(used.payload.current).toBe("routes-demo");
     const current = await readFile(path.join(root, ".current"), "utf8");
@@ -519,5 +520,103 @@ describe("events and render", () => {
     const response = await http(base, "GET", "/api/studio/projects/lint-demo/lint");
     expect(response.status).toBe(200);
     expect(JSON.stringify(response.payload)).toContain("short_clip");
+  });
+});
+
+async function pathExists(file: string) {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe("project names and delete", () => {
+  it("rejects empty and symbol-only names and reports check-name", async () => {
+    const empty = await http(base, "POST", "/api/studio/projects", { title: "   " });
+    expect(empty.status).toBe(400);
+    const symbols = await http(base, "POST", "/api/studio/projects", { title: "!!!" });
+    expect(symbols.status).toBe(400);
+    const available = await http(base, "GET", "/api/studio/projects/check-name?name=Unique%20Check");
+    expect(available.payload.available).toBe(true);
+    await http(base, "POST", "/api/studio/projects", { title: "Unique Check" });
+    const taken = await http(base, "GET", "/api/studio/projects/check-name?name=unique%20check");
+    expect(taken.payload.available).toBe(false);
+  });
+
+  it("treats compact slug and case-insensitive titles as conflicts", async () => {
+    const created = await http(base, "POST", "/api/studio/projects", { title: "Test 3" });
+    expect(created.status).toBe(201);
+    const sameCase = await http(base, "POST", "/api/studio/projects", { title: "TEST 3" });
+    expect(sameCase.status).toBe(409);
+    const compact = await http(base, "POST", "/api/studio/projects", { title: "test3" });
+    expect(compact.status).toBe(409);
+  });
+
+  it("creates only once when two posts race", async () => {
+    const [first, second] = await Promise.all([
+      http(base, "POST", "/api/studio/projects", { title: "Race Title" }),
+      http(base, "POST", "/api/studio/projects", { title: "Race Title" }),
+    ]);
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([201, 409]);
+  });
+
+  it("deletes a project folder, clears current, and leaves the source video", async () => {
+    const video = path.join(root, "keep-original.mp4");
+    await writeFile(video, "original-bytes");
+    const created = await http(base, "POST", "/api/studio/projects", { title: "Delete Me" });
+    const slug = created.payload.slug as string;
+    await http(base, "POST", `/api/studio/projects/${slug}/import`, { path: video });
+    await http(base, "POST", "/api/studio/projects/use", { slug });
+    const removed = await http(base, "DELETE", `/api/studio/projects/${slug}`);
+    expect(removed.status).toBe(200);
+    expect(removed.payload.deleted).toBe(slug);
+    expect(await pathExists(path.join(root, slug))).toBe(false);
+    expect(await pathExists(video)).toBe(true);
+    const current = await readFile(path.join(root, ".current"), "utf8");
+    expect(current.trim()).toBe("");
+    const missing = await http(base, "DELETE", `/api/studio/projects/${slug}`);
+    expect(missing.status).toBe(404);
+  });
+
+  it("rejects path traversal slugs", async () => {
+    const traversal = await fetch(`${base}/api/studio/projects/${encodeURIComponent("../etc")}`, { method: "DELETE" });
+    expect(traversal.status).toBe(400);
+    const nested = await fetch(`${base}/api/studio/projects/${encodeURIComponent("a/b")}`, { method: "DELETE" });
+    expect(nested.status).toBe(400);
+  });
+
+  it("cancels a hanging analyze then deletes the project", async () => {
+    const created = await http(base, "POST", "/api/studio/projects", { title: "Hang Delete" });
+    const slug = created.payload.slug as string;
+    const source = path.join(root, "hang-source.mp4");
+    await writeFile(source, "video");
+    await http(base, "POST", `/api/studio/projects/${slug}/import`, { path: source });
+    state.mode = "hang";
+    const pending = http(base, "POST", `/api/studio/projects/${slug}/analyze`, {});
+    await expect.poll(async () => ((await project(slug)).payload.meta as { status: string }).status).toBe("analyzing");
+    const removed = await http(base, "DELETE", `/api/studio/projects/${slug}`);
+    expect([200, 409]).toContain(removed.status);
+    await pending.catch(() => undefined);
+    state.mode = "ok";
+    if (removed.status === 200) {
+      expect(await pathExists(path.join(root, slug))).toBe(false);
+      expect(await pathExists(source)).toBe(true);
+    }
+  });
+
+  it("requires confirm for delete-all and then removes project folders only", async () => {
+    const denied = await http(base, "DELETE", "/api/studio/projects");
+    expect(denied.status).toBe(400);
+    await http(base, "POST", "/api/studio/projects", { title: "Sweep One" });
+    await http(base, "POST", "/api/studio/projects", { title: "Sweep Two" });
+    const stray = path.join(root, "notes.txt");
+    await writeFile(stray, "leave me");
+    const swept = await http(base, "DELETE", "/api/studio/projects", { confirm: "delete-all" });
+    expect(swept.status).toBe(200);
+    expect((swept.payload.deleted as string[]).length).toBeGreaterThan(0);
+    expect(await pathExists(stray)).toBe(true);
   });
 });

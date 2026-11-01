@@ -67,7 +67,7 @@ Snapping builds an RMS envelope (10 ms hops) and moves each shared or per-clip e
 
 ## Workspace
 
-`/studio` is the landing page: project name, video path, an optional Script box, and recent projects.
+`/studio` is the landing page: required unique project name, video path, an optional Script box, Delete all, and recent projects with a per-row delete control. While `status` is `analyzing`, the workspace preview shows a staged progress stepper (extract, transcribe, cut/align, group/match, optional snap, save) driven by SSE `progress` events.
 
 `/studio/:slug` is the workspace.
 
@@ -131,10 +131,14 @@ Final renders always re-encode video (`h264_videotoolbox` on a Mac, otherwise `l
 All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor: grok` or `human`.
 
 - `GET /api/studio/schema` — fields, ops, rules, error example
-- `GET/POST /api/studio/projects`, `POST /api/studio/projects/use`
-- `GET /projects/:slug` — clips, groups, order, revision, history, `hasTranscript` when `analysis/words.json` exists
+- `GET /api/studio/health` — `{ status, projectsDir }`
+- `GET/POST /api/studio/projects`, `POST /api/studio/projects/use`. Create requires a unique title (1–80 chars). Duplicate title or slug (including compact slug like `test3` vs `Test 3`) returns 409. There is no silent `-2` rename.
+- `GET /api/studio/projects/check-name?name=` — `{ available, reason? }`
+- `DELETE /api/studio/projects/:slug` — `{ deleted }`. Cancels analyze/render first. 404 unknown, 400 bad slug. Does not touch the original source video.
+- `DELETE /api/studio/projects` — body or query `{ confirm: "delete-all" }`. Returns `{ deleted, skipped }`.
+- `GET /projects/:slug` — clips, groups, order, revision, history, `hasTranscript` when `analysis/words.json` exists, plus `lastPhase` / `analysisStartedAt` for the stepper
 - `POST /projects/:slug/import` — `{ "path" }` or a multipart file streamed to `imported/`
-- `POST /projects/:slug/analyze` — Studio Analyze audio. Optional `pipeline`: `auto` (default), `transcript`, or `scripted`. Creating a project and importing a video auto-starts this once the project screen opens
+- `POST /projects/:slug/analyze` — Studio Analyze audio. Optional `pipeline`: `auto` (default), `transcript`, or `scripted`. Creating a project and importing a video auto-starts this once the project screen opens. Progress phases: `extracting`, `transcribing`, `segmenting`, `grouping`, `snapping` (when snap is on), `saving`.
 - `GET /projects/:slug/clips?group=&label=&status=`
 - `GET /projects/:slug/clips/:id` — words, neighbours, group mates, reasons
 - `GET /projects/:slug/clips/:id/audio.wav?pad=0.5`
@@ -150,7 +154,7 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `GET /projects/:slug/render/:id`, `POST /projects/:slug/render/:id/cancel`, `GET /projects/:slug/output`
 - `GET /projects/:slug/lint`, `GET /projects/:slug/history`
 - `POST /projects/:slug/undo`, `/redo`, `/restore`
-- `GET /projects/:slug/events` — server-sent events for progress, revisions, and confirmations
+- `GET /projects/:slug/events` — server-sent events for progress, revisions, confirmations, and `deleted`
 - `GET/POST /projects/:slug/confirmations`, `POST …/answer`, `POST …/cancel`, `GET …/wait`, `GET …/wait-any`
 - `POST /projects/:slug/reset-status`
 

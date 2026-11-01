@@ -90,6 +90,7 @@ def _build_range_clips(
     language: str | None = "en",
     snap_to_audio: bool = True,
     snap_search_seconds: float = 0.3,
+    on_progress=None,
 ) -> tuple[list[ClipItem], list[ClipGroup]]:
     inside = _words_overlapping(words, start, end)
     segments = build_segments_from_words(
@@ -123,7 +124,11 @@ def _build_range_clips(
         language=language,
     )
     if snap_to_audio and wav_path.is_file():
+        if on_progress:
+            on_progress("snapping", 0.2, "Snapping cuts to the waveform…")
         clips = snap_studio_clips(clips, wav_path, pad=pad, search=snap_search_seconds)
+        if on_progress:
+            on_progress("snapping", 1.0, "Snapped cuts")
     return clips, groups
 
 
@@ -227,6 +232,7 @@ def reanalyze_project(
             language=language,
             snap_to_audio=snap_to_audio,
             snap_search_seconds=snap_search_seconds,
+            on_progress=on_progress,
         )
         next_clips = outside + created
         groups = _groups_from_clips(next_clips)
@@ -234,6 +240,7 @@ def reanalyze_project(
     scores = score_clips(next_clips)
     if on_progress:
         on_progress("grouping", 1.0, f"Reanalyzed {len(next_clips)} clips")
+        on_progress("saving", 1.0, "Save clips")
 
     return {
         "sourceDuration": source_duration,
