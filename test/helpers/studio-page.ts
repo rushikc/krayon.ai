@@ -30,3 +30,12 @@ export async function clickWaveform(page: Page, fraction: number) {
   const box = await waveformBox(page);
   await page.mouse.click(box.x + box.width * fraction, box.y + box.height / 2);
 }
+
+export function collectPageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  return errors;
+}

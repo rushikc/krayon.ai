@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { createFixtureProject, deleteProject, FIXTURE_TRUTH } from "../helpers/fixture-project";
 import { REPO_ROOT, removeProjectFolder, studioApi } from "../helpers/studio-api";
+import { openStudio } from "../helpers/studio-page";
 
 test("new-project form counts script lines and rebuild offers a script choice", async ({ page }) => {
   await page.goto("/studio");
@@ -31,5 +33,25 @@ test("new-project form counts script lines and rebuild offers a script choice", 
     await page.getByRole("button", { name: "Cancel" }).click();
   } finally {
     removeProjectFolder(slug);
+  }
+});
+
+test("saving a script after analysis shows needs-rebuild, missing lines, and a line-count mismatch", async ({ page }) => {
+  test.setTimeout(120_000);
+  const fixture = await createFixtureProject({ withScript: true, analyze: true });
+  try {
+    await openStudio(page, fixture.slug);
+    await expect(page.getByTestId("pipeline-stats")).toContainText("missing");
+    await expect(page.getByTestId("pipeline-stats")).toContainText("3 lines");
+    await expect(page.getByTestId("missing-script-line")).toContainText(/not found/i);
+    expect(FIXTURE_TRUTH.missingScriptLine).toContain("lambda");
+    const revision = await studioApi.currentRevision(fixture.slug);
+    await studioApi.updateScript(fixture.slug, revision, "alpha beta gamma delta is the answer\nepsilon zeta eta\nlambda mu nu\nextra line");
+    await page.reload();
+    await openStudio(page, fixture.slug);
+    await expect(page.getByTestId("needs-rebuild")).toHaveText("Script changed. Rebuild to apply.");
+    await expect(page.getByTestId("pipeline-stats")).toContainText("4 lines");
+  } finally {
+    deleteProject(fixture.slug);
   }
 });

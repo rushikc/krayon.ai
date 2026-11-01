@@ -39,6 +39,30 @@ export const studioApi = {
       json<{ revision: number; history: Array<{ revision: number; label: string; summary: string; current: boolean }> }>(r),
     ),
   undo: (slug: string) => fetch(`${API}/projects/${slug}/undo`, { method: "POST" }).then((r) => json<{ revision: number }>(r)),
+  redo: (slug: string) => fetch(`${API}/projects/${slug}/redo`, { method: "POST" }).then((r) => json<{ revision: number }>(r)),
+  applyOps: (slug: string, baseRevision: number, ops: unknown[], label = "op") =>
+    fetch(`${API}/projects/${slug}/ops`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-krayon-actor": "human" },
+      body: JSON.stringify({ baseRevision, ops, label }),
+    }).then((r) => json<{ revision: number; summary: string }>(r)),
+  updateScript: (slug: string, baseRevision: number, script: string) =>
+    fetch(`${API}/projects/${slug}/script`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseRevision, script }),
+    }).then((r) => json<{ revision: number; needsRebuild: boolean; scriptLineCount: number }>(r)),
+  resetStatus: (slug: string) =>
+    fetch(`${API}/projects/${slug}/reset-status`, { method: "POST" }).then((r) => json<{ status: string; statusMessage: string }>(r)),
+  importPath: (slug: string, sourcePath: string) =>
+    fetch(`${API}/projects/${slug}/import`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: sourcePath }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      return r.json() as Promise<{ sourcePath: string }>;
+    }),
   createProject: (title: string) =>
     fetch(`${API}/projects`, {
       method: "POST",

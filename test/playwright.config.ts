@@ -14,6 +14,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  grepInvert: process.env.E2E_SLOW === "1" ? undefined : /@slow/,
+  snapshotPathTemplate: "{testDir}/__screenshots__/{testFilePath}/{arg}{ext}",
   globalSetup: "./helpers/global-setup.ts",
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:5173",
