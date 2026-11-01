@@ -36,6 +36,7 @@ import {
   assertProjectPath,
   clearCurrent,
   commitRevision,
+  recordAnalysisDuration,
   countScriptLines,
   createProject,
   currentFile,
@@ -59,6 +60,7 @@ import {
   useProject,
   withLock,
   writeScript,
+  type Meta,
   type PipelineMode,
 } from "./store.js";
 
@@ -80,6 +82,11 @@ function actorOf(header: string | undefined, body: unknown): Actor {
   return parsed.success ? parsed.data : "human";
 }
 
+function pythonLanguage(raw: string | undefined | null): string | null {
+  if (raw == null || raw === "" || raw.toLowerCase() === "auto") return null;
+  return raw.toLowerCase();
+}
+
 function pythonSettings(meta: { settings?: typeof DEFAULT_SETTINGS }, body: Record<string, unknown> = {}) {
   const settings = meta.settings ?? DEFAULT_SETTINGS;
   return {
@@ -93,6 +100,7 @@ function pythonSettings(meta: { settings?: typeof DEFAULT_SETTINGS }, body: Reco
     scriptConfirmThreshold: settings.scriptConfirmThreshold ?? DEFAULT_SETTINGS.scriptConfirmThreshold,
     scriptPreferLastTakes: settings.scriptPreferLastTakes ?? DEFAULT_SETTINGS.scriptPreferLastTakes,
     scriptWhisperPrompt: settings.scriptWhisperPrompt ?? DEFAULT_SETTINGS.scriptWhisperPrompt,
+    language: pythonLanguage((body.language as string | undefined) ?? settings.language),
   };
 }
 
@@ -218,6 +226,37 @@ export function registerRoutes(
       loaded.meta.lastPhaseRatio = 0;
       await saveMeta(loaded.dir, loaded.meta);
       return loaded;
+    });
+  }
+
+  async function applyTranscriptMeta(dir: string, meta: Meta) {
+    try {
+      const raw = JSON.parse(await readFile(path.join(dir, "analysis", "words.json"), "utf8")) as {
+        detectedLanguage?: string | null;
+      };
+      if (raw && typeof raw === "object" && typeof raw.detectedLanguage === "string") {
+        meta.detectedLanguage = raw.detectedLanguage;
+      }
+    } catch {
+      return;
+    }
+  }
+
+  async function finishCancelledAnalysis(slug: string) {
+    if (isDeleted(slug)) return { cancelled: true as const };
+    return withLock(slug, async () => {
+      const loaded = await load(root, slug);
+      if (loaded.meta.status === "analyzing") {
+        loaded.meta.status = loaded.cuts.clips.length > 0 ? "ready" : "empty";
+        loaded.meta.statusMessage = "Analysis cancelled";
+        await saveMeta(loaded.dir, loaded.meta);
+      }
+      deps.hub.publish(slug, { type: "status", status: loaded.meta.status, message: loaded.meta.statusMessage });
+      return {
+        cancelled: true as const,
+        status: loaded.meta.status,
+        statusMessage: loaded.meta.statusMessage,
+      };
     });
   }
 
@@ -539,6 +578,7 @@ export function registerRoutes(
       await writeScript(dir, next);
       meta.scriptLineCount = countScriptLines(next);
       meta.needsRebuild = true;
+      meta.rebuildReason = "script";
       meta.statusMessage = next.trim() ? "Script updated; rebuild to apply" : "Script cleared; rebuild to apply";
       const entry = await commitRevision(dir, meta, cuts, actor, "script", next.trim() ? "script updated" : "script cleared");
       deps.hub.publish(slug, {
@@ -571,13 +611,21 @@ export function registerRoutes(
         scriptConfirmThreshold: z.number().optional(),
         scriptPreferLastTakes: z.boolean().optional(),
         scriptWhisperPrompt: z.boolean().optional(),
+        language: z.string().min(2).max(16).optional(),
       })
       .parse(request.body ?? {});
     return withLock(slug, async () => {
       const { dir, meta } = await load(root, slug);
+      const previousLanguage = meta.settings?.language ?? DEFAULT_SETTINGS.language;
       meta.settings = normalizeSettings({ ...meta.settings, ...body });
+      if (body.language != null && meta.settings.language !== previousLanguage) {
+        meta.needsRebuild = true;
+        meta.rebuildReason = "language";
+        meta.statusMessage = "Language changed. Analyze again to re-transcribe.";
+        await unlink(path.join(dir, "analysis", "words.json")).catch(() => undefined);
+      }
       await saveMeta(dir, meta);
-      return { settings: meta.settings };
+      return { settings: meta.settings, needsRebuild: meta.needsRebuild };
     });
   });
 
@@ -640,7 +688,6 @@ export function registerRoutes(
         {
           sourcePath: started.meta.sourcePath,
           analysisDir: path.join(started.dir, "analysis"),
-          language: body.language ?? "en",
           pipeline: body.pipeline ?? "auto",
           script,
           ...pythonSettings(started.meta, body),
@@ -662,7 +709,10 @@ export function registerRoutes(
         fresh.meta.status = "ready";
         fresh.meta.lastPipeline = result.pipeline === "scripted" ? "scripted" : "transcript";
         fresh.meta.needsRebuild = false;
+        fresh.meta.rebuildReason = null;
+        await applyTranscriptMeta(fresh.dir, fresh.meta);
         fresh.meta.statusMessage = `Analyzed ${adopted.doc.clips.length} clips`;
+        recordAnalysisDuration(fresh.meta);
         if (fresh.meta.lastPipeline === "scripted") {
           await enqueueScriptConfirms(
             fresh.dir,
@@ -682,8 +732,11 @@ export function registerRoutes(
         return { revision: entry.revision, clipCount: adopted.doc.clips.length, summary: entry.summary };
       });
     } catch (error) {
-      if (isDeleted(slug) || (error instanceof Error && error.message === "cancelled")) {
+      if (isDeleted(slug)) {
         return { cancelled: true };
+      }
+      if (error instanceof Error && error.message === "cancelled") {
+        return finishCancelledAnalysis(slug);
       }
       if (!(error instanceof ConflictError) && !(error instanceof BusyError) && !(error instanceof NotFoundError)) {
         await failAnalysis(slug, error instanceof Error ? error.message : "Analysis failed");
@@ -691,6 +744,22 @@ export function registerRoutes(
       }
       throw error;
     }
+  });
+
+  app.post("/api/studio/projects/:slug/analyze/cancel", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const analysis = analyses.get(slug);
+    if (analysis) {
+      await cancelPythonJob(python, analysis.pythonJobId);
+      await Promise.race([
+        analysis.wait.then(
+          () => true,
+          () => true,
+        ),
+        new Promise((resolve) => setTimeout(resolve, 8000)),
+      ]);
+    }
+    return finishCancelledAnalysis(slug);
   });
 
   app.get("/api/studio/projects/:slug/clips", async (request) => {
@@ -887,7 +956,6 @@ export function registerRoutes(
               analysisDir: path.join(started.dir, "analysis"),
               pipeline: runPipeline,
               script: runPipeline === "scripted" ? script : "",
-              language: "en",
               ...pythonSettings(started.meta, body),
             }
           : {
@@ -901,6 +969,7 @@ export function registerRoutes(
           similarityThreshold: body.similarityThreshold ?? started.meta.settings?.similarityThreshold ?? DEFAULT_SETTINGS.similarityThreshold,
           snapToAudio: started.meta.settings?.snapToAudio ?? DEFAULT_SETTINGS.snapToAudio,
           snapSearchSeconds: started.meta.settings?.snapSearchSeconds ?? DEFAULT_SETTINGS.snapSearchSeconds,
+          language: pythonLanguage(started.meta.settings?.language),
           clips: started.cuts.clips.map(toPythonClip),
         },
       );
@@ -925,17 +994,23 @@ export function registerRoutes(
         fresh.meta.status = "ready";
         fresh.meta.lastPipeline = scriptedRun ? "scripted" : "transcript";
         fresh.meta.needsRebuild = false;
+        fresh.meta.rebuildReason = null;
+        await applyTranscriptMeta(fresh.dir, fresh.meta);
         if (scriptedRun) {
           await enqueueScriptConfirms(fresh.dir, adopted.doc, fresh.meta.settings.scriptConfirmThreshold, "algorithm");
         }
         fresh.meta.statusMessage = adopted.retired.length ? `Retired ${adopted.retired.join(", ")}` : "Reanalysis kept clip ids";
+        recordAnalysisDuration(fresh.meta);
         const entry = await commitRevision(fresh.dir, fresh.meta, adopted.doc, actor, body.label ?? body.mode, fresh.meta.statusMessage);
         deps.hub.publish(slug, { type: "revision", revision: entry.revision, actor, label: entry.label, summary: entry.summary });
         return { revision: entry.revision, summary: entry.summary, created: adopted.created, retired: adopted.retired };
       });
     } catch (error) {
-      if (isDeleted(slug) || (error instanceof Error && error.message === "cancelled")) {
+      if (isDeleted(slug)) {
         return { cancelled: true };
+      }
+      if (error instanceof Error && error.message === "cancelled") {
+        return finishCancelledAnalysis(slug);
       }
       if (!(error instanceof ConflictError) && !(error instanceof BusyError) && !(error instanceof OpError) && !(error instanceof NotFoundError)) {
         await failAnalysis(slug, error instanceof Error ? error.message : "Reanalysis failed");
@@ -1445,13 +1520,23 @@ export function errorBody(error: unknown): { status: number; body: unknown } | n
   if (error instanceof InvalidSlugError) {
     return { status: 400, body: { error: "validation", message: error.message } };
   }
-  if (error instanceof ConflictError || error instanceof BusyError) {
+  if (error instanceof BusyError) {
+    return {
+      status: 409,
+      body: {
+        error: "busy",
+        code: error.code,
+        message: error.message,
+      },
+    };
+  }
+  if (error instanceof ConflictError) {
     return {
       status: 409,
       body: {
         error: "conflict",
         message: error.message,
-        ...("currentRevision" in error ? { currentRevision: error.currentRevision } : {}),
+        currentRevision: error.currentRevision,
       },
     };
   }

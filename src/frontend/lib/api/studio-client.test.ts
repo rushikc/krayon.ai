@@ -78,6 +78,7 @@ describe("studio client", () => {
     await client.deleteProject("demo");
     await client.deleteAllProjects();
     await client.resetStatus("demo");
+    await client.cancelAnalyze("demo");
     const file = new File(["x"], "talk.mp4", { type: "video/mp4" });
     await client.importFile("demo", file);
     expect(urls.some((url) => url.endsWith("/projects"))).toBe(true);

@@ -1,4 +1,5 @@
 [whisper]
+# For non-English audio use "small" or larger; tiny/base struggle with Hindi and similar.
 model = "base"
 device = "cpu"
 compute_type = "int8"

@@ -14,7 +14,7 @@ Projects live in `studio/<slug>/` (gitignored):
 | `script.txt` | Optional spoken script (one sentence per line). Source of truth for the scripted pipeline |
 | `cuts.json` | Clips, groups, selected order, `canvasDraft` |
 | `analysis/source.wav` | 16 kHz mono cache. Reused if present |
-| `analysis/words.json` | Word timestamps. Reused if present, so a rerun does not re-extract or re-transcribe |
+| `analysis/words.json` | Word timestamps plus `requestedLanguage`, `detectedLanguage`, and `model`. Reused only when language and model match |
 | `history/0001.json` | Snapshot plus `actor`, `label`, `summary` |
 | `output/` | Preview and final mp4 files and a JSON manifest of clip ids to output time |
 | `confirmations.json` | Pending and answered Grok questions (not in undo) |
@@ -93,6 +93,7 @@ Snapping builds an RMS envelope (10 ms hops) and moves each shared or per-clip e
 | `scriptConfirmThreshold` | 0.85 |
 | `scriptPreferLastTakes` | true |
 | `scriptWhisperPrompt` | true |
+| `language` | `auto` (detect from the first 30 s). Explicit codes such as `en`, `hi` |
 
 ## Lint
 
@@ -138,7 +139,8 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `DELETE /api/studio/projects` — body or query `{ confirm: "delete-all" }`. Returns `{ deleted, skipped }`.
 - `GET /projects/:slug` — clips, groups, order, revision, history, `hasTranscript` when `analysis/words.json` exists, plus `lastPhase` / `analysisStartedAt` for the stepper
 - `POST /projects/:slug/import` — `{ "path" }` or a multipart file streamed to `imported/`
-- `POST /projects/:slug/analyze` — Studio Analyze audio. Optional `pipeline`: `auto` (default), `transcript`, or `scripted`. Creating a project and importing a video auto-starts this once the project screen opens. Progress phases: `extracting`, `transcribing`, `segmenting`, `grouping`, `snapping` (when snap is on), `saving`.
+- `POST /projects/:slug/analyze` — Studio Analyze audio. Optional `pipeline`: `auto` (default), `transcript`, or `scripted`. Optional `language` overrides `meta.settings.language` (`auto` lets Whisper detect). Creating a project and importing a video auto-starts this once the project screen opens. Progress phases: `extracting`, `transcribing`, `segmenting`, `grouping`, `snapping` (when snap is on), `saving`. A second analyze while `status` is `analyzing` returns HTTP 409 `{ "error": "busy", "code": "analysis_running", "message": "Analysis is already running" }`. The UI attaches to the running job instead of treating that as a failed step.
+- `POST /projects/:slug/analyze/cancel` — stop the Python job, keep `analysis/source.wav` and any partial `words.json`, set status to `empty` (or `ready` if clips already exist) with message `Analysis cancelled`.
 - `GET /projects/:slug/clips?group=&label=&status=`
 - `GET /projects/:slug/clips/:id` — words, neighbours, group mates, reasons
 - `GET /projects/:slug/clips/:id/audio.wav?pad=0.5`

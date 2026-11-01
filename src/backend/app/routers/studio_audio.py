@@ -21,7 +21,7 @@ from app.services.studio.frame import extract_frame
 from app.services.studio.pick_file import pick_video_macos
 from app.services.studio.reanalyze import reanalyze_project
 from app.services.studio.render import RenderCancelled, RenderClipIn, render_video
-from app.services.studio.transcribe_resume import load_words
+from app.services.studio.transcribe_resume import AnalysisCancelled, load_words
 
 router = APIRouter(prefix="/api/audio-studio", tags=["audio-studio"])
 
@@ -36,7 +36,7 @@ class AnalyzeBody(_Camel):
     silence_threshold: float = Field(default=0.4, alias="silenceThreshold")
     pad: float = 0.05
     similarity_threshold: float = Field(default=0.7, alias="similarityThreshold")
-    language: str | None = "en"
+    language: str | None = None
     snap_to_audio: bool = Field(default=True, alias="snapToAudio")
     snap_search_seconds: float = Field(default=0.3, alias="snapSearchSeconds")
     pipeline: str = "auto"
@@ -89,7 +89,7 @@ def _start_job(work) -> dict:
                 job_hub.publish(job_id, "cancelled", 1.0, "cancelled", step_progress=1.0)
             else:
                 job_hub.publish(job_id, "complete", 1.0, json.dumps(payload), step_progress=1.0)
-        except RenderCancelled:
+        except (RenderCancelled, AnalysisCancelled):
             job_hub.publish(job_id, "cancelled", 1.0, "cancelled", step_progress=1.0)
         except Exception as exc:
             if job_hub.is_cancelled(job_id):
@@ -126,7 +126,7 @@ def analyze_async(body: AnalyzeBody) -> dict:
     source = _require_file(Path(body.source_path), "Source")
     analysis_dir = Path(body.analysis_dir).expanduser().resolve()
 
-    def work(on_progress, _job_id=None):
+    def work(on_progress, job_id=None):
         result = analyze_project(
             source,
             analysis_dir,
@@ -143,6 +143,7 @@ def analyze_async(body: AnalyzeBody) -> dict:
             script_confirm_threshold=body.script_confirm_threshold,
             script_prefer_last_takes=body.script_prefer_last_takes,
             script_whisper_prompt=body.script_whisper_prompt,
+            cancelled=lambda: job_hub.is_cancelled(job_id) if job_id else False,
         )
         return _analysis_payload(result)
 
@@ -156,7 +157,7 @@ def reanalyze_async(body: ReanalyzeBody) -> dict:
     if not analysis_dir.is_dir():
         raise HTTPException(status_code=404, detail="Analysis directory not found")
 
-    def work(on_progress, _job_id=None):
+    def work(on_progress, job_id=None):
         return reanalyze_project(
             source,
             analysis_dir,
@@ -171,6 +172,7 @@ def reanalyze_async(body: ReanalyzeBody) -> dict:
             snap_to_audio=body.snap_to_audio,
             snap_search_seconds=body.snap_search_seconds,
             on_progress=on_progress,
+            cancelled=lambda: job_hub.is_cancelled(job_id) if job_id else False,
         )
 
     return _start_job(work)

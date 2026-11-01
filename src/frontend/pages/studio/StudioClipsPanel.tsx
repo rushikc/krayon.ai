@@ -1,4 +1,4 @@
-import { ChevronsDownUp, ChevronsUpDown, Scissors } from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown, Loader2, Scissors } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ClipGroups } from "@/components/layout/clip-list";
@@ -56,6 +56,8 @@ export function StudioClipsPanel({
   onFilterChange,
   onSelect,
   onPlay,
+  projectStatus,
+  statusMessage,
 }: {
   clips: StudioClip[];
   groups: StudioGroup[];
@@ -64,6 +66,8 @@ export function StudioClipsPanel({
   onFilterChange: (filter: ClipStatusFilter) => void;
   onSelect: (clipId: string) => void;
   onPlay: (clipId: string) => void;
+  projectStatus?: string;
+  statusMessage?: string;
 }) {
   const acceptedCount = clips.filter(isAccepted).length;
   const notAcceptedCount = clips.length - acceptedCount;
@@ -128,6 +132,17 @@ export function StudioClipsPanel({
                 {notAcceptedCount} not accepted
               </button>
             </div>
+            {projectStatus === "analyzing" ? (
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="clips-analyzing">
+                <Loader2 className="size-3 animate-spin" />
+                {studioCopy.analyzing}
+              </p>
+            ) : null}
+            {projectStatus === "error" ? (
+              <p className="mt-2 text-xs text-destructive" data-testid="clips-error">
+                {statusMessage || studioCopy.analyzeFailed}
+              </p>
+            ) : null}
           </div>
           <Button
             type="button"

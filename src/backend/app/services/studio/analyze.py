@@ -14,7 +14,7 @@ from app.services.segments import (
 from app.schemas import WordTiming
 from app.services.studio.common.project import PipelineOptions, ProjectAudio, StudioAnalysis, write_checkpoint
 from app.services.studio.scoring import score_clips
-from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words
+from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words, words_are_cached
 
 __all__ = ["StudioAnalysis", "analyze_project", "run_transcript_pipeline"]
 
@@ -39,7 +39,7 @@ def run_transcript_pipeline(project: ProjectAudio, options: PipelineOptions, on_
     def whisper_progress(ratio: float, message: str) -> None:
         progress("transcribing", ratio, message)
 
-    if words_path.is_file():
+    if words_are_cached(words_path, requested_language=options.language):
         progress("transcribing", 1.0, "Reusing cached transcript")
     else:
         progress("transcribing", 0.0, "Transcribing…")
@@ -49,6 +49,8 @@ def run_transcript_pipeline(project: ProjectAudio, options: PipelineOptions, on_
         language=options.language,
         on_progress=whisper_progress,
         initial_prompt=options.initial_prompt,
+        cancelled=options.cancelled,
+        requested_language=options.language,
     )
     words = load_words(words_path)
 
@@ -113,6 +115,7 @@ def analyze_project(
     snap_to_audio: bool = True,
     snap_search_seconds: float = 0.3,
     on_progress=None,
+    cancelled=None,
     pipeline: str = "transcript",
     script: str | None = None,
     script_match_threshold: float = 0.7,
@@ -129,6 +132,7 @@ def analyze_project(
         pad=pad,
         similarity_threshold=similarity_threshold,
         language=language,
+        cancelled=cancelled,
         snap_to_audio=snap_to_audio,
         snap_search_seconds=snap_search_seconds,
         pipeline=pipeline,  # type: ignore[arg-type]

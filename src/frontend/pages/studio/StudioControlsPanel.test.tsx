@@ -73,15 +73,22 @@ describe("StudioControlsPanel", () => {
       hasSource: false,
       analysisBusy: true,
       analysisMessage: "Segmenting",
+      analysisDurationSeconds: 120,
       onAnalyze,
       renderProgress: { message: "Rendering", ratio: 0.4 },
       needsRebuild: true,
     });
     expect(screen.getByRole("button", { name: studioCopy.analyzeAudio })).toBeDisabled();
     expect(screen.getByText("Segmenting")).toBeInTheDocument();
+    expect(screen.queryByTestId("analysis-duration")).not.toBeInTheDocument();
     expect(screen.getByTestId("needs-rebuild")).toHaveTextContent(studioCopy.needsRebuild);
     expect(screen.getByTestId("render-progress")).toHaveTextContent("Rendering");
     expect(onAnalyze).not.toHaveBeenCalled();
+  });
+
+  it("shows the last analysis duration above the analyze controls", () => {
+    renderPanel({ analysisDurationSeconds: 160 });
+    expect(screen.getByTestId("analysis-duration")).toHaveTextContent("Last analysis took 2 min 40 sec");
   });
 
   it("rebuilds with or without the script and cancel leaves the callback alone", async () => {
@@ -95,6 +102,27 @@ describe("StudioControlsPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: studioCopy.rebuild }));
     await userEvent.click(screen.getByTestId("rebuild-without-script"));
     expect(onRebuild).toHaveBeenCalledWith("transcript");
+  });
+
+  it("saves language from the settings select and shows a forced-English warning", async () => {
+    const onSaveSettings = vi.fn();
+    renderPanel({
+      onSaveSettings,
+      detectedLanguage: "hi",
+      settings: { ...settings, language: "en" },
+    });
+    screen.getByTestId("settings-box").setAttribute("open", "");
+    const select = screen.getByTestId("settings-language") as HTMLSelectElement;
+    expect(select.value).toBe("en");
+    expect(screen.getByTestId("language-warning")).toHaveTextContent(/Auto/);
+    await userEvent.selectOptions(select, "hi");
+    expect(onSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ language: "hi" }));
+  });
+
+  it("disables analyze and rebuild while analysis is running", () => {
+    renderPanel({ analysisBusy: true, hasTranscript: true, hasSource: true });
+    expect(screen.getByRole("button", { name: studioCopy.analyzeAudio })).toBeDisabled();
+    expect(screen.getByRole("button", { name: studioCopy.rebuild })).toBeDisabled();
   });
 
   it.fails("BUG: settings panel has no snapToAudio toggle", () => {

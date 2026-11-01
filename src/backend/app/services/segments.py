@@ -24,6 +24,7 @@ class Word:
     text: str
     start: float
     end: float
+    confidence: str = "high"
 
 
 @dataclass

@@ -55,7 +55,11 @@ export type StudioProject = {
     lastPipeline?: "transcript" | "scripted" | null;
     scriptLineCount?: number;
     needsRebuild?: boolean;
+    rebuildReason?: "script" | "language" | null;
+    detectedLanguage?: string | null;
+    detectedLanguageProbability?: number | null;
     analysisStartedAt?: string | null;
+    analysisDurationSeconds?: number | null;
   };
   revision: number;
   status: string;
@@ -82,6 +86,7 @@ export type StudioSettings = {
   scriptConfirmThreshold?: number;
   scriptPreferLastTakes?: boolean;
   scriptWhisperPrompt?: boolean;
+  language?: string;
 };
 
 export type StudioOp = Record<string, unknown>;
@@ -89,12 +94,20 @@ export type StudioOp = Record<string, unknown>;
 export class StudioConflictError extends Error {
   status = 409;
   currentRevision?: number;
+  code?: string;
+  error?: string;
 
-  constructor(message: string, currentRevision?: number) {
+  constructor(message: string, currentRevision?: number, code?: string, errorKind?: string) {
     super(message);
     this.name = "StudioConflictError";
     this.currentRevision = currentRevision;
+    this.code = code;
+    this.error = errorKind;
   }
+}
+
+export function isAnalysisRunningError(error: unknown): boolean {
+  return error instanceof StudioConflictError && error.code === "analysis_running";
 }
 
 export class StudioNotFoundError extends Error {
@@ -148,7 +161,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const message = payload.message ?? payload.detail ?? response.statusText;
     const textMessage = typeof message === "string" ? message : "Request failed";
     if (response.status === 409) {
-      throw new StudioConflictError(textMessage, payload.currentRevision);
+      throw new StudioConflictError(textMessage, payload.currentRevision, payload.code, payload.error);
     }
     if (response.status === 404) {
       throw new StudioNotFoundError(textMessage);
@@ -181,6 +194,13 @@ export function deleteAllProjects() {
   return request<{ deleted: string[]; skipped: Array<{ slug: string; reason: string }> }>("/projects", {
     method: "DELETE",
     body: JSON.stringify({ confirm: "delete-all" }),
+  });
+}
+
+export function cancelAnalyze(slug: string) {
+  return request<{ cancelled: boolean; status?: string; statusMessage?: string }>(`/projects/${slug}/analyze/cancel`, {
+    method: "POST",
+    body: "{}",
   });
 }
 

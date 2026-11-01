@@ -162,7 +162,7 @@ describe("studio http and cli", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(CliExit);
       expect((error as CliExit).code).toBe(2);
-      expect(JSON.stringify((error as CliExit).payload)).toContain("analyzing");
+      expect(JSON.stringify((error as CliExit).payload)).toContain("analysis_running");
     } finally {
       meta.status = "ready";
       await writeFile(metaPath, JSON.stringify(meta));
@@ -200,6 +200,10 @@ describe("studio http and cli", () => {
       settings: { silenceThreshold: number };
     };
     expect(updated.settings.silenceThreshold).toBe(0.3);
+    const language = (await runCli(["settings", "set", "language", "hi"], env())) as {
+      settings: { language: string };
+    };
+    expect(language.settings.language).toBe("hi");
   });
 
   it("cancels a render job", async () => {

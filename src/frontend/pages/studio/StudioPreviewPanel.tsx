@@ -48,6 +48,7 @@ export function StudioPreviewPanel({
   statusMessage,
   onRetryAnalyze,
   onResetStatus,
+  onCancelAnalyze,
   analysisSteps,
   analysisStartedAt,
   analysisError,
@@ -76,6 +77,7 @@ export function StudioPreviewPanel({
   statusMessage?: string;
   onRetryAnalyze?: () => void;
   onResetStatus?: () => void;
+  onCancelAnalyze?: () => void;
   analysisSteps?: StagedProgressStep[];
   analysisStartedAt?: number | null;
   analysisError?: string | null;
@@ -311,6 +313,7 @@ export function StudioPreviewPanel({
             error={projectStatus === "error" ? analysisError || statusMessage || studioCopy.analyzeFailed : null}
             onRetry={onRetryAnalyze}
             onReset={onResetStatus}
+            onCancel={projectStatus === "analyzing" ? onCancelAnalyze : undefined}
           />
         ) : tab === "clip" ? (
           <div className="flex w-full min-w-0 flex-1 flex-col items-center gap-4 p-6">

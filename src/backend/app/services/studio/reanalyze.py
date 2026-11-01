@@ -34,7 +34,10 @@ def _words_overlapping(words: list[Word], start: float, end: float) -> list[Word
 
 
 def _shift_words(words: list[Word], offset: float) -> list[Word]:
-    return [Word(text=word.text, start=word.start + offset, end=word.end + offset) for word in words]
+    return [
+        Word(text=word.text, start=word.start + offset, end=word.end + offset, confidence=word.confidence)
+        for word in words
+    ]
 
 
 def transcribe_range(source: Path, start: float, end: float, *, language: str | None) -> list[Word]:
@@ -65,7 +68,7 @@ def transcribe_range(source: Path, start: float, end: float, *, language: str | 
                 str(wav),
             ]
         )
-        local = transcribe_wav(wav, language=language)
+        local = transcribe_wav(wav, language=language, cancelled=None)
     return _shift_words(local, start)
 
 
@@ -169,6 +172,7 @@ def reanalyze_project(
     snap_to_audio: bool = True,
     snap_search_seconds: float = 0.3,
     on_progress=None,
+    cancelled=None,
 ) -> dict:
     words_path = analysis_dir / "words.json"
     wav_path = analysis_dir / "source.wav"
@@ -188,6 +192,10 @@ def reanalyze_project(
         if on_progress:
             on_progress("transcribing", 0.1, "Re-transcribing range…")
         replacement = transcribe_range(source, range_start, range_end, language=language)
+        if cancelled and cancelled():
+            from app.services.studio.transcribe_resume import AnalysisCancelled
+
+            raise AnalysisCancelled()
         words = splice_words(words, range_start, range_end, replacement)
         save_words(words_path, words)
         scope = "range"

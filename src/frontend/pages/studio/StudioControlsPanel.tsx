@@ -9,7 +9,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { getToolsStatus } from "@/lib/api/client";
 import type { ConfirmationItem, StudioSettings } from "@/lib/api/studio-client";
 import { countScriptLines } from "@/lib/studio-clip";
-import { formatDuration, formatProgressLabel, formatSize } from "@/lib/format";
+import { formatDuration, formatProgressLabel, formatSize, formatElapsedHuman } from "@/lib/format";
+import { STUDIO_LANGUAGES } from "@/lib/studio-analysis-steps";
 import { studioCopy } from "@/lib/studio-copy";
 import { ConfirmationTray } from "@/pages/studio/ConfirmationTray";
 import type { RenderManifest } from "@/pages/studio/StudioPreviewPanel";
@@ -64,6 +65,7 @@ export function StudioControlsPanel({
   issueLabel,
   analysisBusy,
   analysisMessage,
+  analysisDurationSeconds,
   onAnalyze,
   onRebuild,
   script,
@@ -71,6 +73,8 @@ export function StudioControlsPanel({
   lastPipeline,
   scriptLineCount,
   needsRebuild,
+  rebuildReason,
+  detectedLanguage,
   matchedLines,
   missingLines,
 }: {
@@ -99,6 +103,7 @@ export function StudioControlsPanel({
   issueLabel?: string | null;
   analysisBusy: boolean;
   analysisMessage?: string | null;
+  analysisDurationSeconds?: number | null;
   onAnalyze: () => void;
   onRebuild: (pipeline?: "scripted" | "transcript") => void;
   script: string;
@@ -106,6 +111,8 @@ export function StudioControlsPanel({
   lastPipeline?: "transcript" | "scripted" | null;
   scriptLineCount: number;
   needsRebuild?: boolean;
+  rebuildReason?: "script" | "language" | null;
+  detectedLanguage?: string | null;
   matchedLines: number;
   missingLines: number;
 }) {
@@ -121,6 +128,7 @@ export function StudioControlsPanel({
   const [scriptDraft, setScriptDraft] = useState(script);
   const empty = clipCount === 0;
   const hasScript = countScriptLines(script) > 0;
+  const analysisDurationLabel = formatElapsedHuman(analysisDurationSeconds);
 
   useEffect(() => setDraft(settings), [settings]);
   useEffect(() => setScriptDraft(script), [script]);
@@ -171,7 +179,7 @@ export function StudioControlsPanel({
         ) : null}
         {needsRebuild ? (
           <p className="mt-1 text-[11px] text-amber-600" data-testid="needs-rebuild">
-            {studioCopy.needsRebuild}
+            {rebuildReason === "language" ? studioCopy.languageChanged : studioCopy.needsRebuild}
           </p>
         ) : null}
       </div>
@@ -261,6 +269,33 @@ export function StudioControlsPanel({
               </Button>
             </label>
             <label className="block space-y-1 text-xs">
+              <FieldLabel label={studioCopy.language} />
+              <select
+                data-testid="settings-language"
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+                value={draft.language ?? "auto"}
+                onChange={(event) => {
+                  const next = { ...draft, language: event.target.value };
+                  setDraft(next);
+                  onSaveSettings(next);
+                }}
+              >
+                {STUDIO_LANGUAGES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.value === "auto" ? studioCopy.languageAuto : item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(draft.language ?? "auto") === "en" && detectedLanguage && !detectedLanguage.toLowerCase().startsWith("en") ? (
+              <p
+                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300"
+                data-testid="language-warning"
+              >
+                {studioCopy.languageForcedWarning}
+              </p>
+            ) : null}
+            <label className="block space-y-1 text-xs">
               <FieldLabel label={studioCopy.analysisRun} />
               <select disabled className="w-full rounded-md border border-input bg-background px-2 py-1.5">
                 <option>{studioCopy.currentAnalysis}</option>
@@ -280,6 +315,11 @@ export function StudioControlsPanel({
         </details>
 
         <section className="space-y-2 rounded-xl border border-border bg-card/50 p-4">
+          {analysisDurationLabel && !analysisBusy ? (
+            <p className="text-xs text-muted-foreground" data-testid="analysis-duration">
+              {studioCopy.analysisTook(analysisDurationLabel)}
+            </p>
+          ) : null}
           {analysisMessage ? <p className="text-xs text-muted-foreground">{analysisMessage}</p> : null}
           <TooltipProvider>
             <Tooltip>
@@ -298,7 +338,11 @@ export function StudioControlsPanel({
                   </span>
                 }
               />
-              {!hasSource ? <TooltipContent>{studioCopy.addSourceVideo}</TooltipContent> : null}
+              {analysisBusy ? (
+                <TooltipContent>{studioCopy.analysisRunning}</TooltipContent>
+              ) : !hasSource ? (
+                <TooltipContent>{studioCopy.addSourceVideo}</TooltipContent>
+              ) : null}
             </Tooltip>
           </TooltipProvider>
           <TooltipProvider>
@@ -318,7 +362,11 @@ export function StudioControlsPanel({
                   </span>
                 }
               />
-              {!hasTranscript ? <TooltipContent>{studioCopy.rebuildFirst}</TooltipContent> : null}
+              {analysisBusy ? (
+                <TooltipContent>{studioCopy.analysisRunning}</TooltipContent>
+              ) : !hasTranscript ? (
+                <TooltipContent>{studioCopy.rebuildFirst}</TooltipContent>
+              ) : null}
             </Tooltip>
           </TooltipProvider>
         </section>
@@ -425,6 +473,8 @@ export function StudioControlsPanel({
                     type="button"
                     variant="outline"
                     data-testid="rebuild-without-script"
+                    disabled={analysisBusy}
+                    title={analysisBusy ? studioCopy.analysisRunning : undefined}
                     onClick={() => {
                       setRebuildOpen(false);
                       onRebuild("transcript");
@@ -435,6 +485,8 @@ export function StudioControlsPanel({
                   <Button
                     type="button"
                     data-testid="rebuild-with-script"
+                    disabled={analysisBusy}
+                    title={analysisBusy ? studioCopy.analysisRunning : undefined}
                     onClick={() => {
                       setRebuildOpen(false);
                       onRebuild("scripted");
@@ -446,6 +498,8 @@ export function StudioControlsPanel({
               ) : (
                 <Button
                   type="button"
+                  disabled={analysisBusy}
+                  title={analysisBusy ? studioCopy.analysisRunning : undefined}
                   onClick={() => {
                     setRebuildOpen(false);
                     onRebuild();

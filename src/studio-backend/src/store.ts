@@ -17,6 +17,7 @@ export type AnalysisSettings = {
   scriptConfirmThreshold: number;
   scriptPreferLastTakes: boolean;
   scriptWhisperPrompt: boolean;
+  language: string;
 };
 
 export const DEFAULT_SETTINGS: AnalysisSettings = {
@@ -29,6 +30,7 @@ export const DEFAULT_SETTINGS: AnalysisSettings = {
   scriptConfirmThreshold: 0.85,
   scriptPreferLastTakes: true,
   scriptWhisperPrompt: true,
+  language: "auto",
 };
 
 export type Meta = {
@@ -48,11 +50,15 @@ export type Meta = {
   lastPipeline: LastPipeline;
   scriptLineCount: number;
   needsRebuild: boolean;
+  rebuildReason?: "script" | "language" | null;
+  detectedLanguage?: string | null;
+  detectedLanguageProbability?: number | null;
   scriptOriginal: string;
   lastPhase?: string | null;
   lastPhaseMessage?: string | null;
   lastPhaseRatio?: number | null;
   analysisStartedAt?: string | null;
+  analysisDurationSeconds?: number | null;
 };
 
 export type HistoryEntry = {
@@ -185,6 +191,10 @@ export function normalizeSettings(value: Partial<AnalysisSettings> | undefined):
       typeof value?.scriptPreferLastTakes === "boolean" ? value.scriptPreferLastTakes : DEFAULT_SETTINGS.scriptPreferLastTakes,
     scriptWhisperPrompt:
       typeof value?.scriptWhisperPrompt === "boolean" ? value.scriptWhisperPrompt : DEFAULT_SETTINGS.scriptWhisperPrompt,
+    language:
+      typeof value?.language === "string" && value.language.trim()
+        ? value.language.trim().toLowerCase()
+        : DEFAULT_SETTINGS.language,
   };
 }
 
@@ -244,12 +254,29 @@ export function normalizeMeta(meta: Meta): Meta {
     lastPipeline: meta.lastPipeline === "scripted" || meta.lastPipeline === "transcript" ? meta.lastPipeline : null,
     scriptLineCount: typeof meta.scriptLineCount === "number" ? meta.scriptLineCount : 0,
     needsRebuild: Boolean(meta.needsRebuild),
+    rebuildReason: meta.rebuildReason === "language" || meta.rebuildReason === "script" ? meta.rebuildReason : null,
+    detectedLanguage: typeof meta.detectedLanguage === "string" ? meta.detectedLanguage : null,
+    detectedLanguageProbability:
+      typeof meta.detectedLanguageProbability === "number" && Number.isFinite(meta.detectedLanguageProbability)
+        ? meta.detectedLanguageProbability
+        : null,
     scriptOriginal: typeof meta.scriptOriginal === "string" ? meta.scriptOriginal : "",
     lastPhase: typeof meta.lastPhase === "string" ? meta.lastPhase : null,
     lastPhaseMessage: typeof meta.lastPhaseMessage === "string" ? meta.lastPhaseMessage : null,
     lastPhaseRatio: typeof meta.lastPhaseRatio === "number" ? meta.lastPhaseRatio : null,
     analysisStartedAt: typeof meta.analysisStartedAt === "string" ? meta.analysisStartedAt : null,
+    analysisDurationSeconds:
+      typeof meta.analysisDurationSeconds === "number" && Number.isFinite(meta.analysisDurationSeconds)
+        ? Math.max(0, meta.analysisDurationSeconds)
+        : null,
   };
+}
+
+export function recordAnalysisDuration(meta: Meta, finishedAt = Date.now()): void {
+  if (!meta.analysisStartedAt) return;
+  const started = Date.parse(meta.analysisStartedAt);
+  if (!Number.isFinite(started)) return;
+  meta.analysisDurationSeconds = Math.max(0, Math.round((finishedAt - started) / 1000));
 }
 
 export async function readMeta(dir: string): Promise<Meta> {
@@ -301,6 +328,9 @@ export async function createProject(root: string, slug: string, title: string, s
     lastPipeline: null,
     scriptLineCount: countScriptLines(normalized),
     needsRebuild: false,
+    rebuildReason: null,
+    detectedLanguage: null,
+    detectedLanguageProbability: null,
     scriptOriginal: normalized,
   };
   await writeJson(path.join(dir, "meta.json"), meta);

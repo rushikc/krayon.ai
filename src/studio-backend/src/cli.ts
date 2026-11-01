@@ -233,10 +233,18 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
           snapToAudio: "snapToAudio",
           snapSearch: "snapSearchSeconds",
           snapSearchSeconds: "snapSearchSeconds",
+          language: "language",
         };
         const field = key ? aliases[key] : undefined;
         if (!field || raw == null) {
-          throw new CliExit(1, { error: "validation", message: "settings set silence|pad|similarity|snap|snapSearch <value>" }, pretty);
+          throw new CliExit(1, { error: "validation", message: "settings set silence|pad|similarity|snap|snapSearch|language <value>" }, pretty);
+        }
+        if (field === "language") {
+          const value = raw.trim().toLowerCase();
+          if (!/^(auto|[a-z]{2}(?:-[a-z]{2})?)$/.test(value)) {
+            throw new CliExit(1, { error: "validation", message: "settings set language auto|en|hi|..." }, pretty);
+          }
+          return finish(`${project}/settings`, "PATCH", { language: value });
         }
         if (field === "snapToAudio") {
           const lowered = raw.toLowerCase();
@@ -269,6 +277,9 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
         return finish(`${project}/script`, "PUT", { baseRevision, actor, script });
       }
       throw new CliExit(1, { error: "validation", message: "script show | script set --file x.txt" }, pretty);
+    }
+    if (command === "analyze-cancel") {
+      return finish(`${project}/analyze/cancel`, "POST", {});
     }
     if (command === "render-cancel") {
       const id = sub;
@@ -419,7 +430,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     throw new CliExit(1, {
       error: "validation",
       message: "Unknown command",
-      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "render-cancel", "schema", "reset-status", "doctor", "ask", "confirmations", "confirmation", "confirm-wait", "cancel-ask", "annotate", "settings", "script"],
+      allowed: ["projects", "import", "status", "clips", "clip", "play-info", "op", "analyze", "reanalyze", "analyze-cancel", "select", "reject", "split", "merge", "trim", "order", "undo", "redo", "history", "lint", "render", "render-cancel", "schema", "reset-status", "doctor", "ask", "confirmations", "confirmation", "confirm-wait", "cancel-ask", "annotate", "settings", "script"],
     }, pretty);
   } catch (error) {
     if (error instanceof CliExit) {

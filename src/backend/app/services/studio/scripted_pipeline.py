@@ -18,7 +18,7 @@ from app.services.studio.scripted_alignment import (
     trusted_cut_times,
     whisper_prompt_from_script,
 )
-from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words
+from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words, words_are_cached
 
 
 def execute_scripted_pipeline(
@@ -49,7 +49,7 @@ def execute_scripted_pipeline(
     if prompt is None and options.script_whisper_prompt and not words_path.is_file():
         prompt = whisper_prompt_from_script(script, WHISPER_PROMPT_MAX_CHARS)
 
-    if words_path.is_file():
+    if words_are_cached(words_path, requested_language=options.language):
         progress("transcribing", 1.0, "Reusing cached transcript")
     else:
         progress("transcribing", 0.0, "Transcribing…")
@@ -59,6 +59,8 @@ def execute_scripted_pipeline(
         language=options.language,
         on_progress=whisper_progress,
         initial_prompt=prompt,
+        cancelled=options.cancelled,
+        requested_language=options.language,
     )
     words = load_words(words_path)
     probe = probe_media(source)

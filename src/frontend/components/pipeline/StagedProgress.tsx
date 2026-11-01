@@ -68,7 +68,7 @@ export function StagedProgress({
             const isLast = index === steps.length - 1;
             const pct = Math.round(step.stepProgress * 100);
             return (
-              <li key={step.id} className="flex gap-3">
+              <li key={step.id} className="flex gap-3" data-testid="analysis-step" data-status={step.status} data-step={step.id}>
                 <div className="flex flex-col items-center">
                   <StepIcon status={step.status} />
                   {!isLast && (

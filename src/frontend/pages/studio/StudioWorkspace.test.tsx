@@ -26,6 +26,7 @@ vi.mock("@/lib/api/studio-client", async () => {
     ...actual,
     applyOps: (...args: unknown[]) => applyOps(...args),
     analyze: (...args: unknown[]) => analyze(...args),
+    cancelAnalyze: vi.fn(async () => ({ cancelled: true })),
     reanalyze: (...args: unknown[]) => reanalyze(...args),
     getClipPeaks: (...args: unknown[]) => getClipPeaks(...args),
     getProject: (...args: unknown[]) => getProject(...args),
@@ -535,5 +536,41 @@ describe("StudioWorkspace", () => {
     fireEvent.keyDown(window, { key: "z", metaKey: true });
     fireEvent.keyDown(window, { key: "z", ctrlKey: true });
     expect(undo).toHaveBeenCalled();
+  });
+
+  it("attaches to a running job on 409 analysis_running without failing a step", async () => {
+    const { StudioConflictError } = await import("@/lib/api/studio-client");
+    const empty = {
+      ...project([]),
+      status: "empty",
+      hasTranscript: false,
+      meta: { ...project([]).meta, status: "empty", sourcePath: "/tmp/talk.mp4" },
+    };
+    const running = {
+      ...empty,
+      status: "analyzing",
+      lastPhase: "transcribing",
+      lastPhaseRatio: 0.02,
+      lastPhaseMessage: "Transcribing with base…",
+      meta: { ...empty.meta, status: "analyzing", statusMessage: "Starting analysis" },
+    };
+    getProject.mockResolvedValueOnce(empty).mockResolvedValue(running);
+    analyze.mockRejectedValue(new StudioConflictError("Analysis is already running", undefined, "analysis_running", "busy"));
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId("studio-analysis-stepper");
+    await waitFor(() => {
+      const extract = screen.getAllByTestId("analysis-step").find((node) => node.getAttribute("data-step") === "extracting");
+      expect(extract?.getAttribute("data-status")).not.toBe("error");
+    });
+    expect(screen.queryByText("Project is analyzing")).toBeNull();
+    expect(screen.queryByText("Analysis is already running")).toBeNull();
+    expect(screen.queryByTestId("clips-error")).toBeNull();
+    const failed = screen.queryAllByTestId("analysis-step").filter((node) => node.getAttribute("data-status") === "error");
+    expect(failed).toEqual([]);
   });
 });

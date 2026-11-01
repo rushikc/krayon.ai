@@ -10,6 +10,7 @@ export function StudioAnalysisStepper({
   error,
   onRetry,
   onReset,
+  onCancel,
 }: {
   message?: string | null;
   steps: StagedProgressStep[];
@@ -17,6 +18,7 @@ export function StudioAnalysisStepper({
   error?: string | null;
   onRetry?: () => void;
   onReset?: () => void;
+  onCancel?: () => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1" data-testid="studio-analysis-stepper">
@@ -40,6 +42,12 @@ export function StudioAnalysisStepper({
                 {studioCopy.resetStatus}
               </Button>
             ) : null}
+          </div>
+        ) : onCancel ? (
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button type="button" variant="outline" data-testid="cancel-analysis" onClick={onCancel}>
+              {studioCopy.cancelAnalysis}
+            </Button>
           </div>
         ) : null}
       </StagedProgress>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -53,6 +54,7 @@ class PipelineOptions:
     pad: float
     similarity_threshold: float
     language: str | None = "en"
+    cancelled: Callable[[], bool] | None = None
     snap_to_audio: bool = True
     snap_search_seconds: float = 0.3
     pipeline: PipelineName = "auto"

@@ -53,6 +53,19 @@ export function initialStudioSteps(
   });
 }
 
+export const STUDIO_LANGUAGES: Array<{ value: string; label: string }> = [
+  { value: "auto", label: "Auto" },
+  { value: "en", label: "English" },
+  { value: "hi", label: "Hindi" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "pt", label: "Portuguese" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "zh", label: "Chinese" },
+];
+
 export function applyStudioPhase(
   steps: StudioPipelineStep[],
   phase: string,

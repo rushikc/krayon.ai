@@ -82,10 +82,13 @@ export class ConflictError extends Error {
 
 export class BusyError extends Error {
   readonly status = 409;
+  readonly error = "busy" as const;
+  readonly code: string;
 
-  constructor(message = "Project is analyzing") {
+  constructor(message = "Analysis is already running", code = "busy") {
     super(message);
     this.name = "BusyError";
+    this.code = code;
   }
 }
 
@@ -117,8 +120,8 @@ export class InvalidSlugError extends Error {
 }
 
 export function throwIfBusy(status: string): void {
-  if (status === "analyzing") throw new BusyError("Project is analyzing");
-  if (status === "rendering") throw new BusyError("Project is rendering");
+  if (status === "analyzing") throw new BusyError("Analysis is already running", "analysis_running");
+  if (status === "rendering") throw new BusyError("Project is rendering", "render_running");
 }
 
 export const LLM_MAX_BYTES = 8 * 1024;

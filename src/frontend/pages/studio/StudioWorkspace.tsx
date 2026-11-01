@@ -14,7 +14,9 @@ import {
   analyze,
   answerConfirmation,
   applyOps,
+  cancelAnalyze,
   cancelRender,
+  isAnalysisRunningError,
   deleteProject,
   eventsUrl,
   getProject,
@@ -33,6 +35,7 @@ import {
 } from "@/lib/api/studio-client";
 import { formatProgressLabel, formatTimestamp } from "@/lib/format";
 import { studioClipIssueLabel } from "@/lib/delivery-issue";
+import { resolveAnalysisDurationSeconds } from "@/lib/studio-analysis-duration";
 import { clipMatchesFilter, type ClipStatusFilter } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
 import { toast } from "@/stores/toast-store";
@@ -86,6 +89,8 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   const editingRef = useRef(false);
   const autoAnalyze = useRef<string | null>(null);
   const stepsHydrated = useRef(false);
+  const analyzeInFlightRef = useRef(false);
+  const [analyzeInFlight, setAnalyzeInFlight] = useState(false);
 
   function pipelineOf(next: StudioProject): "transcript" | "scripted" {
     if (next.meta.lastPipeline === "scripted" || next.pipeline === "scripted") return "scripted";
@@ -96,19 +101,24 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   function hydrateSteps(next: StudioProject, mode: StudioRunMode = "analyze") {
     const snap = next.meta.settings?.snapToAudio !== false;
     let steps = initialStudioSteps(pipelineOf(next), snap, mode, Boolean(next.hasTranscript));
-    if (next.lastPhase) {
-      steps = applyStudioPhase(steps, next.lastPhase, next.lastPhaseRatio ?? 0, next.lastPhaseMessage);
-    }
+    const phase = next.lastPhase || "extracting";
+    steps = applyStudioPhase(steps, phase, next.lastPhaseRatio ?? 0, next.lastPhaseMessage ?? studioCopy.startingAnalysis);
     setAnalysisSteps(steps);
     const started = next.analysisStartedAt ?? next.meta.analysisStartedAt;
     setAnalysisStartedAt(started ? Date.parse(started) : Date.now());
     stepsHydrated.current = true;
   }
 
+  const analysisDurationSeconds = useMemo(
+    () => (project ? resolveAnalysisDurationSeconds(project) : null),
+    [project],
+  );
+
   const settings: StudioSettings = project?.meta.settings ?? {
     silenceThreshold: 0.4,
     pad: 0.05,
     similarityThreshold: 0.7,
+    language: "auto",
   };
 
   async function refresh() {
@@ -309,10 +319,17 @@ export function StudioWorkspace({ slug }: { slug: string }) {
     .map((id) => clips.find((clip) => clip.id === id)?.duration ?? 0)
     .reduce((sum, value) => sum + value, 0);
   const renderBusy = render?.status === "rendering" || project?.status === "rendering";
-  const analysisBusy = project?.status === "analyzing" || renderBusy;
+  const analysisBusy = project?.status === "analyzing" || renderBusy || analyzeInFlight;
+
+  async function attachToRunningAnalysis(mode: StudioRunMode = "analyze") {
+    const next = await refresh();
+    if (next) hydrateSteps(next, mode);
+  }
 
   async function runAnalyze() {
-    if (!project || analysisBusy) return;
+    if (!project || analysisBusy || analyzeInFlightRef.current) return;
+    analyzeInFlightRef.current = true;
+    setAnalyzeInFlight(true);
     setError(null);
     setAnalysisError(null);
     setAnalysisProgress(studioCopy.startingAnalysis);
@@ -325,11 +342,18 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         navigate("/studio", { state: { notice: studioCopy.projectDeleted } });
         return;
       }
+      if (isAnalysisRunningError(err)) {
+        await attachToRunningAnalysis("analyze").catch(() => undefined);
+        return;
+      }
       const message = err instanceof Error ? err.message : "Analyze failed";
       setError(message);
       setAnalysisError(message);
       setAnalysisSteps((current) => markActiveStepError(current, message));
       await refresh().catch(() => undefined);
+    } finally {
+      analyzeInFlightRef.current = false;
+      setAnalyzeInFlight(false);
     }
   }
 
@@ -386,6 +410,8 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         onFilterChange={setFilter}
         onSelect={(id) => selectClip(id, false)}
         onPlay={(id) => selectClip(id, true)}
+        projectStatus={project?.status}
+        statusMessage={project?.meta.statusMessage}
       />
       <StudioPreviewPanel
         slug={slug}
@@ -412,6 +438,9 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         onRetryAnalyze={() => void runAnalyze()}
         onResetStatus={() => {
           void resetStatus(slug).then(() => refresh());
+        }}
+        onCancelAnalyze={() => {
+          void cancelAnalyze(slug).then(() => refresh());
         }}
         analysisSteps={analysisSteps}
         analysisStartedAt={analysisStartedAt}
@@ -491,6 +520,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         issueLabel={studioClipIssueLabel(selected?.label)}
         analysisBusy={Boolean(analysisBusy)}
         analysisMessage={analysisProgress ?? (project?.status === "analyzing" ? project.meta.statusMessage : null)}
+        analysisDurationSeconds={analysisDurationSeconds}
         onAnalyze={() => void runAnalyze()}
         script={project?.script ?? ""}
         onSaveScript={(next) => {
@@ -502,11 +532,16 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         lastPipeline={project?.meta.lastPipeline}
         scriptLineCount={project?.meta.scriptLineCount ?? 0}
         needsRebuild={project?.meta.needsRebuild}
+        rebuildReason={project?.meta.rebuildReason}
+        detectedLanguage={project?.meta.detectedLanguage}
         matchedLines={(project?.groups ?? []).filter((group) => group.scriptLine != null && group.clipIds.length > 0).length}
         missingLines={(project?.groups ?? []).filter((group) => group.scriptLine != null && group.clipIds.length === 0).length}
         onRebuild={(pipeline) => {
-          if (!project) return;
+          if (!project || analyzeInFlightRef.current) return;
+          analyzeInFlightRef.current = true;
+          setAnalyzeInFlight(true);
           const scripted = pipeline === "scripted";
+          setError(null);
           setAnalysisError(null);
           hydrateSteps(project, "resegment");
           void reanalyze(slug, project.revision, {
@@ -515,7 +550,17 @@ export function StudioWorkspace({ slug }: { slug: string }) {
             ...(pipeline ? { pipeline } : {}),
           })
             .then(() => refresh())
-            .catch((err: unknown) => setError(err instanceof Error ? err.message : "Rebuild failed"));
+            .catch((err: unknown) => {
+              if (isAnalysisRunningError(err)) {
+                void attachToRunningAnalysis("resegment");
+                return;
+              }
+              setError(err instanceof Error ? err.message : "Rebuild failed");
+            })
+            .finally(() => {
+              analyzeInFlightRef.current = false;
+              setAnalyzeInFlight(false);
+            });
         }}
       />
       <StudioConfirmDialog

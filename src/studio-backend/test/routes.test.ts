@@ -58,6 +58,7 @@ describe("settings", () => {
       similarityThreshold: 0.7,
       snapToAudio: true,
       snapSearchSeconds: 0.3,
+      language: "auto",
     });
     const patched = await http(base, "PATCH", "/api/studio/projects/settings-demo/settings", { pad: 0.08 });
     expect(patched.payload.settings).toMatchObject({ pad: 0.08, silenceThreshold: 0.4, snapToAudio: true });
@@ -75,6 +76,13 @@ describe("settings", () => {
     expect(again.payload.settings).toMatchObject({ silenceThreshold: -5, pad: 0.08 });
     const wrong = await http(base, "PATCH", "/api/studio/projects/settings-demo/settings", { pad: "wide" });
     expect(wrong.status).toBe(400);
+    const language = await http(base, "PATCH", "/api/studio/projects/settings-demo/settings", { language: "hi" });
+    expect(language.payload.settings).toMatchObject({ language: "hi" });
+    expect(language.payload.needsRebuild).toBe(true);
+    const meta = JSON.parse(await readFile(path.join(root, "settings-demo", "meta.json"), "utf8")) as {
+      rebuildReason?: string;
+    };
+    expect(meta.rebuildReason).toBe("language");
   });
 });
 
@@ -343,6 +351,28 @@ describe("analyze and reanalyze", () => {
       await expect.poll(async () => ((await project("analyze-demo")).payload.meta as { status: string }).status).toBe("analyzing");
       const second = await http(base, "POST", "/api/studio/projects/analyze-demo/analyze", {});
       expect(second.status).toBe(409);
+      expect(second.payload).toMatchObject({ error: "busy", code: "analysis_running", message: "Analysis is already running" });
+    } finally {
+      state.release?.();
+      await pending.catch(() => undefined);
+      state.mode = "ok";
+    }
+  });
+
+  it("cancels a running analyze and returns to empty", async () => {
+    await http(base, "POST", "/api/studio/projects", { title: "Cancel", slug: "cancel-demo" });
+    const source = path.join(root, "cancel-demo", "source.txt");
+    await writeFile(source, "video");
+    await http(base, "POST", "/api/studio/projects/cancel-demo/import", { path: source });
+    state.mode = "hang";
+    const pending = http(base, "POST", "/api/studio/projects/cancel-demo/analyze", { baseRevision: 0 });
+    try {
+      await expect.poll(async () => ((await project("cancel-demo")).payload.meta as { status: string }).status).toBe("analyzing");
+      const cancelled = await http(base, "POST", "/api/studio/projects/cancel-demo/analyze/cancel", {});
+      expect(cancelled.status).toBe(200);
+      expect(cancelled.payload).toMatchObject({ cancelled: true, status: "empty", statusMessage: "Analysis cancelled" });
+      const after = await project("cancel-demo");
+      expect((after.payload.meta as { status: string }).status).toBe("empty");
     } finally {
       state.release?.();
       await pending.catch(() => undefined);
