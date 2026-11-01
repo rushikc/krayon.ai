@@ -1,10 +1,27 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createFixtureProject, deleteProject } from "../helpers/fixture-project";
 import { pickProject, studioApi, type ApiClip } from "../helpers/studio-api";
 import { clickWaveform, clipRow, openStudio, selectClip } from "../helpers/studio-page";
 
 let slug: string | null = null;
+let owned = false;
 let clips: ApiClip[] = [];
 let startRevision = 0;
+
+test.beforeAll(async () => {
+  test.setTimeout(120_000);
+  if (process.env.E2E_REAL === "1") {
+    slug = await pickProject();
+    return;
+  }
+  const fixture = await createFixtureProject({ analyze: true });
+  slug = fixture.slug;
+  owned = true;
+});
+
+test.afterAll(() => {
+  if (owned && slug) deleteProject(slug);
+});
 
 /** Clips whose rows are currently rendered in the left list (the expanded groups). */
 async function visibleClips(page: Page): Promise<ApiClip[]> {
@@ -17,9 +34,8 @@ async function visibleClips(page: Page): Promise<ApiClip[]> {
 }
 
 test.beforeEach(async () => {
-  slug = await pickProject();
   clips = slug ? (await studioApi.project(slug)).clips : [];
-  test.skip(!slug || clips.length === 0, "No analyzed Studio project found. Set E2E_PROJECT=<slug>.");
+  test.skip(!slug || clips.length === 0, "No analyzed Studio project. Start pnpm dev, or set E2E_REAL=1.");
   startRevision = await studioApi.currentRevision(slug!);
 });
 
@@ -335,7 +351,7 @@ test("no React or page errors while browsing a clip", async ({ page }) => {
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
-test("render preview shows progress and plays the result (slow, set E2E_RENDER=1)", async ({ page }) => {
+test("render preview shows progress and plays the result (slow, set E2E_RENDER=1) @slow", async ({ page }) => {
   test.skip(!process.env.E2E_RENDER, "Slow: renders a preview. Run with E2E_RENDER=1.");
   test.setTimeout(240_000);
   await openStudio(page, slug!);

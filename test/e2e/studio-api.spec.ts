@@ -1,16 +1,29 @@
 import { expect, test } from "@playwright/test";
+import { createFixtureProject, deleteProject } from "../helpers/fixture-project";
 import { API, pickProject, studioApi } from "../helpers/studio-api";
 
 let slug: string | null = null;
 let clipId = "";
+let owned = false;
 
 test.beforeAll(async () => {
-  slug = await pickProject();
+  test.setTimeout(120_000);
+  if (process.env.E2E_REAL === "1") {
+    slug = await pickProject();
+  } else {
+    const fixture = await createFixtureProject({ analyze: true });
+    slug = fixture.slug;
+    owned = true;
+  }
   if (slug) clipId = (await studioApi.project(slug)).clips[0]?.id ?? "";
 });
 
+test.afterAll(() => {
+  if (owned && slug) deleteProject(slug);
+});
+
 test.beforeEach(() => {
-  test.skip(!slug || !clipId, "No analyzed Studio project found. Set E2E_PROJECT=<slug>.");
+  test.skip(!slug || !clipId, "No analyzed Studio project. Start pnpm dev, or set E2E_REAL=1.");
 });
 
 test("health and project listing respond", async () => {
