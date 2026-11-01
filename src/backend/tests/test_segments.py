@@ -196,3 +196,62 @@ def test_missing_wav_leaves_segments_unchanged(tmp_path: Path) -> None:
     extended = extend_segment_tails(tmp_path / "missing.wav", segments, 2.0)
     assert extended is segments
     assert extended[0].source_end == pytest.approx(1.0)
+
+
+def test_legacy_caller_uses_two_second_tail_and_studio_uses_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import settings
+    from app.schemas import SilenceOptions
+    from app.services.analysis import analyze_silence
+    from app.services.segments import LEGACY_TAIL_MAX_EXTEND_S, TAIL_MAX_EXTEND_S
+
+    assert LEGACY_TAIL_MAX_EXTEND_S == 2.0
+    assert TAIL_MAX_EXTEND_S == 0.3
+    assert settings.tail_max_extend_s == pytest.approx(0.3)
+
+    captured: dict = {}
+
+    def fake_extend(_wav, segments, _duration, **kwargs):
+        captured.update(kwargs)
+        return segments
+
+    monkeypatch.setattr("app.services.analysis.extend_segment_tails", fake_extend)
+    monkeypatch.setattr("app.services.analysis.transcribe_words", lambda *_a, **_k: [Word("hi", 0.2, 0.4)])
+    monkeypatch.setattr(
+        "app.services.analysis.probe_media",
+        lambda _path: type("Probe", (), {"duration": 2.0, "fps": 30.0})(),
+    )
+    source = tmp_path / "talk.wav"
+    source.write_bytes(b"x")
+    analyze_silence(source, SilenceOptions())
+    assert captured["max_extend_s"] == 2.0
+    assert captured["neighbor_guard_s"] == 0.0
+    assert captured["stop_on_reloud"] is False
+
+    studio: dict = {}
+
+    def fake_studio(_wav, segments, _duration, **kwargs):
+        studio.update(kwargs)
+        return segments
+
+    monkeypatch.setattr("app.services.studio.analyze.extend_segment_tails", fake_studio)
+    monkeypatch.setattr("app.services.studio.analyze.ensure_wav", lambda *_a, **_k: False)
+    monkeypatch.setattr("app.services.studio.analyze.ensure_words", lambda *_a, **_k: False)
+    monkeypatch.setattr("app.services.studio.analyze.load_words", lambda _path: [Word("hi", 0.2, 0.4)])
+    monkeypatch.setattr(
+        "app.services.studio.analyze.probe_media",
+        lambda _path: type("Probe", (), {"duration": 2.0, "fps": 30.0})(),
+    )
+    monkeypatch.setattr("app.services.studio.analyze.snap_studio_clips", lambda clips, *_a, **_k: clips)
+    from app.services.studio.analyze import run_transcript_pipeline
+    from app.services.studio.common.project import PipelineOptions, ProjectAudio
+
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    (analysis / "words.json").write_text('{"words":[]}')
+    run_transcript_pipeline(
+        ProjectAudio(source=source, analysis_dir=analysis),
+        PipelineOptions(silence_threshold=0.4, pad=0.05, similarity_threshold=0.7, snap_to_audio=False),
+    )
+    assert studio["max_extend_s"] == pytest.approx(0.3)
+    assert studio["neighbor_guard_s"] == pytest.approx(0.02)
+    assert studio["stop_on_reloud"] is True

@@ -24,6 +24,44 @@ def chosen_text(result, line: int) -> str | None:
 
 def test_parse_ignores_blank_lines() -> None:
     assert parse_script_lines("hello\n\n  \nworld  \r\n") == ["hello", "world"]
+    assert parse_script_lines("") == []
+    assert parse_script_lines("\n\n") == []
+
+
+def test_punctuation_case_numbers_and_fillers_still_match() -> None:
+    from app.services.studio.scripted_alignment import normalize_token
+
+    assert normalize_token("Hello,") == "hello"
+    assert normalize_token("TWO") == "2"
+    assert normalize_token("2") == "2"
+    punct = align_script(["Hello, World!"], sequential(["hello", "world"]))
+    assert chosen_text(punct, 1) == "hello world"
+    numbers = align_script(["take 2"], sequential(["take", "two"]))
+    assert numbers.line_results[0].chosen is not None
+    from app.services.clips import _normalized_tokens
+
+    assert normalize_token("um") == "um"
+    assert _normalized_tokens("um hello uh world") == ["hello", "world"]
+
+
+def test_one_line_and_a_script_longer_than_the_audio() -> None:
+    one = align_script(["only line"], sequential(["only", "line"]))
+    assert chosen_text(one, 1) == "only line"
+    long_script = [f"missing line {index}" for index in range(40)]
+    long_script[0] = "only line"
+    aligned = align_script(long_script, sequential(["only", "line"]))
+    assert len(aligned.line_results) == 40
+    assert aligned.line_results[0].chosen is not None
+    assert all(item.chosen is None for item in aligned.line_results[1:])
+
+
+def test_equal_takes_without_recency_keep_the_earlier_one() -> None:
+    script = ["hello world"]
+    first = sequential(["hello", "world"], start=0.0)
+    second = sequential(["hello", "world"], start=4.0)
+    result = align_script(script, first + second, prefer_last_takes=False)
+    assert result.line_results[0].chosen is not None
+    assert result.line_results[0].chosen.start == 0.0
 
 
 def test_exact_match() -> None:

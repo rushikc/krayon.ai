@@ -190,3 +190,91 @@ def test_envelope_cache_reuses_mtime(tmp_path: Path) -> None:
     first = load_envelope(wav)
     second = load_envelope(wav)
     assert first is second
+
+
+def test_silent_file_stays_inside_and_positive(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _silence(2.0))
+    envelope, thr = _envelope_from_wav(wav)
+    snapped = snap_boundaries([[(0.4, 1.2)]], envelope, thr, pad=0.05, search=0.3, min_duration=0.05)
+    start, end = snapped[0][0]
+    assert 0 <= start < end <= 2.0
+
+
+def test_constant_noise_does_not_invent_a_valley(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _tone(2.0, amplitude=8000))
+    envelope, thr = _envelope_from_wav(wav)
+    original = (0.4, 1.4)
+    snapped = snap_boundaries([[original]], envelope, thr, pad=0.05, search=0.3)
+    assert snapped[0][0] == pytest.approx(original, abs=0.02)
+
+
+def test_clip_at_file_start_and_end_stays_in_range(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    samples = _tone(0.8) + _silence(0.4) + _tone(0.8)
+    _write_wav(wav, samples)
+    duration = len(samples) / RATE
+    envelope, thr = _envelope_from_wav(wav)
+    snapped = snap_boundaries([[(0.0, 0.7)], [(duration - 0.7, duration)]], envelope, thr, pad=0.05, search=0.3)
+    assert snapped[0][0][0] >= 0
+    assert snapped[1][0][1] <= duration + 1e-6
+    assert snapped[0][0][1] > snapped[0][0][0]
+    assert snapped[1][0][1] > snapped[1][0][0]
+
+
+def test_locked_shared_edge_stays_put(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _tone(1.0) + _silence(0.2) + _tone(1.0))
+    envelope, thr = _envelope_from_wav(wav)
+    snapped = snap_boundaries(
+        [[(0.0, 1.1)], [(1.1, 2.2)]],
+        envelope,
+        thr,
+        neighbors=[(0, 0), (1, 0)],
+        pad=0.05,
+        search=0.3,
+        locked={(1, 0)},
+    )
+    assert snapped[1][0] == (1.1, 2.2)
+    assert snapped[0][0][1] <= snapped[1][0][0] + 1e-9
+
+
+def test_zero_search_does_not_hunt_for_a_valley(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _silence(1.0) + _tone(1.0) + _silence(0.5))
+    envelope, thr = _envelope_from_wav(wav)
+    original = (1.05, 1.9)
+    snapped = snap_boundaries([[original]], envelope, thr, pad=0.05, search=0.0)
+    assert snapped[0][0][0] == pytest.approx(original[0], abs=0.02)
+
+
+def test_span_between_min_duration_and_two_pads_stays_usable(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _silence(1.0) + _tone(1.0))
+    envelope, thr = _envelope_from_wav(wav)
+    snapped = snap_boundaries([[(0.90, 0.98)]], envelope, thr, pad=0.05, search=0.3, min_duration=0.05)
+    start, end = snapped[0][0]
+    assert end - start >= 0.05 - 1e-9
+    assert end > start
+
+
+def test_second_snap_is_a_no_op(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _silence(1.0) + _tone(1.0) + _silence(0.5))
+    envelope, thr = _envelope_from_wav(wav)
+    first = snap_boundaries([[(0.2, 1.9)]], envelope, thr, pad=0.05, search=0.3)
+    second = snap_boundaries(first, envelope, thr, pad=0.05, search=0.3)
+    assert second == first
+    start, end = second[0][0]
+    assert end > start
+
+
+def test_max_trim_limits_how_far_a_loud_edge_moves(tmp_path: Path) -> None:
+    wav = tmp_path / "take.wav"
+    _write_wav(wav, _silence(1.0) + _tone(1.0) + _silence(0.5))
+    envelope, thr = _envelope_from_wav(wav)
+    free = snap_boundaries([[(1.05, 1.9)]], envelope, thr, pad=0.05, search=0.3)
+    limited = snap_boundaries([[(1.05, 1.9)]], envelope, thr, pad=0.05, search=0.3, max_trim=0.02)
+    assert abs(free[0][0][0] - 1.05) > 0.02
+    assert abs(limited[0][0][0] - 1.05) <= 0.02 + 1e-6

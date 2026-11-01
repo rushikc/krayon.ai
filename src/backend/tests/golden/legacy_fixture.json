@@ -1,0 +1,101 @@
+{
+  "segments": [
+    {
+      "sourceStart": 1.03,
+      "sourceEnd": 4.76
+    },
+    {
+      "sourceStart": 6.23,
+      "sourceEnd": 9.96
+    },
+    {
+      "sourceStart": 11.43,
+      "sourceEnd": 17.21
+    },
+    {
+      "sourceStart": 18.73,
+      "sourceEnd": 20.84
+    },
+    {
+      "sourceStart": 23.53,
+      "sourceEnd": 26.36
+    }
+  ],
+  "removedSeconds": 21.82,
+  "clips": [
+    {
+      "id": "source_seg_000",
+      "text": "alpha beta gamma delta is the answer",
+      "sourceStart": 1.03,
+      "sourceEnd": 4.76,
+      "groupId": "source_g000",
+      "falseStart": false
+    },
+    {
+      "id": "source_seg_001",
+      "text": "alpha beta gamma delta is the answer",
+      "sourceStart": 6.23,
+      "sourceEnd": 9.96,
+      "groupId": "source_g000",
+      "falseStart": false
+    },
+    {
+      "id": "source_seg_002",
+      "text": "alpha beta gamma delta",
+      "sourceStart": 11.43,
+      "sourceEnd": 13.43,
+      "groupId": "source_g000",
+      "falseStart": true
+    },
+    {
+      "id": "source_seg_003",
+      "text": "alpha beta gamma delta is the answer",
+      "sourceStart": 13.73,
+      "sourceEnd": 17.21,
+      "groupId": "source_g000",
+      "falseStart": false
+    },
+    {
+      "id": "source_seg_004",
+      "text": "epsilon zeta eta",
+      "sourceStart": 18.73,
+      "sourceEnd": 20.84,
+      "groupId": "source_g003",
+      "falseStart": false
+    },
+    {
+      "id": "source_seg_005",
+      "text": "theta iota kappa",
+      "sourceStart": 23.53,
+      "sourceEnd": 26.36,
+      "groupId": "source_g004",
+      "falseStart": false
+    }
+  ],
+  "groups": [
+    {
+      "id": "source_g000",
+      "label": "alpha beta gamma delta is the answer",
+      "clipIds": [
+        "source_seg_000",
+        "source_seg_001",
+        "source_seg_002",
+        "source_seg_003"
+      ]
+    },
+    {
+      "id": "source_g003",
+      "label": "epsilon zeta eta",
+      "clipIds": [
+        "source_seg_004"
+      ]
+    },
+    {
+      "id": "source_g004",
+      "label": "theta iota kappa",
+      "clipIds": [
+        "source_seg_005"
+      ]
+    }
+  ]
+}

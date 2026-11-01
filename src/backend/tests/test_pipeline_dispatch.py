@@ -51,6 +51,11 @@ def test_rebuild_without_script_matches_transcript(tmp_path: Path, monkeypatch: 
         "app.services.studio.analyze.probe_media",
         lambda _path: type("P", (), {"duration": 2.0, "fps": 30.0})(),
     )
+    monkeypatch.setattr("app.services.studio.scripted_pipeline.ensure_wav", lambda *a, **k: False)
+    monkeypatch.setattr(
+        "app.services.studio.scripted_pipeline.probe_media",
+        lambda _path: type("P", (), {"duration": 2.0, "fps": 30.0})(),
+    )
 
     project = ProjectAudio(source=source, analysis_dir=analysis)
     transcript = run_pipeline(project, _options("transcript"), "hello there")
@@ -59,3 +64,8 @@ def test_rebuild_without_script_matches_transcript(tmp_path: Path, monkeypatch: 
     assert auto_no.pipeline == "transcript"
     assert [clip.source_start for clip in transcript.clips] == [clip.source_start for clip in auto_no.clips]
     assert [clip.text for clip in transcript.clips] == [clip.text for clip in auto_no.clips]
+    scripted = run_pipeline(project, _options("auto"), "hello there")
+    forced = run_pipeline(project, _options("transcript"), "hello there")
+    assert scripted.pipeline == "scripted"
+    assert forced.pipeline == "transcript"
+    assert [clip.text for clip in forced.clips] == [clip.text for clip in transcript.clips]
