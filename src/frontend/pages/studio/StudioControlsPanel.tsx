@@ -1,4 +1,4 @@
-import { Loader2, RefreshCw } from "lucide-react";
+import { Eye, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { formatDuration, formatProgressLabel, formatSize, formatElapsedHuman } f
 import { STUDIO_LANGUAGES } from "@/lib/studio-analysis-steps";
 import { studioCopy } from "@/lib/studio-copy";
 import { ConfirmationTray } from "@/pages/studio/ConfirmationTray";
+import { GroupingModeField } from "@/pages/studio/GroupingModeField";
 import type { RenderManifest } from "@/pages/studio/StudioPreviewPanel";
 import type { ToolStatus } from "@/types/api";
 
@@ -94,7 +95,7 @@ export function StudioControlsPanel({
   onSelectWarning: (clipId: string) => void;
   renderBusy: boolean;
   renderProgress: { message: string; ratio: number } | null;
-  onRender: (quality: "preview" | "final") => void;
+  onRender: (quality: "preview" | "final" | "audio") => void;
   onCancelRender: () => void;
   renders: RenderManifest[];
   onPlayRender: (name: string) => void;
@@ -259,36 +260,16 @@ export function StudioControlsPanel({
                 className="w-full rounded-md border border-input bg-background px-2 py-1.5"
               />
             </label>
-            <fieldset className="space-y-2 text-xs" data-testid="settings-grouping-mode">
-              <FieldLabel label={studioCopy.grouping} />
-              <label className="flex items-start gap-2">
-                <input
-                  type="radio"
-                  name="settingsGroupingMode"
-                  checked={(draft.groupingMode ?? "timeline") === "timeline"}
-                  onChange={() => {
-                    const next = { ...draft, groupingMode: "timeline" as const };
-                    setDraft(next);
-                    onSaveSettings(next);
-                  }}
-                />
-                <span>{studioCopy.groupingTimeline}</span>
-              </label>
-              <label className="flex items-start gap-2">
-                <input
-                  type="radio"
-                  name="settingsGroupingMode"
-                  checked={draft.groupingMode === "global"}
-                  onChange={() => {
-                    const next = { ...draft, groupingMode: "global" as const };
-                    setDraft(next);
-                    onSaveSettings(next);
-                  }}
-                />
-                <span>{studioCopy.groupingGlobal}</span>
-              </label>
-              <p className="text-muted-foreground">{studioCopy.groupingHint}</p>
-            </fieldset>
+            <GroupingModeField
+              className="text-xs"
+              testId="settings-grouping-mode"
+              value={draft.groupingMode ?? "timeline"}
+              onChange={(groupingMode) => {
+                const next = { ...draft, groupingMode };
+                setDraft(next);
+                onSaveSettings(next);
+              }}
+            />
             <label className="block space-y-1 text-xs">
               <FieldLabel label={studioCopy.scriptOptional} />
               <textarea
@@ -484,12 +465,21 @@ export function StudioControlsPanel({
               <Progress value={Math.round(renderProgress.ratio * 100)} />
             </div>
           ) : null}
-          <Button type="button" className="w-full" disabled={renderBusy} onClick={() => onRender("preview")}>
-            {studioCopy.renderPreview}
+          <Button type="button" className="w-full" disabled={renderBusy} onClick={() => onRender("audio")}>
+            {studioCopy.renderAudio}
           </Button>
-          <Button type="button" className="w-full" disabled={renderBusy} onClick={() => onRender("final")}>
-            {studioCopy.renderFinal}
-          </Button>
+          <div className="flex items-center gap-1">
+            <RenderHint label={studioCopy.renderPreview} hint={studioCopy.renderPreviewHint} />
+            <Button type="button" className="min-w-0 flex-1" disabled={renderBusy} onClick={() => onRender("preview")}>
+              {studioCopy.renderPreview}
+            </Button>
+          </div>
+          <div className="flex items-center gap-1">
+            <RenderHint label={studioCopy.renderFinal} hint={studioCopy.renderFinalHint} />
+            <Button type="button" className="min-w-0 flex-1" disabled={renderBusy} onClick={() => onRender("final")}>
+              {studioCopy.renderFinal}
+            </Button>
+          </div>
           {renderBusy ? (
             <Button type="button" variant="destructive" className="w-full" onClick={onCancelRender}>
               {studioCopy.cancelRender}
@@ -630,5 +620,28 @@ export function StudioControlsPanel({
         </DialogPortal>
       </Dialog>
     </aside>
+  );
+}
+
+function RenderHint({ label, hint }: { label: string; hint: string }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              className="shrink-0"
+              aria-label={`${studioCopy.renderQualityHint}: ${label}`}
+            />
+          }
+        >
+          <Eye className="size-3.5" />
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">{hint}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

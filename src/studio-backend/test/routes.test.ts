@@ -586,6 +586,25 @@ describe("events and render", () => {
     state.mode = "ok";
   });
 
+  it("stitches selected clip audio without a video encode", async () => {
+    await seedProject(root, "audio-render", [
+      clip({ id: "c-0001", text: "alpha beta", sourceStart: 0, sourceEnd: 2, status: "selected" }),
+    ]);
+    await mkdir(path.join(root, "audio-render", "analysis"), { recursive: true });
+    await writeFile(path.join(root, "audio-render", "analysis", "source.wav"), Buffer.from("RIFF"));
+    const videoJobs = state.calls.filter((url) => url.includes("/render/async")).length;
+    const started = await http(base, "POST", "/api/studio/projects/audio-render/render", { quality: "audio" });
+    expect(started.status).toBe(200);
+    const renderId = started.payload.renderId as string;
+    expect(renderId).toMatch(/^audio-/);
+    await expect.poll(async () => (await http(base, "GET", `/api/studio/projects/audio-render/render/${renderId}`)).payload.status).toBe("done");
+    const output = await http(base, "GET", "/api/studio/projects/audio-render/output");
+    expect(JSON.stringify(output.payload.manifests)).toContain("\"quality\":\"audio\"");
+    expect(JSON.stringify(output.payload.manifests)).toContain(".wav");
+    expect(state.calls.some((url) => url.includes("clip-audio") && url.includes("audio-render"))).toBe(true);
+    expect(state.calls.filter((url) => url.includes("/render/async")).length).toBe(videoJobs);
+  });
+
   it("lints a project that has no wav", async () => {
     await seedProject(root, "lint-demo", [
       clip({ id: "c-0001", text: "alpha", sourceStart: 0, sourceEnd: 0.2, duration: 0.2, status: "selected" }),
@@ -704,7 +723,7 @@ describe("project names and delete", () => {
     expect(wav.status).toBe(200);
     expect(wav.headers.get("content-type")).toMatch(/wav/);
     expect(state.calls.some((url) => url.includes("clip-audio") && url.includes("pad=0"))).toBe(true);
-    const clipAudio = state.calls.find((url) => url.includes("clip-audio")) ?? "";
+    const clipAudio = state.calls.find((url) => url.includes("clip-audio") && url.includes("cut-audio")) ?? "";
     expect(decodeURIComponent(clipAudio)).toContain("0,1");
     expect(decodeURIComponent(clipAudio)).toContain("2,3.5");
     const patched = await http(base, "PATCH", "/api/studio/projects/cut-audio/canvas-draft", {

@@ -178,12 +178,24 @@ describe("StudioControlsPanel", () => {
     expect(onSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ language: "hi" }));
   });
 
-  it("saves grouping mode from the settings radios", async () => {
+  it("saves grouping mode from the settings switch", async () => {
     const onSaveSettings = vi.fn();
     renderPanel({ onSaveSettings });
     screen.getByTestId("settings-box").setAttribute("open", "");
-    await userEvent.click(screen.getByRole("radio", { name: "Group similar takes anywhere" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Group similar takes anywhere" }));
     expect(onSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ groupingMode: "global" }));
+  });
+
+  it("renders audio, preview video, and final video actions with hints", async () => {
+    const onRender = vi.fn();
+    renderPanel({ onRender, clipCount: 2 });
+    expect(screen.getByRole("button", { name: studioCopy.renderAudio })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: studioCopy.renderPreview })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: studioCopy.renderFinal })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `${studioCopy.renderQualityHint}: ${studioCopy.renderPreview}` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `${studioCopy.renderQualityHint}: ${studioCopy.renderFinal}` })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: studioCopy.renderAudio }));
+    expect(onRender).toHaveBeenCalledWith("audio");
   });
 
   it("disables analyze and rebuild while analysis is running", () => {

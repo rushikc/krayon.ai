@@ -10,13 +10,13 @@ import type { StudioClip, StudioGroup } from "@/lib/api/studio-client";
 import { audioUrl, getClipPeaks, outputUrl, sourceUrl } from "@/lib/api/studio-client";
 import { formatDuration, formatSize, formatTimestamp } from "@/lib/format";
 import { studioClipIssueLabel } from "@/lib/delivery-issue";
-import { playheadToSource, sourceToPlayhead, takeLabelFromId, validateCut } from "@/lib/studio-clip";
+import { playheadToSource, sourceToPlayhead, takeLabel, validateCut } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
 import { StudioWaveform, type StudioWaveformHandle } from "@/pages/studio/StudioWaveform";
 import { toast } from "@/stores/toast-store";
 import { cn } from "@/lib/utils";
 
-export type PreviewTab = "clip" | "render" | "source";
+export type PreviewTab = "clip" | "audio" | "render" | "final" | "source";
 
 export type RenderManifest = {
   name: string;
@@ -30,6 +30,7 @@ export type RenderManifest = {
 export function StudioPreviewPanel({
   slug,
   clip,
+  clips = [],
   groups,
   pad,
   tab,
@@ -45,6 +46,7 @@ export function StudioPreviewPanel({
   autoPlayToken,
   playingRef,
   projectStatus,
+  analysisActive = false,
   statusMessage,
   onRetryAnalyze,
   onResetStatus,
@@ -59,6 +61,7 @@ export function StudioPreviewPanel({
 }: {
   slug: string;
   clip: StudioClip | null;
+  clips?: StudioClip[];
   groups: StudioGroup[];
   pad: number;
   tab: PreviewTab;
@@ -74,6 +77,8 @@ export function StudioPreviewPanel({
   autoPlayToken: number;
   playingRef: React.MutableRefObject<boolean>;
   projectStatus?: string;
+  /** Local analyze is in flight, or the project is already analyzing. */
+  analysisActive?: boolean;
   statusMessage?: string;
   onRetryAnalyze?: () => void;
   onResetStatus?: () => void;
@@ -98,14 +103,13 @@ export function StudioPreviewPanel({
   const [duration, setDuration] = useState(0);
   const handledAutoPlay = useRef(0);
   const [rawOpen, setRawOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const editing = true;
   const [cuts, setCuts] = useState<number[]>([]);
   const [cutError, setCutError] = useState<string | null>(null);
   const [peaks, setPeaks] = useState<number[]>([]);
   const [peakDuration, setPeakDuration] = useState(0);
   const [discardOpen, setDiscardOpen] = useState(false);
   const src = clip ? audioUrl(slug, clip.id, pad) : "";
-  const selectedRender = renders.find((item) => item.name === activeRenderName) ?? renders[0] ?? null;
 
   function stopPlayheadLoop() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -141,8 +145,8 @@ export function StudioPreviewPanel({
   }, [isPlaying, playingRef, tab]);
 
   useEffect(() => {
-    onEditingChange?.(editing);
-  }, [editing, onEditingChange]);
+    onEditingChange?.(false);
+  }, [onEditingChange]);
 
   useEffect(() => {
     if (!clip) {
@@ -173,7 +177,6 @@ export function StudioPreviewPanel({
     handledAutoPlay.current = 0;
     if (clip?.id === activeClipId.current) return;
     activeClipId.current = clip?.id ?? null;
-    setEditing(false);
     setCuts([]);
     setCutError(null);
   }, [clip?.id]);
@@ -273,9 +276,19 @@ export function StudioPreviewPanel({
     toast(studioCopy.copyJson);
   };
 
+  const previewRenders = renders.filter((item) => item.quality === "preview");
+  const finalRenders = renders.filter((item) => item.quality === "final");
+  const audioRenders = renders.filter((item) => item.quality === "audio");
+  const selectedPreview =
+    previewRenders.find((item) => item.name === activeRenderName) ?? previewRenders[0] ?? null;
+  const selectedFinal = finalRenders.find((item) => item.name === activeRenderName) ?? finalRenders[0] ?? null;
+  const selectedAudio = audioRenders.find((item) => item.name === activeRenderName) ?? audioRenders[0] ?? null;
+
   const tabs: Array<{ id: PreviewTab; label: string }> = [
     { id: "clip", label: studioCopy.clipAudio },
+    { id: "audio", label: studioCopy.finalAudio },
     { id: "render", label: studioCopy.renderedVideo },
+    { id: "final", label: studioCopy.finalVideo },
     { id: "source", label: studioCopy.fullVideo },
   ];
 
@@ -305,7 +318,10 @@ export function StudioPreviewPanel({
         </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-        {tab === "clip" && (projectStatus === "analyzing" || (projectStatus === "error" && (analysisSteps?.length ?? 0) > 0)) ? (
+        {tab === "clip" &&
+        (analysisActive ||
+          projectStatus === "analyzing" ||
+          (projectStatus === "error" && (analysisSteps?.length ?? 0) > 0)) ? (
           <StudioAnalysisStepper
             message={statusMessage || studioCopy.analyzing}
             steps={analysisSteps ?? []}
@@ -313,14 +329,14 @@ export function StudioPreviewPanel({
             error={projectStatus === "error" ? analysisError || statusMessage || studioCopy.analyzeFailed : null}
             onRetry={onRetryAnalyze}
             onReset={onResetStatus}
-            onCancel={projectStatus === "analyzing" ? onCancelAnalyze : undefined}
+            onCancel={analysisActive || projectStatus === "analyzing" ? onCancelAnalyze : undefined}
           />
         ) : tab === "clip" ? (
           <div className="flex w-full min-w-0 flex-1 flex-col items-center gap-4 p-6">
             {clip ? (
               <div className="flex w-full max-w-3xl min-w-0 flex-col gap-4">
                 <ClipPlayerCard
-                  takeLabel={takeLabelFromId(clip.id)}
+                  takeLabel={takeLabel(clip, clips.length ? clips : [clip])}
                   issueLabel={studioClipIssueLabel(clip.label)}
                   text={clip.text}
                   copyDisabled={!clip.text.trim()}
@@ -333,32 +349,8 @@ export function StudioPreviewPanel({
                   isPlaying={isPlaying}
                   onSeek={seek}
                   onTogglePlay={() => void togglePlay()}
-                  timelineCardClassName={editing ? "border-blue-500" : undefined}
-                  timelineHeader={
-                    <div className="mb-3 flex items-center justify-end gap-2">
-                      {editing ? (
-                        <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[11px] font-medium text-blue-300" data-testid="editing-badge">
-                          {studioCopy.editing}
-                        </span>
-                      ) : null}
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant={editing ? "outline" : "default"}
-                        data-testid="waveform-edit"
-                        onClick={() => {
-                          if (editing && cuts.length > 0) {
-                            setDiscardOpen(true);
-                            return;
-                          }
-                          setEditing((value) => !value);
-                          setCutError(null);
-                        }}
-                      >
-                        {editing ? studioCopy.cancel : studioCopy.edit}
-                      </Button>
-                    </div>
-                  }
+                  timelineCardClassName="border-blue-500"
+                  timelineHeader={null}
                   timeline={
                     <StudioWaveform
                       ref={waveformRef}
@@ -375,37 +367,34 @@ export function StudioPreviewPanel({
                     />
                   }
                   timelineFooter={
-                    editing ? (
-                      <div className="mt-3 space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button type="button" size="sm" variant="outline" onClick={addCutAtPlayhead}>
-                            {studioCopy.addCut}
-                          </Button>
-                          <span className="text-xs text-muted-foreground">{studioCopy.pressS}</span>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            disabled={cuts.length === 0}
-                            onClick={() => setCuts((current) => current.slice(0, -1))}
-                          >
-                            {studioCopy.undoLastCut}
-                          </Button>
-                        </div>
-                        {cutError ? <p className="text-xs text-destructive">{cutError}</p> : null}
+                    <div className="mt-3 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={addCutAtPlayhead}>
+                          {studioCopy.addCut}
+                        </Button>
+                        <span className="text-xs text-muted-foreground">{studioCopy.pressS}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={cuts.length === 0}
+                          onClick={() => setCuts((current) => current.slice(0, -1))}
+                        >
+                          {studioCopy.undoLastCut}
+                        </Button>
+                      </div>
+                      {cutError ? <p className="text-xs text-destructive">{cutError}</p> : null}
+                      {cuts.length > 0 ? (
                         <Button
                           type="button"
                           className="w-full"
-                          disabled={cuts.length === 0}
                           onClick={() => {
                             const at = cuts;
                             cutsRef.current = [];
                             setCuts([]);
                             void onSaveCuts?.(clip.id, at).then((ok) => {
-                              if (ok) {
-                                setEditing(false);
-                                setCutError(null);
-                              } else {
+                              if (ok) setCutError(null);
+                              else {
                                 cutsRef.current = at;
                                 setCuts(at);
                               }
@@ -414,8 +403,8 @@ export function StudioPreviewPanel({
                         >
                           {studioCopy.saveCuts(cuts.length)}
                         </Button>
-                      </div>
-                    ) : null
+                      ) : null}
+                    </div>
                   }
                   audio={
                     <audio
@@ -576,32 +565,39 @@ export function StudioPreviewPanel({
             )}
           </div>
         ) : null}
-        {tab === "render" ? (
-          <div className="flex flex-1 flex-col gap-3 p-6" data-testid="rendered-video">
-            {selectedRender ? (
+        {tab === "audio" ? (
+          <div className="flex flex-1 flex-col gap-3 p-6" data-testid="final-audio">
+            {selectedAudio ? (
               <>
-                <video className="max-h-[70vh] w-full bg-black" src={outputUrl(slug, selectedRender.name)} controls />
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>{selectedRender.name}</span>
-                  <span>{selectedRender.quality}</span>
-                  <span>{formatDuration(selectedRender.duration)}</span>
-                  <span>{selectedRender.size ? formatSize(selectedRender.size) : ""}</span>
-                  <span>{selectedRender.createdAt ?? ""}</span>
-                  <select
-                    className="rounded-md border border-input bg-background px-2 py-1"
-                    value={selectedRender.name}
-                    onChange={(event) => onSelectRender(event.target.value)}
-                  >
-                    {renders.map((item) => (
-                      <option key={item.name} value={item.name}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <audio className="w-full" src={outputUrl(slug, selectedAudio.name)} controls />
+                <OutputMeta item={selectedAudio} options={audioRenders} onSelect={onSelectRender} />
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">No renders yet.</p>
+              <p className="text-sm text-muted-foreground">{studioCopy.noAudioRender}</p>
+            )}
+          </div>
+        ) : null}
+        {tab === "render" ? (
+          <div className="flex flex-1 flex-col gap-3 p-6" data-testid="rendered-video">
+            {selectedPreview ? (
+              <>
+                <video className="max-h-[70vh] w-full bg-black" src={outputUrl(slug, selectedPreview.name)} controls />
+                <OutputMeta item={selectedPreview} options={previewRenders} onSelect={onSelectRender} />
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">{studioCopy.noPreviewRender}</p>
+            )}
+          </div>
+        ) : null}
+        {tab === "final" ? (
+          <div className="flex flex-1 flex-col gap-3 p-6" data-testid="final-video">
+            {selectedFinal ? (
+              <>
+                <video className="max-h-[70vh] w-full bg-black" src={outputUrl(slug, selectedFinal.name)} controls />
+                <OutputMeta item={selectedFinal} options={finalRenders} onSelect={onSelectRender} />
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">{studioCopy.noFinalRender}</p>
             )}
           </div>
         ) : null}
@@ -625,7 +621,6 @@ export function StudioPreviewPanel({
                 variant="destructive"
                 onClick={() => {
                   setCuts([]);
-                  setEditing(false);
                   setDiscardOpen(false);
                   setCutError(null);
                 }}
@@ -637,6 +632,39 @@ export function StudioPreviewPanel({
         </DialogPortal>
       </Dialog>
     </main>
+  );
+}
+
+function OutputMeta({
+  item,
+  options,
+  onSelect,
+}: {
+  item: RenderManifest;
+  options: RenderManifest[];
+  onSelect: (name: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <span>{item.name}</span>
+      <span>{item.quality}</span>
+      <span>{formatDuration(item.duration)}</span>
+      <span>{item.size ? formatSize(item.size) : ""}</span>
+      <span>{item.createdAt ?? ""}</span>
+      {options.length > 1 ? (
+        <select
+          className="rounded-md border border-input bg-background px-2 py-1"
+          value={item.name}
+          onChange={(event) => onSelect(event.target.value)}
+        >
+          {options.map((entry) => (
+            <option key={entry.name} value={entry.name}>
+              {entry.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
+    </div>
   );
 }
 

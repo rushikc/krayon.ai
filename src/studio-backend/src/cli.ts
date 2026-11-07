@@ -337,7 +337,7 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
     if (command === "history") return finish(`${project}/history`);
     if (command === "lint") return finish(`${project}/lint`);
     if (command === "render") {
-      const quality = flags.map.has("preview") ? "preview" : "final";
+      const quality = flags.map.has("audio") ? "audio" : flags.map.has("preview") ? "preview" : "final";
       return finish(`${project}/render`, "POST", { quality });
     }
     if (command === "reanalyze") {

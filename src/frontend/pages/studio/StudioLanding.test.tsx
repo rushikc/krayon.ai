@@ -72,7 +72,7 @@ describe("StudioLanding", () => {
     expect(createProject).toHaveBeenCalledWith("Talk", "", { groupingMode: "timeline" });
   });
 
-  it("creates with global grouping when that radio is chosen", async () => {
+  it("creates with global grouping when the anywhere switch is on", async () => {
     createProject.mockResolvedValue({ slug: "talk" });
     importPath.mockResolvedValue({});
     const { StudioLanding } = await import("@/pages/studio/StudioLanding");
@@ -83,7 +83,7 @@ describe("StudioLanding", () => {
     );
     await userEvent.type(screen.getByPlaceholderText("Lecture 12"), "Talk");
     await userEvent.type(screen.getByPlaceholderText("/path/to/recording.mp4"), "/tmp/talk.mp4");
-    await userEvent.click(screen.getByRole("radio", { name: "Group similar takes anywhere" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Group similar takes anywhere" }));
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(createProject).toHaveBeenCalledWith("Talk", "", { groupingMode: "global" }));
   });

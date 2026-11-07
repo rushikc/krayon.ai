@@ -208,11 +208,19 @@ describe("StudioWorkspace", () => {
       </MemoryRouter>,
     );
     await userEvent.click(await screen.findByRole("button", { name: "Take 7" }));
-    await userEvent.click(screen.getByRole("button", { name: "Accept" }));
+    let release: (value: { revision: number; summary: string; order: string[] }) => void = () => undefined;
+    applyOps.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const tick = screen.getByRole("button", { name: "Accept c-0007" });
+    expect(tick).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(tick);
+    expect(tick).toHaveAttribute("aria-pressed", "true");
     expect(applyOps).toHaveBeenCalledWith("real", 1, [{ op: "select", clipId: "c-0007" }], "select");
-    await userEvent.click(screen.getByRole("button", { name: "Reject" }));
-    expect(applyOps).toHaveBeenCalledWith("real", 1, [{ op: "reject", clipId: "c-0007" }], "reject");
-    expect(screen.getByTestId("studio-clips")).toHaveTextContent("Take 7");
+    release({ revision: 2, summary: "select", order: ["c-0007"] });
   });
 
   it("updates render progress from SSE and switches to the rendered video tab", async () => {
@@ -258,6 +266,30 @@ describe("StudioWorkspace", () => {
     });
   });
 
+  it("shows the center analysis stepper as soon as analyze starts, before the project status flips", async () => {
+    let release: (value: { revision: number; clipCount: number }) => void = () => undefined;
+    analyze.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const empty = project([]);
+    empty.status = "empty";
+    empty.meta.status = "empty";
+    empty.order = [];
+    getProject.mockResolvedValue(empty);
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("heading", { name: "Analyzing" })).toBeInTheDocument();
+    expect(screen.queryByText("Import is ready. Run Analyze audio to transcribe and group takes.")).toBeNull();
+    release({ revision: 2, clipCount: 0 });
+  });
+
   it("hides render and segment buttons when there are no clips", async () => {
     getProject.mockResolvedValue({ ...project([]), status: "empty", hasTranscript: false, meta: { ...project([]).meta, status: "empty" } });
     const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
@@ -269,7 +301,8 @@ describe("StudioWorkspace", () => {
     await screen.findByRole("button", { name: "Analyze audio" });
     expect(screen.getByRole("button", { name: "Analyze audio" }).className).toMatch(/bg-primary|default/);
     expect(screen.queryByRole("button", { name: "Show all segments" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Render preview" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Render preview video" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Render audio" })).toBeNull();
     expect(screen.getByRole("button", { name: "Rebuild" })).toBeDisabled();
   });
 
@@ -337,14 +370,11 @@ describe("StudioWorkspace", () => {
       </MemoryRouter>,
     );
     await userEvent.click(await screen.findByRole("button", { name: "Take 7" }));
-    expect(screen.getByTestId("studio-waveform").getAttribute("data-editing")).toBe("false");
-    await userEvent.click(screen.getByTestId("waveform-edit"));
-    expect(screen.getByTestId("editing-badge")).toBeTruthy();
     expect(screen.getByTestId("studio-waveform").getAttribute("data-editing")).toBe("true");
-    expect(screen.getByRole("button", { name: /Save \(0 cuts/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Save \(/ })).toBeNull();
 
     await userEvent.keyboard("s");
-    expect(screen.getByRole("button", { name: /Save \(0 cuts/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Save \(/ })).toBeNull();
 
     const wave = screen.getByTestId("studio-waveform");
     Object.defineProperty(wave, "clientWidth", { configurable: true, value: 800 });

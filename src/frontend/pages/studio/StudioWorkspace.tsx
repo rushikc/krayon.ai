@@ -55,6 +55,12 @@ import { StudioControlsPanel } from "@/pages/studio/StudioControlsPanel";
 import { StudioPreviewPanel, type PreviewTab, type RenderManifest } from "@/pages/studio/StudioPreviewPanel";
 import { StudioStepIndicator } from "@/pages/studio/StudioStepIndicator";
 
+function tabForRender(name: string, quality?: string): PreviewTab {
+  if (quality === "audio" || name.endsWith(".wav") || name.startsWith("audio-")) return "audio";
+  if (quality === "final" || name.startsWith("final-")) return "final";
+  return "render";
+}
+
 function sourceName(sourcePath: string | null | undefined): string {
   if (!sourcePath) return "studio";
   const parts = sourcePath.split(/[/\\]/);
@@ -90,9 +96,12 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   const playingRef = useRef(false);
   const editingRef = useRef(false);
   const autoAnalyze = useRef<string | null>(null);
+  const analysisStatusSynced = useRef(false);
+  const analysisPull = useRef(false);
   const stepsHydrated = useRef(false);
   const analyzeInFlightRef = useRef(false);
   const [analyzeInFlight, setAnalyzeInFlight] = useState(false);
+  const revisionRef = useRef(0);
 
   function pipelineOf(next: StudioProject): "transcript" | "scripted" {
     if (next.meta.lastPipeline === "scripted" || next.pipeline === "scripted") return "scripted";
@@ -122,10 +131,12 @@ export function StudioWorkspace({ slug }: { slug: string }) {
     pad: 0.05,
     similarityThreshold: 0.7,
     language: "auto",
+    groupingMode: "timeline",
   };
 
   async function refresh() {
     const next = await getProject(slug);
+    revisionRef.current = next.revision;
     setProject(next);
     void lintProject(slug)
       .then((lint) => setWarnings(lint.warnings))
@@ -141,6 +152,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
 
   useEffect(() => {
     stepsHydrated.current = false;
+    analysisStatusSynced.current = false;
     void refresh().catch((err: unknown) => {
       if (err instanceof StudioNotFoundError) {
         navigate("/studio", { state: { notice: studioCopy.projectDeleted } });
@@ -189,6 +201,17 @@ export function StudioWorkspace({ slug }: { slug: string }) {
       }
       if (data.type === "progress") {
         setAnalysisProgress(formatProgressLabel(data.message, data.ratio));
+        if (!analysisStatusSynced.current && !analysisPull.current) {
+          analysisPull.current = true;
+          void refresh()
+            .then((next) => {
+              if (next && next.status !== "empty") analysisStatusSynced.current = true;
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              analysisPull.current = false;
+            });
+        }
         if (data.phase) {
           setAnalysisSteps((current) => {
             const next = applyStudioPhase(current, data.phase!, data.ratio ?? 0, data.message);
@@ -229,7 +252,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
           setActiveRenderName(data.outputName);
           void listOutputs(slug).then((result) => setRenders(result.manifests)).catch(() => undefined);
           if (playingRef.current) toast(studioCopy.renderReady);
-          else setTab("render");
+          else setTab(tabForRender(data.outputName));
         }
         if (data.phase === "cancelled" || data.phase === "error") {
           sessionStorage.removeItem(renderStorageKey(slug));
@@ -267,20 +290,40 @@ export function StudioWorkspace({ slug }: { slug: string }) {
     if (next) selectClip(next.id);
   }
 
-  async function decide(op: "select" | "reject") {
-    if (!project || !selected) return;
-    setConflictError(null);
-    try {
-      await applyOps(slug, project.revision, [{ op, clipId: selected.id }], op);
-      await refresh();
-    } catch (err) {
-      if (err instanceof StudioConflictError) {
-        setConflictError(studioCopy.conflict);
-        await refresh();
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Edit failed");
+  function applyDecisionLocal(current: StudioProject, clipId: string, op: "select" | "reject"): StudioProject {
+    const status = (op === "select" ? "selected" : "rejected") as StudioClip["status"];
+    const clips = current.clips.map((clip) =>
+      clip.id === clipId ? { ...clip, status, decidedBy: "human" as const } : clip,
+    );
+    const clip = clips.find((item) => item.id === clipId);
+    let order = current.order.filter((id) => id !== clipId);
+    if (op === "select" && clip) {
+      const index = order.findIndex((id) => {
+        const other = clips.find((item) => item.id === id);
+        return other != null && other.sourceStart > clip.sourceStart;
+      });
+      order = index === -1 ? [...order, clipId] : [...order.slice(0, index), clipId, ...order.slice(index)];
     }
+    return { ...current, clips, order };
+  }
+
+  function decide(clipId: string, op: "select" | "reject") {
+    if (!clipId) return;
+    setProject((current) => (current ? applyDecisionLocal(current, clipId, op) : current));
+    const base = revisionRef.current;
+    void applyOps(slug, base, [{ op, clipId }], op)
+      .then((result) => {
+        revisionRef.current = result.revision;
+        setProject((current) =>
+          current
+            ? { ...current, revision: result.revision, order: result.order ?? current.order }
+            : current,
+        );
+      })
+      .catch(() => {
+        toast(studioCopy.decisionFailed);
+        void refresh().catch(() => undefined);
+      });
   }
 
   useEffect(() => {
@@ -311,11 +354,11 @@ export function StudioWorkspace({ slug }: { slug: string }) {
       if (editingRef.current) return;
       if (event.key === "a" || event.key === "A") {
         event.preventDefault();
-        void decide("select");
+        if (selectedClipId) void decide(selectedClipId, "select");
       }
       if (event.key === "r" || event.key === "R") {
         event.preventDefault();
-        void decide("reject");
+        if (selectedClipId) void decide(selectedClipId, "reject");
       }
     }
     window.addEventListener("keydown", onKey);
@@ -422,12 +465,14 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         onFilterChange={setFilter}
         onSelect={(id) => selectClip(id, false)}
         onPlay={(id) => selectClip(id, true)}
+        onDecide={(id, op) => void decide(id, op)}
         projectStatus={project?.status}
         statusMessage={project?.meta.statusMessage}
       />
       <StudioPreviewPanel
         slug={slug}
         clip={selected}
+        clips={clips}
         groups={groups}
         pad={settings.pad}
         tab={tab}
@@ -437,15 +482,17 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         activeRenderName={activeRenderName}
         onSelectRender={(name) => {
           setActiveRenderName(name);
-          setTab("render");
+          const item = renders.find((entry) => entry.name === name);
+          setTab(tabForRender(name, item?.quality));
         }}
-        onAccept={() => void decide("select")}
-        onReject={() => void decide("reject")}
+        onAccept={() => selected && void decide(selected.id, "select")}
+        onReject={() => selected && void decide(selected.id, "reject")}
         onPrev={() => moveSelection(-1)}
         onNext={() => moveSelection(1)}
         autoPlayToken={autoPlayToken}
         playingRef={playingRef}
         projectStatus={project?.status}
+        analysisActive={analyzeInFlight || project?.status === "analyzing"}
         statusMessage={analysisProgress ?? project?.meta.statusMessage}
         onRetryAnalyze={() => void runAnalyze()}
         onResetStatus={() => {
@@ -523,7 +570,8 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         renders={renders}
         onPlayRender={(name) => {
           setActiveRenderName(name);
-          setTab("render");
+          const item = renders.find((entry) => entry.name === name);
+          setTab(tabForRender(name, item?.quality));
         }}
         onLoadTranscript={() => getTranscript(slug)}
         clipCount={clips.length}

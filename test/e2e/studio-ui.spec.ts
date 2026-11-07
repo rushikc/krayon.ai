@@ -189,11 +189,8 @@ test.describe("waveform editor", () => {
       return count;
     });
     expect(painted).toBeGreaterThan(500);
-    await expect(page.getByTestId("editing-badge")).toHaveCount(0);
-    await page.getByTestId("waveform-edit").click();
-    await expect(page.getByTestId("editing-badge")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(page.getByTestId("editing-badge")).toHaveCount(0);
+    await expect(page.getByTestId("studio-waveform")).toHaveAttribute("data-editing", "true");
+    await expect(page.getByRole("button", { name: /^Save/ })).toHaveCount(0);
   });
 
   test("clicking the waveform moves the playhead (needs Range support on audio.wav)", async ({ page }) => {
@@ -285,24 +282,17 @@ test.describe("waveform editor", () => {
     }
   });
 
-  test("S adds a cut only in edit mode; two cuts save as three undecided clips", async ({ page }) => {
+  test("S adds cuts and save splits the clip in place", async ({ page }) => {
     await openStudio(page, slug!);
     const rows = await visibleClips(page);
     const clip = rows.find((c) => c.duration >= 3 && c.status !== "undecided") ?? rows.find((c) => c.duration >= 3);
     test.skip(!clip, "No clip of 3 s or longer in this project.");
     await selectClip(page, clip!.id);
 
-    // S outside edit mode must do nothing.
-    await clickWaveform(page, 0.3);
-    await page.keyboard.press("s");
-    await expect(page.getByText("Part 2")).toHaveCount(0);
-
-    await page.getByTestId("waveform-edit").click();
-    const save = page.getByRole("button", { name: /^Save/ });
-    await expect(save).toBeDisabled();
-
+    await expect(page.getByRole("button", { name: /^Save/ })).toHaveCount(0);
     await clickWaveform(page, 0.33);
     await page.keyboard.press("s");
+    const save = page.getByRole("button", { name: /^Save/ });
     await clickWaveform(page, 0.66);
     await page.getByRole("button", { name: "Add cut at playhead" }).click();
     await expect(save).toContainText("2 cuts → 3 clips");
@@ -322,10 +312,11 @@ test.describe("waveform editor", () => {
     expect(kids).toHaveLength(3);
     expect(after.clips.some((c) => c.id === clip!.id)).toBe(false);
     for (const kid of kids) {
-      expect(kid.status).toBe("undecided");
+      expect(kid.status).toBe(clip!.status);
       expect(kid.decidedBy).toBe("human");
       expect(kid.statusReason).toContain(clip!.id);
       expect(kid.groupId).toBe(clip!.groupId);
+      expect(kid.parentIds[0]).toBe(clip!.id);
     }
     expect(kids[0].sourceStart).toBeCloseTo(clip!.sourceStart, 2);
     expect(kids[2].sourceEnd).toBeCloseTo(clip!.sourceEnd, 2);
@@ -355,7 +346,7 @@ test("render preview shows progress and plays the result (slow, set E2E_RENDER=1
   test.skip(!process.env.E2E_RENDER, "Slow: renders a preview. Run with E2E_RENDER=1.");
   test.setTimeout(240_000);
   await openStudio(page, slug!);
-  await page.getByRole("button", { name: "Render preview" }).click();
+  await page.getByRole("button", { name: "Render preview video" }).click();
   await expect(page.getByTestId("render-progress")).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel render" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel render" })).toBeHidden({ timeout: 200_000 });

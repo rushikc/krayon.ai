@@ -21,12 +21,12 @@ test("preview render can be cancelled, then a full preview plays @slow", async (
   test.skip(!slug, "No analyzed Studio project. Start pnpm dev.");
   test.setTimeout(240_000);
   await openStudio(page, slug!);
-  await page.getByRole("button", { name: "Render preview" }).click();
+  await page.getByRole("button", { name: "Render preview video" }).click();
   await expect(page.getByTestId("render-progress")).toBeVisible();
   await page.getByRole("button", { name: "Cancel render" }).click();
   await expect(page.getByRole("button", { name: "Cancel render" })).toBeHidden({ timeout: 30_000 });
 
-  await page.getByRole("button", { name: "Render preview" }).click();
+  await page.getByRole("button", { name: "Render preview video" }).click();
   await expect(page.getByTestId("render-progress")).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel render" })).toBeHidden({ timeout: 200_000 });
   await page.getByRole("button", { name: "Rendered video" }).click();

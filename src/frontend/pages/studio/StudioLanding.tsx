@@ -19,6 +19,7 @@ import { countScriptLines } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
 import { cn } from "@/lib/utils";
 
+import { GroupingModeField } from "@/pages/studio/GroupingModeField";
 import { StudioConfirmDialog } from "@/pages/studio/StudioConfirmDialog";
 
 type ListedProject = { slug: string; title: string; status: string };
@@ -168,30 +169,7 @@ export function StudioLanding() {
                 {studioCopy.scriptLines(countScriptLines(script))}
               </p>
             </details>
-            <fieldset className="space-y-2" data-testid="grouping-mode">
-              <legend className="text-xs text-muted-foreground">{studioCopy.grouping}</legend>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="groupingMode"
-                  checked={groupingMode === "timeline"}
-                  onChange={() => setGroupingMode("timeline")}
-                />
-                <span>
-                  {studioCopy.groupingTimeline}
-                </span>
-              </label>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="groupingMode"
-                  checked={groupingMode === "global"}
-                  onChange={() => setGroupingMode("global")}
-                />
-                <span>{studioCopy.groupingGlobal}</span>
-              </label>
-              <p className="text-xs text-muted-foreground">{studioCopy.groupingHint}</p>
-            </fieldset>
+            <GroupingModeField testId="grouping-mode" value={groupingMode} onChange={setGroupingMode} />
             <div className="flex flex-wrap gap-2">
               <button
                 className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50"

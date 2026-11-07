@@ -155,7 +155,7 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `PUT /projects/:slug/script` — `{ baseRevision, script }` sets or clears `script.txt`, commits a history revision, and sets `needsRebuild` without analyzing
 - `GET/PATCH /projects/:slug/settings` — the settings object in the Settings section above
 - `GET /projects/:slug/segments`, `GET /projects/:slug/transcript`
-- `POST /projects/:slug/render` — `{ "quality": "preview" \| "final" }`
+- `POST /projects/:slug/render` — `{ "quality": "preview" \| "final" \| "audio" }`
 - `GET /projects/:slug/render/:id`, `POST /projects/:slug/render/:id/cancel`, `GET /projects/:slug/output`
 - `GET /projects/:slug/lint`, `GET /projects/:slug/history`
 - `POST /projects/:slug/undo`, `/redo`, `/restore`
@@ -183,7 +183,7 @@ Undo and redo move the history pointer. Restore copies an older snapshot forward
 4. `reanalyze`, `split`, `merge`, or `trim`
 5. `krayon annotate c-0007 --json '{"verdict":"keep","reason":"…"}'` to store per-clip reasoning
 6. `krayon select c-0007 --reason "cleanest delivery"` (always set `statusReason` when selecting or rejecting)
-7. `krayon render --preview`, then listen and look
-8. `krayon render` for the final file
+7. `krayon render --audio` to hear the stitched cut, or `krayon render --preview` to look
+8. `krayon render` for the final video file
 
 The UI updates from the event stream when the CLI writes a revision.

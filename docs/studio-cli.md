@@ -111,11 +111,12 @@ pnpm krayon reanalyze --mode resegment --reset
 ### Render
 
 ```bash
+pnpm krayon render --audio
 pnpm krayon render --preview
 pnpm krayon render
 ```
 
-`--preview` is a small fast encode. The default final render re-encodes video so cuts can fall on words. The response includes `renderId` and `outputName`. The UI follows SSE `render` events (no polling). `pnpm krayon render-cancel <renderId>` stops ffmpeg (`status: cancelled`). The manifest next to the mp4 lists `{ clipId, outStart, outEnd }`.
+`--audio` stitches selected clip audio into a wav and skips video. `--preview` is a small fast encode. The default final render re-encodes video so cuts can fall on words. The response includes `renderId` and `outputName`. The UI follows SSE `render` events (no polling). `pnpm krayon render-cancel <renderId>` stops ffmpeg (`status: cancelled`). The manifest next to the file lists `{ clipId, outStart, outEnd }`.
 
 `clip` and `clips` include `llm` and `statusReason`. Store per-clip reasoning with `annotate`. Set `--reason` whenever you select or reject. `script set` without `--file` writes an empty script and sets `needsRebuild`.
 

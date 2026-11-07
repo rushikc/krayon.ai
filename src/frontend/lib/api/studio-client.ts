@@ -366,7 +366,7 @@ export function cancelRender(slug: string, id: string) {
   });
 }
 
-export function startRender(slug: string, quality: "preview" | "final") {
+export function startRender(slug: string, quality: "preview" | "final" | "audio") {
   return request<{ renderId: string; outputName: string }>(`/projects/${slug}/render`, {
     method: "POST",
     body: JSON.stringify({ quality }),

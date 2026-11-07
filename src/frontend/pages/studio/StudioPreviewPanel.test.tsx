@@ -93,6 +93,10 @@ describe("StudioPreviewPanel", () => {
     expect(onTabChange).toHaveBeenCalledWith("source");
     await userEvent.click(screen.getByRole("button", { name: studioCopy.renderedVideo }));
     expect(onTabChange).toHaveBeenCalledWith("render");
+    await userEvent.click(screen.getByRole("button", { name: studioCopy.finalAudio }));
+    expect(onTabChange).toHaveBeenCalledWith("audio");
+    await userEvent.click(screen.getByRole("button", { name: studioCopy.finalVideo }));
+    expect(onTabChange).toHaveBeenCalledWith("final");
     const undo = screen.getByRole("button", { name: "Undo" });
     const redo = screen.getByRole("button", { name: "Redo" });
     expect(undo).toHaveTextContent("Undo");
@@ -116,11 +120,8 @@ describe("StudioPreviewPanel", () => {
     expect(raw.compareDocumentPosition(pre) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("adds a cut with S only while editing", async () => {
+  it("adds a cut with S", async () => {
     renderPreview();
-    fireEvent.keyDown(window, { key: "s" });
-    expect(screen.queryByText(studioCopy.cutTooClose)).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: studioCopy.edit }));
     fireEvent.keyDown(window, { key: "S" });
     expect(screen.getByText(studioCopy.cutTooClose)).toBeInTheDocument();
   });

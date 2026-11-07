@@ -888,19 +888,7 @@ export function registerRoutes(
     try {
       await stat(cachePath);
     } catch {
-      const wav = path.join(dir, "analysis", "source.wav");
-      const ranges = selected
-        .flatMap((clip) => playRanges(clip))
-        .map((range) => `${range.sourceStart},${range.sourceEnd}`)
-        .join(";");
-      const url = new URL("/api/audio-studio/clip-audio", python);
-      url.searchParams.set("wav", wav);
-      url.searchParams.set("ranges", ranges);
-      url.searchParams.set("pad", "0");
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(await response.text());
-      await mkdir(cacheDir, { recursive: true });
-      await writeFile(cachePath, Buffer.from(await response.arrayBuffer()));
+      await concatSelectedAudio(python, path.join(dir, "analysis", "source.wav"), selected, cachePath);
     }
     return sendFile(request, reply, cachePath, "audio/wav");
   });
@@ -1310,7 +1298,7 @@ export function registerRoutes(
 
   app.post("/api/studio/projects/:slug/render", async (request) => {
     const { slug } = request.params as { slug: string };
-    const body = z.object({ quality: z.enum(["preview", "final"]).default("final") }).parse(request.body ?? {});
+    const body = z.object({ quality: z.enum(["preview", "final", "audio"]).default("final") }).parse(request.body ?? {});
     const { dir, meta, cuts } = await load(root, slug);
     throwIfBusy(meta.status);
     if (!meta.sourcePath) throw new OpError([{ clipId: null, field: "source", message: "Import a video first" }]);
@@ -1321,11 +1309,71 @@ export function registerRoutes(
       throw new OpError([{ clipId: null, field: "order", message: "Select at least one clip before rendering" }]);
     }
     const renderId = `${body.quality}-${cuts.revision}-${Date.now()}`;
-    const outputName = `${renderId}.mp4`;
+    const outputName = body.quality === "audio" ? `${renderId}.wav` : `${renderId}.mp4`;
     const outputPath = path.join(dir, "output", outputName);
-    renders.set(renderId, { id: renderId, slug, status: "rendering", ratio: 0, message: "Starting render" });
+    renders.set(renderId, { id: renderId, slug, status: "rendering", ratio: 0, message: "Starting render", outputName });
     meta.status = "rendering";
     await saveMeta(dir, meta);
+    if (body.quality === "audio") {
+      void (async () => {
+        try {
+          if (renders.get(renderId)?.status === "cancelled") return;
+          deps.hub.publish(slug, { type: "render", renderId, phase: "rendering", ratio: 0.2, message: "Stitching audio…" });
+          const stitched = await concatSelectedAudio(python, path.join(dir, "analysis", "source.wav"), selected, outputPath);
+          if (renders.get(renderId)?.status === "cancelled") {
+            await unlink(outputPath).catch(() => undefined);
+            return;
+          }
+          await writeFile(
+            outputPath.replace(/\.wav$/, ".json"),
+            JSON.stringify(
+              {
+                outputPath,
+                quality: "audio",
+                duration: stitched.duration,
+                expectedDuration: stitched.duration,
+                clips: stitched.clips,
+              },
+              null,
+              2,
+            ),
+          );
+          const current = renders.get(renderId);
+          if (current) {
+            current.status = "done";
+            current.ratio = 1;
+            current.outputName = outputName;
+            current.message = "Render complete";
+          }
+          const latest = await readMeta(dir);
+          latest.status = "ready";
+          latest.statusMessage = `Rendered ${outputName}`;
+          await saveMeta(dir, latest);
+          deps.hub.publish(slug, { type: "render", renderId, phase: "done", ratio: 1, message: "Render complete", outputName });
+        } catch (error: unknown) {
+          if (isDeleted(slug)) return;
+          const message = error instanceof Error ? error.message : "Render failed";
+          const current = renders.get(renderId);
+          if (current?.status === "cancelled") return;
+          if (current) {
+            current.status = "error";
+            current.message = message;
+          }
+          try {
+            const latest = await readMeta(dir);
+            if (latest.status === "rendering") {
+              latest.status = "ready";
+              latest.statusMessage = message;
+              await saveMeta(dir, latest);
+            }
+          } catch {
+            return;
+          }
+          deps.hub.publish(slug, { type: "render", renderId, phase: "error", message });
+        }
+      })();
+      return { renderId, outputName };
+    }
     const started = await pythonJson<{ jobId: string }>(python, "/api/audio-studio/render/async", {
       sourcePath: meta.sourcePath,
       outputPath,
@@ -1397,7 +1445,9 @@ export function registerRoutes(
     job.status = "cancelled";
     job.message = "cancelled";
     const outputName = job.outputName ?? `${id}.mp4`;
-    await unlink(path.join(projectDir(root, slug), "output", outputName)).catch(() => undefined);
+    const outputDir = path.join(projectDir(root, slug), "output");
+    await unlink(path.join(outputDir, outputName)).catch(() => undefined);
+    await unlink(path.join(outputDir, outputName.replace(/\.(mp4|wav)$/, ".json"))).catch(() => undefined);
     await withLock(slug, async () => {
       const { dir, meta } = await load(root, slug);
       if (meta.status === "rendering") {
@@ -1414,13 +1464,19 @@ export function registerRoutes(
     const { slug, id } = request.params as { slug: string; id: string };
     const job = renders.get(id);
     if (job) return job;
-    const outputName = `${id}.mp4`;
-    const filePath = path.join(projectDir(root, slug), "output", outputName);
+    const wavName = `${id}.wav`;
+    const mp4Name = `${id}.mp4`;
+    const dir = projectDir(root, slug);
     try {
-      await stat(filePath);
-      return { id, status: "done", ratio: 1, outputName, message: "Render complete" };
+      await stat(path.join(dir, "output", wavName));
+      return { id, status: "done", ratio: 1, outputName: wavName, message: "Render complete" };
     } catch {
-      throw new NotFoundError(`Unknown render ${id}`);
+      try {
+        await stat(path.join(dir, "output", mp4Name));
+        return { id, status: "done", ratio: 1, outputName: mp4Name, message: "Render complete" };
+      } catch {
+        throw new NotFoundError(`Unknown render ${id}`);
+      }
     }
   });
 
@@ -1432,14 +1488,14 @@ export function registerRoutes(
     for (const name of names.filter((item) => item.endsWith(".json"))) {
       const filePath = path.join(dir, "output", name);
       const info = await stat(filePath).catch(() => null);
-      const mp4Name = name.replace(/\.json$/, ".mp4");
-      const mp4Info = await stat(path.join(dir, "output", mp4Name)).catch(() => null);
       const payload = JSON.parse(await readFile(filePath, "utf8")) as Record<string, unknown>;
+      const mediaName = name.replace(/\.json$/, payload.quality === "audio" ? ".wav" : ".mp4");
+      const mediaInfo = await stat(path.join(dir, "output", mediaName)).catch(() => null);
       manifests.push({
         ...payload,
-        name: mp4Name,
-        size: mp4Info?.size ?? 0,
-        createdAt: (mp4Info ?? info)?.mtime.toISOString() ?? null,
+        name: mediaName,
+        size: mediaInfo?.size ?? 0,
+        createdAt: (mediaInfo ?? info)?.mtime.toISOString() ?? null,
       });
     }
     manifests.sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")));
@@ -1587,6 +1643,39 @@ export function parseByteRange(
   const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
   if (!Number.isFinite(end) || end < start) return { kind: "unsatisfiable" };
   return { kind: "range", start, end };
+}
+
+async function concatSelectedAudio(
+  pythonBase: string,
+  sourceWav: string,
+  selected: Clip[],
+  dest: string,
+): Promise<{ duration: number; clips: Array<{ clipId: string; outStart: number; outEnd: number }> }> {
+  try {
+    await stat(sourceWav);
+  } catch {
+    throw new OpError([{ clipId: null, field: "source", message: "Analyze first so there is cached audio" }]);
+  }
+  const ranges = selected.flatMap((clip) => playRanges(clip).map((range) => ({ clipId: clip.id, ...range })));
+  if (ranges.length === 0) {
+    throw new OpError([{ clipId: null, field: "order", message: "Select at least one clip before rendering" }]);
+  }
+  const url = new URL("/api/audio-studio/clip-audio", pythonBase);
+  url.searchParams.set("wav", sourceWav);
+  url.searchParams.set("ranges", ranges.map((item) => `${item.sourceStart},${item.sourceEnd}`).join(";"));
+  url.searchParams.set("pad", "0");
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(await response.text());
+  await mkdir(path.dirname(dest), { recursive: true });
+  await writeFile(dest, Buffer.from(await response.arrayBuffer()));
+  let cursor = 0;
+  const clips: Array<{ clipId: string; outStart: number; outEnd: number }> = [];
+  for (const clip of selected) {
+    const start = cursor;
+    for (const range of playRanges(clip)) cursor += Math.max(0, range.sourceEnd - range.sourceStart);
+    clips.push({ clipId: clip.id, outStart: Math.round(start * 1000) / 1000, outEnd: Math.round(cursor * 1000) / 1000 });
+  }
+  return { duration: cursor, clips };
 }
 
 async function sendFile(request: FastifyRequest, reply: FastifyReply, filePath: string, contentType?: string) {
