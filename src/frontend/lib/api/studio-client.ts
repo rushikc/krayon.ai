@@ -97,6 +97,8 @@ export type StudioProject = {
   history: HistoryItem[];
 };
 
+export type GroupingMode = "timeline" | "global";
+
 export type StudioSettings = {
   silenceThreshold: number;
   pad: number;
@@ -108,6 +110,7 @@ export type StudioSettings = {
   scriptPreferLastTakes?: boolean;
   scriptWhisperPrompt?: boolean;
   language?: string;
+  groupingMode?: GroupingMode;
 };
 
 export type StudioOp = Record<string, unknown>;
@@ -196,10 +199,14 @@ export function listProjects() {
   return request<{ projects: StudioProject["meta"][]; current: string | null }>("/projects");
 }
 
-export function createProject(title: string, script?: string) {
+export function createProject(title: string, script?: string, settings?: Partial<StudioSettings>) {
   return request<StudioProject["meta"]>("/projects", {
     method: "POST",
-    body: JSON.stringify({ title, ...(script != null && script !== "" ? { script } : {}) }),
+    body: JSON.stringify({
+      title,
+      ...(script != null && script !== "" ? { script } : {}),
+      ...(settings && Object.keys(settings).length ? { settings } : {}),
+    }),
   });
 }
 

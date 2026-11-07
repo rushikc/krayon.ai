@@ -234,10 +234,12 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
           snapSearch: "snapSearchSeconds",
           snapSearchSeconds: "snapSearchSeconds",
           language: "language",
+          grouping: "groupingMode",
+          groupingMode: "groupingMode",
         };
         const field = key ? aliases[key] : undefined;
         if (!field || raw == null) {
-          throw new CliExit(1, { error: "validation", message: "settings set silence|pad|similarity|snap|snapSearch|language <value>" }, pretty);
+          throw new CliExit(1, { error: "validation", message: "settings set silence|pad|similarity|snap|snapSearch|language|groupingMode <value>" }, pretty);
         }
         if (field === "language") {
           const value = raw.trim().toLowerCase();
@@ -245,6 +247,13 @@ export async function runCli(argv: string[], env: NodeJS.ProcessEnv = process.en
             throw new CliExit(1, { error: "validation", message: "settings set language auto|en|hi|..." }, pretty);
           }
           return finish(`${project}/settings`, "PATCH", { language: value });
+        }
+        if (field === "groupingMode") {
+          const value = raw.trim().toLowerCase();
+          if (value !== "timeline" && value !== "global") {
+            throw new CliExit(1, { error: "validation", message: "settings set groupingMode timeline|global" }, pretty);
+          }
+          return finish(`${project}/settings`, "PATCH", { groupingMode: value });
         }
         if (field === "snapToAudio") {
           const lowered = raw.toLowerCase();

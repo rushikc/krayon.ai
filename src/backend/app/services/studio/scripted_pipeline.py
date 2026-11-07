@@ -78,6 +78,7 @@ def execute_scripted_pipeline(
             words,
             match_threshold=options.script_match_threshold,
             prefer_last_takes=options.script_prefer_last_takes,
+            grouping_mode=options.grouping_mode,
         )
         clips, groups, clip_meta, group_meta, scores = build_scripted_clips(aligned, options)
         if options.snap_to_audio and wav_path.is_file():
@@ -85,6 +86,7 @@ def execute_scripted_pipeline(
             clips = snap_studio_clips(clips, wav_path, pad=options.pad, search=options.snap_search_seconds)
             clips = clamp_clips_to_matches(clips, aligned, words)
             progress("snapping", 1.0, "Snapped cuts")
+        apply_short_clip_rejects(clips, clip_meta, groups)
         clips = drop_overlapping_rejects(clips, clip_meta)
         progress("grouping", 1.0, f"Matched {sum(1 for item in aligned.line_results if item.chosen)} lines")
         progress("saving", 1.0, "Save clips")
@@ -105,6 +107,53 @@ def execute_scripted_pipeline(
     )
 
 
+def _auto_accept_block(text: str, duration: float | None = None) -> str | None:
+    if duration is not None and duration < 2:
+        return "shorter than 2s"
+    lowered = text.lower()
+    if "come on" in lowered or "i would never say that" in lowered:
+        return "mess-up phrase"
+    return None
+
+
+def apply_short_clip_rejects(clips: list[ClipItem], clip_meta: dict[str, dict], groups: list[ClipGroup]) -> None:
+    rejected_selected: set[str] = set()
+    for clip in clips:
+        meta = clip_meta.get(clip.id)
+        if not meta:
+            continue
+        blocked = _auto_accept_block(clip.text, clip.duration)
+        if not blocked:
+            continue
+        if meta.get("status") == "selected":
+            rejected_selected.add(clip.id)
+        meta["status"] = "rejected"
+        meta["statusReason"] = blocked
+    if not rejected_selected:
+        return
+    by_group: dict[str, list[ClipItem]] = {}
+    for clip in clips:
+        by_group.setdefault(clip.group_id, []).append(clip)
+    for group in groups:
+        if group.reference_clip_id not in rejected_selected:
+            continue
+        fallback = next(
+            (
+                clip
+                for clip in by_group.get(group.id, [])
+                if clip_meta.get(clip.id, {}).get("status") != "rejected"
+            ),
+            None,
+        )
+        if fallback is None:
+            group.reference_clip_id = None
+            continue
+        meta = clip_meta[fallback.id]
+        meta["status"] = "selected"
+        meta["statusReason"] = f"{meta.get('statusReason', 'retake')} (next eligible take)"
+        group.reference_clip_id = fallback.id
+
+
 def build_scripted_clips(
     aligned: AlignmentResult,
     options: PipelineOptions,
@@ -122,6 +171,7 @@ def build_scripted_clips(
         takes = sorted(result.candidates, key=lambda item: item.start)
         take_count = len(takes)
         recommended: str | None = None
+        eligible: list[tuple[float, float, str]] = []
         for take_no, cand in enumerate(takes, start=1):
             index += 1
             clip_id = f"script_l{result.line:04d}_t{take_no:02d}"
@@ -144,14 +194,24 @@ def build_scripted_clips(
             )
             clips.append(clip)
             clip_ids.append(clip_id)
-            selected = chosen is not None and cand.start_index == chosen.start_index and cand.end_index == chosen.end_index
-            if selected:
+            blocked = _auto_accept_block(cand.matched_text)
+            chosen_match = (
+                chosen is not None
+                and cand.start_index == chosen.start_index
+                and cand.end_index == chosen.end_index
+            )
+            if blocked:
+                reason = blocked
+                status = "rejected"
+            elif chosen_match:
                 recommended = clip_id
                 reason = f"best match {cand.match_score:.2f} for line {result.line} (take {take_no} of {take_count})"
                 status = "selected"
             else:
                 reason = f"retake of line {result.line}, match {cand.match_score:.2f}"
                 status = "rejected"
+            if blocked is None:
+                eligible.append((cand.match_score, -cand.start, clip_id))
             clip_meta[clip_id] = {
                 "status": status,
                 "decidedBy": "algorithm",
@@ -159,6 +219,13 @@ def build_scripted_clips(
                 "script": {"line": result.line, "text": result.text, "score": round(cand.match_score, 4)},
             }
             scores[clip_id] = {"score": cand.match_score, "reasons": [reason]}
+        if recommended is None and eligible:
+            eligible.sort(reverse=True)
+            fallback_id = eligible[0][2]
+            recommended = fallback_id
+            meta = clip_meta[fallback_id]
+            meta["status"] = "selected"
+            meta["statusReason"] = f"{meta['statusReason']} (next eligible take)"
         groups.append(
             ClipGroup(
                 id=group_id,

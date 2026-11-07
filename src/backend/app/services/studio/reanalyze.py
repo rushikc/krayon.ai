@@ -7,9 +7,9 @@ from app.config import settings
 from app.services.boundary_snap import snap_studio_clips
 from app.services.clips import (
     _groups_from_clips,
+    assign_clip_groups,
     build_segment_clips,
     flag_incomplete_takes,
-    group_clips_by_text,
 )
 from app.services.ffmpeg import probe_media, run_command
 from app.services.segments import (
@@ -94,6 +94,7 @@ def _build_range_clips(
     language: str | None = "en",
     snap_to_audio: bool = True,
     snap_search_seconds: float = 0.3,
+    grouping_mode: str = "timeline",
     on_progress=None,
 ) -> tuple[list[ClipItem], list[ClipGroup]]:
     inside = _words_overlapping(words, start, end)
@@ -126,6 +127,7 @@ def _build_range_clips(
         drop_junk_tokens=True,
         avoid_untrusted_cuts=True,
         language=language,
+        grouping_mode=grouping_mode if grouping_mode in ("timeline", "global") else "timeline",
     )
     if snap_to_audio and wav_path.is_file():
         if on_progress:
@@ -136,13 +138,18 @@ def _build_range_clips(
     return clips, groups
 
 
-def regroup_clips(clips: list[ClipItem], similarity_threshold: float) -> tuple[list[ClipItem], list[ClipGroup]]:
+def regroup_clips(
+    clips: list[ClipItem],
+    similarity_threshold: float,
+    grouping_mode: str = "timeline",
+) -> tuple[list[ClipItem], list[ClipGroup]]:
     pairs = [(clip.id, clip.text) for clip in clips]
-    mapping = group_clips_by_text(
+    mapping = assign_clip_groups(
         pairs,
         threshold=similarity_threshold,
         stem="studio",
         indices={clip.id: clip.index for clip in clips},
+        grouping_mode=grouping_mode if grouping_mode in ("timeline", "global") else "timeline",
     )
     updated: list[ClipItem] = []
     for clip in clips:
@@ -172,6 +179,7 @@ def reanalyze_project(
     language: str | None = "en",
     snap_to_audio: bool = True,
     snap_search_seconds: float = 0.3,
+    grouping_mode: str = "timeline",
     on_progress=None,
     cancelled=None,
 ) -> dict:
@@ -227,7 +235,7 @@ def reanalyze_project(
             raise ValueError(f"unknown reanalyze mode {mode}")
 
         if mode == "regroup" and scope == "full":
-            next_clips, groups = regroup_clips(clips, similarity_threshold)
+            next_clips, groups = regroup_clips(clips, similarity_threshold, grouping_mode)
         elif mode == "regroup" and range_start is not None and range_end is not None:
             inside = [
                 clip
@@ -235,7 +243,7 @@ def reanalyze_project(
                 if clip.source_end > range_start and clip.source_start < range_end
             ]
             outside = _clips_outside(clips, range_start, range_end)
-            regrouped, _inside_groups = regroup_clips(inside, similarity_threshold)
+            regrouped, _inside_groups = regroup_clips(inside, similarity_threshold, grouping_mode)
             next_clips = outside + regrouped
             groups = _groups_from_clips(next_clips)
         else:
@@ -253,6 +261,7 @@ def reanalyze_project(
                 language=language,
                 snap_to_audio=snap_to_audio,
                 snap_search_seconds=snap_search_seconds,
+                grouping_mode=grouping_mode,
                 on_progress=progress,
             )
             next_clips = outside + created

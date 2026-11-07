@@ -178,10 +178,11 @@ def find_candidates(
     script_tokens: Sequence[str],
     words: Sequence[Word],
     threshold: float,
+    min_start_index: int = 0,
 ) -> list[Candidate]:
     if not script_tokens:
         return []
-    speech = _speech_indices(words)
+    speech = [idx for idx in _speech_indices(words) if idx >= min_start_index]
     if not speech:
         return []
     target = len(script_tokens)
@@ -332,6 +333,7 @@ def align_script(
     *,
     match_threshold: float = 0.7,
     prefer_last_takes: bool = True,
+    grouping_mode: str = "timeline",
 ) -> AlignmentResult:
     words: list[Word] = []
     for index, item in enumerate(words_in):
@@ -347,12 +349,25 @@ def align_script(
 
     line_candidates: list[list[Candidate]] = []
     tokens_per_line: list[list[str]] = []
+    cursor = 0
+    use_timeline = grouping_mode != "global"
     for line_no, line in enumerate(script_lines, start=1):
         tokens = tokenize_script_line(line)
         tokens_per_line.append(tokens)
-        cands = find_candidates(line_no, tokens, words, match_threshold)
+        min_index = cursor if use_timeline else 0
+        cands = find_candidates(line_no, tokens, words, match_threshold, min_index)
+        if use_timeline and cands and line_no < len(script_lines):
+            next_tokens = tokenize_script_line(script_lines[line_no])
+            next_cands = find_candidates(line_no + 1, next_tokens, words, match_threshold, min_index)
+            first = min(cands, key=lambda item: item.start)
+            later_next = [item for item in next_cands if item.start >= first.end - 1e-6]
+            if later_next:
+                boundary = min(item.start for item in later_next)
+                cands = [item for item in cands if item.start < boundary]
         apply_recency(cands, prefer_last_takes)
         line_candidates.append(cands)
+        if use_timeline and cands:
+            cursor = max(item.end_index for item in cands) + 1
 
     selected = choose_takes(line_candidates)
     results: list[LineResult] = []

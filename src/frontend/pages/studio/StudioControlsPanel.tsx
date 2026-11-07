@@ -259,6 +259,36 @@ export function StudioControlsPanel({
                 className="w-full rounded-md border border-input bg-background px-2 py-1.5"
               />
             </label>
+            <fieldset className="space-y-2 text-xs" data-testid="settings-grouping-mode">
+              <FieldLabel label={studioCopy.grouping} />
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="settingsGroupingMode"
+                  checked={(draft.groupingMode ?? "timeline") === "timeline"}
+                  onChange={() => {
+                    const next = { ...draft, groupingMode: "timeline" as const };
+                    setDraft(next);
+                    onSaveSettings(next);
+                  }}
+                />
+                <span>{studioCopy.groupingTimeline}</span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="settingsGroupingMode"
+                  checked={draft.groupingMode === "global"}
+                  onChange={() => {
+                    const next = { ...draft, groupingMode: "global" as const };
+                    setDraft(next);
+                    onSaveSettings(next);
+                  }}
+                />
+                <span>{studioCopy.groupingGlobal}</span>
+              </label>
+              <p className="text-muted-foreground">{studioCopy.groupingHint}</p>
+            </fieldset>
             <label className="block space-y-1 text-xs">
               <FieldLabel label={studioCopy.scriptOptional} />
               <textarea

@@ -105,6 +105,7 @@ function pythonSettings(meta: { settings?: typeof DEFAULT_SETTINGS }, body: Reco
     scriptPreferLastTakes: settings.scriptPreferLastTakes ?? DEFAULT_SETTINGS.scriptPreferLastTakes,
     scriptWhisperPrompt: settings.scriptWhisperPrompt ?? DEFAULT_SETTINGS.scriptWhisperPrompt,
     language: pythonLanguage((body.language as string | undefined) ?? settings.language),
+    groupingMode: (body.groupingMode as string | undefined) ?? settings.groupingMode ?? DEFAULT_SETTINGS.groupingMode,
   };
 }
 
@@ -214,7 +215,10 @@ export function registerRoutes(
   }
 
   async function claimAnalysis(slug: string, baseRevision: number | undefined, message: string) {
-    if (isDeleted(slug)) throw new NotFoundError(`Unknown project ${slug}`);
+    if (isDeleted(slug)) {
+      if (await projectExists(root, slug)) deletedSlugs.delete(slug);
+      else throw new NotFoundError(`Unknown project ${slug}`);
+    }
     return withLock(slug, async () => {
       const loaded = await load(root, slug);
       throwIfBusy(loaded.meta.status);
@@ -518,7 +522,16 @@ export function registerRoutes(
 
   app.post("/api/studio/projects", async (request, reply) => {
     const body = z
-      .object({ title: z.string().optional(), slug: z.string().optional(), script: z.string().optional() })
+      .object({
+        title: z.string().optional(),
+        slug: z.string().optional(),
+        script: z.string().optional(),
+        settings: z
+          .object({
+            groupingMode: z.enum(["timeline", "global"]).optional(),
+          })
+          .optional(),
+      })
       .parse(request.body ?? {});
     return withLock("__create__", async () => {
       const existing = await listProjects(root);
@@ -527,7 +540,8 @@ export function registerRoutes(
         if (checked.reason?.includes("already exists")) throw new NameConflictError(body.title?.trim() || "");
         throw new OpError([{ clipId: null, field: "title", message: checked.reason ?? "Invalid project name" }]);
       }
-      const meta = await createProject(root, checked.slug, checked.title, body.script ?? "");
+      const meta = await createProject(root, checked.slug, checked.title, body.script ?? "", body.settings);
+      deletedSlugs.delete(checked.slug);
       return reply.code(201).send(meta);
     });
   });
@@ -645,6 +659,7 @@ export function registerRoutes(
         scriptPreferLastTakes: z.boolean().optional(),
         scriptWhisperPrompt: z.boolean().optional(),
         language: z.string().min(2).max(16).optional(),
+        groupingMode: z.enum(["timeline", "global"]).optional(),
       })
       .parse(request.body ?? {});
     return withLock(slug, async () => {
@@ -1055,6 +1070,7 @@ export function registerRoutes(
           snapToAudio: started.meta.settings?.snapToAudio ?? DEFAULT_SETTINGS.snapToAudio,
           snapSearchSeconds: started.meta.settings?.snapSearchSeconds ?? DEFAULT_SETTINGS.snapSearchSeconds,
           language: pythonLanguage(started.meta.settings?.language),
+          groupingMode: started.meta.settings?.groupingMode ?? DEFAULT_SETTINGS.groupingMode,
           clips: started.cuts.clips.map(toPythonClip),
         },
       );

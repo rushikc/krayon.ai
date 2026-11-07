@@ -89,6 +89,7 @@ def run_transcript_pipeline(project: ProjectAudio, options: PipelineOptions, on_
             drop_junk_tokens=True,
             avoid_untrusted_cuts=True,
             language=options.language,
+            grouping_mode=options.grouping_mode,
         )
         if options.snap_to_audio:
             progress("snapping", 0.2, "Snapping cuts to the waveform…")
@@ -129,6 +130,7 @@ def analyze_project(
     script_prefer_last_takes: bool = True,
     script_whisper_prompt: bool = True,
     initial_prompt: str | None = None,
+    grouping_mode: str = "timeline",
 ) -> StudioAnalysis:
     """First-pass analysis. Skips extract/Whisper when analysis/ caches exist."""
     from app.services.studio.common.dispatch import run_pipeline
@@ -147,5 +149,6 @@ def analyze_project(
         script_prefer_last_takes=script_prefer_last_takes,
         script_whisper_prompt=script_whisper_prompt,
         initial_prompt=initial_prompt,
+        grouping_mode=grouping_mode if grouping_mode in ("timeline", "global") else "timeline",
     )
     return run_pipeline(ProjectAudio(source=source, analysis_dir=analysis_dir), options, script, on_progress=on_progress)

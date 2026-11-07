@@ -148,6 +148,24 @@ def test_false_start_not_in_cut() -> None:
     assert "everyone" in chosen.matched_text
 
 
+def test_later_similar_prefix_stays_on_its_own_line() -> None:
+    script = ["first one is the vpc", "something else entirely", "first one is the nat"]
+    vpc = sequential(["first", "one", "is", "the", "vpc"], start=0.0)
+    other = sequential(["something", "else", "entirely"], start=3.0)
+    nat = sequential(["first", "one", "is", "the", "nat"], start=8.0)
+    words = vpc + other + nat
+    timeline = align_script(script, words)
+    first = timeline.line_results[0]
+    third = timeline.line_results[2]
+    assert first.chosen is not None
+    assert first.chosen.start < 2.0
+    assert all(candidate.start < 3.0 for candidate in first.candidates)
+    assert third.chosen is not None
+    assert third.chosen.start >= 8.0
+    global_align = align_script(script, words, grouping_mode="global")
+    assert any(candidate.start >= 8.0 for candidate in global_align.line_results[0].candidates)
+
+
 def test_order_constraint_rejects_backwards_candidate() -> None:
     script = ["alpha beta", "gamma delta"]
     later_alpha = sequential(["alpha", "beta"], start=5.0)

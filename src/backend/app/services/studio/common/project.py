@@ -9,6 +9,7 @@ from typing import Literal
 from app.schemas import ClipGroup, ClipItem, WordTiming
 
 PipelineName = Literal["auto", "transcript", "scripted"]
+GroupingMode = Literal["timeline", "global"]
 
 
 @dataclass
@@ -77,3 +78,4 @@ class PipelineOptions:
     internal_pause_s: float = INTERNAL_PAUSE_S
     internal_pause_penalty: float = INTERNAL_PAUSE_PENALTY
     initial_prompt: str | None = None
+    grouping_mode: GroupingMode = "timeline"

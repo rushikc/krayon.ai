@@ -45,6 +45,7 @@ class AnalyzeBody(_Camel):
     script_confirm_threshold: float = Field(default=0.85, alias="scriptConfirmThreshold")
     script_prefer_last_takes: bool = Field(default=True, alias="scriptPreferLastTakes")
     script_whisper_prompt: bool = Field(default=True, alias="scriptWhisperPrompt")
+    grouping_mode: str = Field(default="timeline", alias="groupingMode")
 
 
 class ReanalyzeBody(AnalyzeBody):
@@ -144,6 +145,7 @@ def analyze_async(body: AnalyzeBody) -> dict:
             script_prefer_last_takes=body.script_prefer_last_takes,
             script_whisper_prompt=body.script_whisper_prompt,
             cancelled=lambda: job_hub.is_cancelled(job_id) if job_id else False,
+            grouping_mode=body.grouping_mode,
         )
         return _analysis_payload(result)
 
@@ -171,6 +173,7 @@ def reanalyze_async(body: ReanalyzeBody) -> dict:
             language=body.language,
             snap_to_audio=body.snap_to_audio,
             snap_search_seconds=body.snap_search_seconds,
+            grouping_mode=body.grouping_mode,
             on_progress=on_progress,
             cancelled=lambda: job_hub.is_cancelled(job_id) if job_id else False,
         )

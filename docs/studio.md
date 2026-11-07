@@ -67,7 +67,7 @@ Snapping builds an RMS envelope (10 ms hops) and moves each shared or per-clip e
 
 ## Workspace
 
-`/studio` is the landing page: required unique project name, video path, an optional Script box, Delete all, and recent projects with a per-row delete control. While `status` is `analyzing`, the workspace preview shows a staged progress stepper (extract, transcribe, cut/align, group/match, optional snap, save) driven by SSE `progress` events.
+`/studio` is the landing page: required unique project name, video path, an optional Script box, grouping mode (retakes in order by default, or similar takes anywhere), Delete all, and recent projects with a per-row delete control. While `status` is `analyzing`, the workspace preview shows a staged progress stepper (extract, transcribe, cut/align, group/match, optional snap, save) driven by SSE `progress` events.
 
 `/studio/:slug` is the workspace.
 
@@ -94,6 +94,7 @@ Snapping builds an RMS envelope (10 ms hops) and moves each shared or per-clip e
 | `scriptPreferLastTakes` | true |
 | `scriptWhisperPrompt` | true |
 | `language` | `auto` (detect from the first 30 s). Explicit codes such as `en`, `hi` |
+| `groupingMode` | `timeline` (consecutive retakes only). `global` merges similar wording anywhere in the file |
 
 ## Lint
 

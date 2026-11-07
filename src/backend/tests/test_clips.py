@@ -6,6 +6,7 @@ from app.services.clips import (
     build_segment_clips,
     find_restart_index,
     group_clips_by_text,
+    group_clips_in_timeline,
     is_junk_token,
     normalize_text,
     similarity,
@@ -62,6 +63,32 @@ def test_group_clips_merges_similar_takes() -> None:
     )
     assert mapping["a"] == mapping["b"]
     assert mapping["c"] != mapping["a"]
+
+
+def test_timeline_grouping_merges_consecutive_retakes() -> None:
+    mapping = group_clips_in_timeline(
+        [
+            ("a", "the quick brown fox jumps"),
+            ("b", "the quick brown fox sits"),
+            ("c", "completely different sentence here"),
+        ],
+        threshold=0.5,
+    )
+    assert mapping["a"] == mapping["b"]
+    assert mapping["c"] != mapping["a"]
+
+
+def test_timeline_grouping_does_not_join_later_similar_prefix() -> None:
+    pairs = [
+        ("vpc", "first one is the vpc endpoint"),
+        ("mid", "second topic is load balancing"),
+        ("nat", "first one is the nat gateway"),
+    ]
+    timeline = group_clips_in_timeline(pairs, threshold=0.5, indices={"vpc": 0, "mid": 1, "nat": 2})
+    anywhere = group_clips_by_text(pairs, threshold=0.5, indices={"vpc": 0, "mid": 1, "nat": 2})
+    assert timeline["vpc"] != timeline["nat"]
+    assert timeline["vpc"] != timeline["mid"]
+    assert anywhere["vpc"] == anywhere["nat"]
 
 
 def test_group_clips_containment_and_order_independent() -> None:
@@ -209,7 +236,13 @@ def test_wide_gap_continuation_stays_split_but_same_group() -> None:
         Word("90", 18.2, 18.4),
         Word("minutes", 18.5, 19.0),
     ]
-    clips, groups = build_segment_clips("take", segments, words, similarity_threshold=0.5)
+    clips, groups = build_segment_clips(
+        "take",
+        segments,
+        words,
+        similarity_threshold=0.5,
+        grouping_mode="global",
+    )
     assert len(clips) == 3
     assert {clip.group_id for clip in clips} == {groups[0].id}
     assert groups[0].label == FULL_LINE

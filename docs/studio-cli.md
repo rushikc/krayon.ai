@@ -56,6 +56,8 @@ pnpm krayon settings set snap true
 pnpm krayon settings set snapSearch 0.3
 pnpm krayon settings set language hi
 pnpm krayon settings set language auto
+pnpm krayon settings set groupingMode timeline
+pnpm krayon settings set groupingMode global
 pnpm krayon script show --project demo
 pnpm krayon script set --project demo --file script.txt
 pnpm krayon split c-0007 --at 12.4
@@ -88,7 +90,7 @@ pnpm krayon analyze --silence 0.4 --pad 0.05 --similarity 0.7 --language hi
 pnpm krayon analyze-cancel
 ```
 
-Posts those fields to `POST /projects/:slug/analyze` and prints the JSON result. The project needs an imported video. This runs Whisper. Omit `--language` to use `meta.settings.language` (default `auto`). There is no `--pipeline` flag on `analyze`, so the run is `auto`: scripted when the project already has script lines, otherwise transcript. `settings set` accepts `silence`, `pad`, `similarity`, `snap` (`true` or `false`), `snapSearch`, and `language` (`auto` or a Whisper code such as `en` or `hi`). Script match thresholds stay on the settings object; the CLI does not set them. `analyze-cancel` stops a running analysis.
+Posts those fields to `POST /projects/:slug/analyze` and prints the JSON result. The project needs an imported video. This runs Whisper. Omit `--language` to use `meta.settings.language` (default `auto`). There is no `--pipeline` flag on `analyze`, so the run is `auto`: scripted when the project already has script lines, otherwise transcript. `settings set` accepts `silence`, `pad`, `similarity`, `snap` (`true` or `false`), `snapSearch`, `language` (`auto` or a Whisper code such as `en` or `hi`), and `groupingMode` (`timeline` or `global`). Script match thresholds stay on the settings object; the CLI does not set them. `analyze-cancel` stops a running analysis.
 
 ### Reanalyze
 

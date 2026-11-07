@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import re
 from collections.abc import Callable
 from difflib import SequenceMatcher
@@ -21,6 +23,7 @@ MIN_CONTAINMENT_WORDS = 3
 MAX_CONTINUATION_GAP_SECONDS = 5.0
 MIN_SHORT_PREFIX_WORDS = 3
 MIN_FUZZY_WORD_COUNT = 4
+GroupingMode = Literal["timeline", "global"]
 UNTRUSTED_WORD_MIN_S = 0.02
 UNTRUSTED_WORD_MAX_S = 1.0
 _WORD_MARKERS = {"'", "’", "-"}
@@ -274,6 +277,59 @@ def group_clips_by_text(
             mapping[clip_id] = group_id
         _ = root
     return mapping
+
+
+def _matches_open_group(norm: str, member_norms: list[str], limit: float) -> bool:
+    long_members = [text for text in member_norms if len(text.split()) >= MIN_CONTAINMENT_WORDS]
+    refs = long_members or member_norms
+    incoming_short = len(norm.split()) < MIN_CONTAINMENT_WORDS
+    for ref in refs:
+        if similarity(norm, ref) >= limit:
+            return True
+        if incoming_short and _short_match_score(norm, ref) > 0:
+            return True
+    return False
+
+
+def group_clips_in_timeline(
+    clip_texts: list[tuple[str, str]],
+    *,
+    threshold: float | None = None,
+    stem: str = "take",
+    indices: dict[str, int] | None = None,
+) -> dict[str, str]:
+    """Group similar clips only while they stay consecutive in recording order."""
+    limit = threshold if threshold is not None else settings.clip_similarity_threshold
+    ids = [clip_id for clip_id, _ in clip_texts]
+    norms = {clip_id: normalize_text(text) for clip_id, text in clip_texts}
+    index_of = indices or {clip_id: i for i, clip_id in enumerate(ids)}
+    ordered = sorted(ids, key=lambda clip_id: index_of.get(clip_id, 0))
+    clusters: list[list[str]] = []
+    for clip_id in ordered:
+        if clusters and _matches_open_group(norms[clip_id], [norms[member] for member in clusters[-1]], limit):
+            clusters[-1].append(clip_id)
+        else:
+            clusters.append([clip_id])
+    mapping: dict[str, str] = {}
+    for group_ids in clusters:
+        first_index = min(index_of.get(cid, 0) for cid in group_ids)
+        group_id = f"{stem}_g{first_index:03d}"
+        for clip_id in group_ids:
+            mapping[clip_id] = group_id
+    return mapping
+
+
+def assign_clip_groups(
+    clip_texts: list[tuple[str, str]],
+    *,
+    threshold: float | None = None,
+    stem: str = "take",
+    indices: dict[str, int] | None = None,
+    grouping_mode: GroupingMode = "timeline",
+) -> dict[str, str]:
+    if grouping_mode == "global":
+        return group_clips_by_text(clip_texts, threshold=threshold, stem=stem, indices=indices)
+    return group_clips_in_timeline(clip_texts, threshold=threshold, stem=stem, indices=indices)
 
 
 def words_in_segment(words: list[Word], seg: Segment) -> list[Word]:
@@ -676,6 +732,7 @@ def build_segment_clips(
     drop_junk_tokens: bool = False,
     avoid_untrusted_cuts: bool = False,
     language: str | None = None,
+    grouping_mode: GroupingMode = "timeline",
 ) -> tuple[list[ClipItem], list[ClipGroup]]:
     raw_clips: list[ClipItem] = []
     total = len(segments)
@@ -709,11 +766,12 @@ def build_segment_clips(
 
     raw_clips = merge_continuation_clips(raw_clips, stem)
     clip_text_pairs = [(clip.id, clip.text) for clip in raw_clips]
-    group_map = group_clips_by_text(
+    group_map = assign_clip_groups(
         clip_text_pairs,
         threshold=similarity_threshold,
         stem=stem,
         indices={clip.id: clip.index for clip in raw_clips},
+        grouping_mode=grouping_mode,
     )
     for clip in raw_clips:
         clip.group_id = group_map[clip.id]

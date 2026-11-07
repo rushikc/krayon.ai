@@ -6,6 +6,7 @@ export type ProjectStatus = "empty" | "analyzing" | "ready" | "rendering" | "err
 
 export type PipelineMode = "auto" | "transcript" | "scripted";
 export type LastPipeline = "transcript" | "scripted" | null;
+export type GroupingMode = "timeline" | "global";
 
 export type AnalysisSettings = {
   silenceThreshold: number;
@@ -18,6 +19,7 @@ export type AnalysisSettings = {
   scriptPreferLastTakes: boolean;
   scriptWhisperPrompt: boolean;
   language: string;
+  groupingMode: GroupingMode;
 };
 
 export const DEFAULT_SETTINGS: AnalysisSettings = {
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: AnalysisSettings = {
   scriptPreferLastTakes: true,
   scriptWhisperPrompt: true,
   language: "auto",
+  groupingMode: "timeline",
 };
 
 export type AnalysisStageId = "extracting" | "transcribing" | "segmenting" | "grouping" | "snapping" | "saving";
@@ -342,6 +345,7 @@ export function normalizeSettings(value: Partial<AnalysisSettings> | undefined):
       typeof value?.language === "string" && value.language.trim()
         ? value.language.trim().toLowerCase()
         : DEFAULT_SETTINGS.language,
+    groupingMode: value?.groupingMode === "global" ? "global" : DEFAULT_SETTINGS.groupingMode,
   };
 }
 
@@ -461,7 +465,13 @@ export async function listProjects(root: string): Promise<Meta[]> {
   return metas.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function createProject(root: string, slug: string, title: string, script = ""): Promise<Meta> {
+export async function createProject(
+  root: string,
+  slug: string,
+  title: string,
+  script = "",
+  settings?: Partial<AnalysisSettings>,
+): Promise<Meta> {
   const dir = projectDir(root, slug);
   await mkdir(path.join(dir, "analysis"), { recursive: true });
   await mkdir(path.join(dir, "history"), { recursive: true });
@@ -480,7 +490,7 @@ export async function createProject(root: string, slug: string, title: string, s
     statusMessage: "Add a source video",
     createdAt: now,
     updatedAt: now,
-    settings: { ...DEFAULT_SETTINGS },
+    settings: normalizeSettings({ ...DEFAULT_SETTINGS, ...settings }),
     pipeline: "auto",
     lastPipeline: null,
     scriptLineCount: countScriptLines(normalized),

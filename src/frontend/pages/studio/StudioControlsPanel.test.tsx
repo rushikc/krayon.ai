@@ -178,6 +178,14 @@ describe("StudioControlsPanel", () => {
     expect(onSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ language: "hi" }));
   });
 
+  it("saves grouping mode from the settings radios", async () => {
+    const onSaveSettings = vi.fn();
+    renderPanel({ onSaveSettings });
+    screen.getByTestId("settings-box").setAttribute("open", "");
+    await userEvent.click(screen.getByRole("radio", { name: "Group similar takes anywhere" }));
+    expect(onSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ groupingMode: "global" }));
+  });
+
   it("disables analyze and rebuild while analysis is running", () => {
     renderPanel({ analysisBusy: true, hasTranscript: true, hasSource: true });
     expect(screen.getByRole("button", { name: studioCopy.analyzeAudio })).toBeDisabled();

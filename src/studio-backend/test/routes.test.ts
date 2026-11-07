@@ -59,6 +59,7 @@ describe("settings", () => {
       snapToAudio: true,
       snapSearchSeconds: 0.3,
       language: "auto",
+      groupingMode: "timeline",
     });
     const patched = await http(base, "PATCH", "/api/studio/projects/settings-demo/settings", { pad: 0.08 });
     expect(patched.payload.settings).toMatchObject({ pad: 0.08, silenceThreshold: 0.4, snapToAudio: true });
@@ -651,6 +652,19 @@ describe("project names and delete", () => {
     expect(current.trim()).toBe("");
     const missing = await http(base, "DELETE", `/api/studio/projects/${slug}`);
     expect(missing.status).toBe(404);
+  });
+
+  it("lets a recreated slug analyze instead of staying deleted", async () => {
+    const created = await http(base, "POST", "/api/studio/projects", { title: "Reuse Me" });
+    const slug = created.payload.slug as string;
+    const removed = await http(base, "DELETE", `/api/studio/projects/${slug}`);
+    expect(removed.status).toBe(200);
+    const again = await http(base, "POST", "/api/studio/projects", { title: "Reuse Me" });
+    expect(again.status).toBe(201);
+    expect(again.payload.slug).toBe(slug);
+    const analyze = await http(base, "POST", `/api/studio/projects/${slug}/analyze`, { baseRevision: 0 });
+    expect(analyze.status).not.toBe(404);
+    expect(analyze.payload.message).not.toBe(`Unknown project ${slug}`);
   });
 
   it("rejects path traversal slugs", async () => {

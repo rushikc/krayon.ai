@@ -13,6 +13,7 @@ import {
   importPath,
   listProjects,
   pickFile,
+  type GroupingMode,
 } from "@/lib/api/studio-client";
 import { countScriptLines } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
@@ -29,6 +30,7 @@ export function StudioLanding() {
   const [title, setTitle] = useState("");
   const [sourcePath, setSourcePath] = useState("");
   const [script, setScript] = useState("");
+  const [groupingMode, setGroupingMode] = useState<GroupingMode>("timeline");
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const notice = (location.state as { notice?: string } | null)?.notice ?? null;
@@ -72,7 +74,7 @@ export function StudioLanding() {
     setError(null);
     let createdSlug: string | null = null;
     try {
-      const project = await createProject(projectTitle, script);
+      const project = await createProject(projectTitle, script, { groupingMode });
       createdSlug = project.slug;
       try {
         if (file) await importFile(project.slug, file);
@@ -166,6 +168,30 @@ export function StudioLanding() {
                 {studioCopy.scriptLines(countScriptLines(script))}
               </p>
             </details>
+            <fieldset className="space-y-2" data-testid="grouping-mode">
+              <legend className="text-xs text-muted-foreground">{studioCopy.grouping}</legend>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="groupingMode"
+                  checked={groupingMode === "timeline"}
+                  onChange={() => setGroupingMode("timeline")}
+                />
+                <span>
+                  {studioCopy.groupingTimeline}
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="groupingMode"
+                  checked={groupingMode === "global"}
+                  onChange={() => setGroupingMode("global")}
+                />
+                <span>{studioCopy.groupingGlobal}</span>
+              </label>
+              <p className="text-xs text-muted-foreground">{studioCopy.groupingHint}</p>
+            </fieldset>
             <div className="flex flex-wrap gap-2">
               <button
                 className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50"
