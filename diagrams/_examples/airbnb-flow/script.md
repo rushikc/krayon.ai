@@ -1,0 +1,1 @@
+The client no longer owns the auth screens. It talks to the auth backend, which decides the UI screen. A policy engine sits beside that backend and picks the challenge from region, device, and history.

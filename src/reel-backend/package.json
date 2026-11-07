@@ -10,15 +10,22 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:live": "vitest run test/live.test.ts"
+    "test:live": "vitest run test/live.test.ts",
+    "diagram": "tsx src/diagram/cli.ts"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
     "@fastify/cors": "^11.1.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@google/genai": "^1.30.0",
     "@resvg/resvg-js": "^2.6.2",
     "better-sqlite3": "^12.4.1",
+    "elkjs": "^0.11.1",
+    "esbuild": "^0.25.12",
     "fastify": "^5.6.1",
+    "puppeteer-core": "^24.43.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "smol-toml": "^1.4.2",
     "zod": "^3.25.76"
   },

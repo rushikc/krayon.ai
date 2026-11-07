@@ -1,0 +1,1 @@
+Uber treats Redis like a precise timer. The driver id lives in Redis, then they copy it to DynamoDB with a TTL. TTL is not a timer. Ten seconds on DynamoDB means lazy eviction, not a clock. That design is the wrong mental model.

@@ -5,7 +5,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ["dist/**", "data/**", "logs/**"],
+    ignores: ["dist/**", "data/**", "logs/**", "src/diagram/render/page.ts"],
   },
   {
     rules: {

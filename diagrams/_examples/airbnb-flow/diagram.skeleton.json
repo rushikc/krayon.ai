@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "reelId": "airbnb-flow",
+  "title": "Airbnb Server Driven Auth",
+  "cards": [
+    {
+      "id": "client-auth-ui",
+      "caption": "Based on Region, Device & History",
+      "direction": "down",
+      "nodes": [
+        { "id": "client", "shape": "rounded", "label": "Client", "tone": "blue", "step": 1 },
+        { "id": "auth", "shape": "rounded", "label": "Auth Backend", "tone": "blue", "step": 2 },
+        { "id": "ui", "shape": "diamond", "label": "UI Screen", "tone": "blue", "step": 3 }
+      ],
+      "edges": [
+        { "id": "e-client-auth", "from": "client", "to": "auth", "style": "solid", "label": null, "step": 2 },
+        { "id": "e-auth-ui", "from": "auth", "to": "ui", "style": "solid", "label": null, "step": 3 }
+      ],
+      "badges": [],
+      "annotations": [
+        { "id": "a-policy", "text": "Policy Engine", "attachTo": "auth", "placement": "right", "step": 4 }
+      ],
+      "marks": [],
+      "steps": [
+        { "step": 1, "at": 4.0 },
+        { "step": 2, "at": 5.5 },
+        { "step": 3, "at": 7.0 },
+        { "step": 4, "at": 8.5 }
+      ]
+    }
+  ]
+}

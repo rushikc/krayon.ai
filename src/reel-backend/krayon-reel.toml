@@ -21,6 +21,9 @@ generate_attempts = 3
 width = 1080
 height = 1920
 
+[diagram]
+chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
 [paths]
 data = "data"
 logs = "logs"

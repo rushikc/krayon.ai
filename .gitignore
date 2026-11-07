@@ -26,6 +26,12 @@ src/reel-backend/logs/
 /studio/
 src/studio-backend/logs/
 
+# Diagram pipeline generated output (keep script.md, skeleton JSON, _examples sources)
+diagrams/**/states/
+diagrams/**/review/
+diagrams/**/status.json
+diagrams/**/status.prev.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

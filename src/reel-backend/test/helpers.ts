@@ -36,6 +36,10 @@ export function testConfig(dir?: string): ReelConfig {
     render: { width: 1080, height: 1920 },
     dataDir: path.join(root, "data"),
     logDir: path.join(root, "logs"),
+    diagram: {
+      chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      diagramsDir: path.join(root, "diagrams"),
+    },
   };
 }
 

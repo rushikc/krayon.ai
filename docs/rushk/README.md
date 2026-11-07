@@ -11,6 +11,7 @@ This folder documents the style so it can be reproduced by hand (Excalidraw + VN
 | [`visual-style.md`](./visual-style.md) | How the reel looks and how the visuals are made: frame, title, white card, diagram style, text, badges, animation, transitions, timing. |
 | [`script-style.md`](./script-style.md) | How the narration is written: formula, section lengths, voice, phrasing, CTA. Kept separate on purpose. |
 | [`tokens.json`](./tokens.json) | Colours, sizes and timings as machine-readable values (measured from the references; see notes inside). |
+| [`diagram-skeleton.md`](./diagram-skeleton.md) | Author spec for the file-drop Excalidraw pipeline (schema, limits, report codes, examples). Architecture: [`../diagram-pipeline.md`](../diagram-pipeline.md). |
 | [`assets/`](./assets/) | Reference contact sheets and detail frames from the two source reels. |
 
 Visual style and script style are independent: any script can be dressed in the visual style and vice versa.

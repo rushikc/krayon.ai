@@ -69,11 +69,12 @@ export type Logger = {
   error: (message: string, fields?: LogFields, error?: unknown) => void;
 };
 
-export function createLogger(config: ReelConfig): Logger {
+export function createLogger(config: ReelConfig, options?: { console?: NodeJS.WritableStream }): Logger {
   mkdirSync(config.logDir, { recursive: true });
   const textFile = new RotatingFile(path.join(config.logDir, "app.log"));
   const jsonFile = new RotatingFile(path.join(config.logDir, "app.jsonl"));
   const min = LEVELS[config.logLevel] ?? 20;
+  const consoleStream = options?.console;
 
   const write = (level: string, msg: string, fields?: LogFields, error?: unknown) => {
     if ((LEVELS[level] ?? 20) < min) return;
@@ -93,10 +94,15 @@ export function createLogger(config: ReelConfig): Logger {
     jsonFile.write(`${JSON.stringify(record)}\n`);
     const extras = safe ? ` ${JSON.stringify(safe)}` : "";
     textFile.write(`${text} ${level} ${requestId} ${msg}${extras}${errText ? ` ${errText}` : ""}\n`);
+    const line = `${level} ${msg}${errText ? ` ${errText}` : ""}`;
+    if (consoleStream) {
+      if (level !== "DEBUG") consoleStream.write(`${line}\n`);
+      return;
+    }
     if (level === "ERROR") {
-      console.error(`${level} ${msg}`);
+      console.error(line);
     } else if (level !== "DEBUG") {
-      console.log(`${level} ${msg}`);
+      console.log(line);
     }
   };
 

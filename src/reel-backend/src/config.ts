@@ -5,6 +5,9 @@ import { parse as parseToml } from "smol-toml";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const packageRoot = path.resolve(here, "..");
+export const repoRoot = path.resolve(packageRoot, "../..");
+
+export const DEFAULT_CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 export type ReelConfig = {
   host: string;
@@ -31,6 +34,10 @@ export type ReelConfig = {
   };
   dataDir: string;
   logDir: string;
+  diagram: {
+    chromePath: string;
+    diagramsDir: string;
+  };
 };
 
 type TomlShape = {
@@ -59,6 +66,10 @@ type TomlShape = {
   paths?: {
     data?: string;
     logs?: string;
+  };
+  diagram?: {
+    chrome_path?: string;
+    diagrams_dir?: string;
   };
 };
 
@@ -133,5 +144,12 @@ export function loadConfig(tomlPath = path.join(packageRoot, "krayon-reel.toml")
     },
     dataDir: resolveDir(dataRel),
     logDir: resolveDir(logsRel),
+    diagram: {
+      chromePath: env("KRAYON_CHROME_PATH") ?? toml.diagram?.chrome_path ?? DEFAULT_CHROME_PATH,
+      diagramsDir: path.resolve(
+        repoRoot,
+        env("KRAYON_DIAGRAMS_DIR") ?? toml.diagram?.diagrams_dir ?? "diagrams",
+      ),
+    },
   };
 }
