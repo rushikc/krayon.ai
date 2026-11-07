@@ -88,7 +88,66 @@ describe("StudioControlsPanel", () => {
 
   it("shows the last analysis duration above the analyze controls", () => {
     renderPanel({ analysisDurationSeconds: 160 });
-    expect(screen.getByTestId("analysis-duration")).toHaveTextContent("Last analysis took 2 min 40 sec");
+    expect(screen.getByTestId("analysis-duration")).toHaveTextContent("Last analysis took 2 min 40 s");
+    expect(screen.queryByTestId("analysis-timings")).not.toBeInTheDocument();
+  });
+
+  it("renders a per-stage timing breakdown", () => {
+    renderPanel({
+      analysisDurationSeconds: 1140,
+      analysisTimings: {
+        startedAt: "2026-11-07T14:00:00.000Z",
+        finishedAt: "2026-11-07T14:19:00.000Z",
+        totalSeconds: 1140,
+        pipeline: "transcript",
+        status: "ready",
+        stages: [
+          {
+            id: "extracting",
+            label: "Extract audio",
+            startedAt: "2026-11-07T14:00:00.000Z",
+            finishedAt: "2026-11-07T14:00:08.000Z",
+            seconds: 8,
+            status: "done",
+            message: "Extracted audio",
+          },
+          {
+            id: "transcribing",
+            label: "Transcribe",
+            startedAt: "2026-11-07T14:00:08.000Z",
+            finishedAt: "2026-11-07T14:18:08.000Z",
+            seconds: 1080,
+            status: "done",
+            message: "Transcribed",
+          },
+          {
+            id: "segmenting",
+            label: "Cut by silence",
+            startedAt: "2026-11-07T14:18:08.000Z",
+            finishedAt: "2026-11-07T14:18:08.000Z",
+            seconds: 0,
+            status: "skipped",
+            message: "Reusing cached transcript",
+          },
+          {
+            id: "grouping",
+            label: "Group retakes",
+            startedAt: "2026-11-07T14:18:08.000Z",
+            finishedAt: "2026-11-07T14:18:10.000Z",
+            seconds: 2,
+            status: "error",
+            message: "failed",
+          },
+        ],
+      },
+    });
+    const breakdown = screen.getByTestId("analysis-timings");
+    expect(breakdown).toHaveTextContent("Extract audio");
+    expect(breakdown).toHaveTextContent("8 s");
+    expect(breakdown).toHaveTextContent("Transcribe");
+    expect(breakdown).toHaveTextContent("18 min");
+    expect(breakdown).toHaveTextContent("skipped 0 s");
+    expect(breakdown.querySelector(".text-destructive")).not.toBeNull();
   });
 
   it("rebuilds with or without the script and cancel leaves the callback alone", async () => {

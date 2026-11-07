@@ -12,9 +12,10 @@ from app.services.segments import (
     extend_segment_tails,
 )
 from app.schemas import WordTiming
-from app.services.studio.common.project import PipelineOptions, ProjectAudio, StudioAnalysis, write_checkpoint
+from app.services.studio.common.project import PipelineOptions, ProjectAudio, StudioAnalysis
+from app.services.studio.common.timings import analysis_timing_session
 from app.services.studio.scoring import score_clips
-from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words, words_are_cached
+from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words, wav_is_cached, words_are_cached
 
 __all__ = ["StudioAnalysis", "analyze_project", "run_transcript_pipeline"]
 
@@ -27,70 +28,75 @@ def run_transcript_pipeline(project: ProjectAudio, options: PipelineOptions, on_
     wav_path = analysis_dir / "source.wav"
     words_path = analysis_dir / "words.json"
 
-    def progress(phase: str, ratio: float, message: str) -> None:
-        write_checkpoint(analysis_dir, phase, message, ratio)
-        if on_progress:
-            on_progress(phase, ratio, message)
+    with analysis_timing_session(
+        analysis_dir,
+        pipeline="transcript",
+        snap_to_audio=options.snap_to_audio,
+        on_progress=on_progress,
+    ) as progress:
+        if wav_is_cached(wav_path):
+            progress("extracting", 1.0, "Reusing cached audio", skipped=True)
+            ensure_wav(source, wav_path)
+        else:
+            progress("extracting", 0.0, "Extracting audio…")
+            ensure_wav(source, wav_path)
+            progress("extracting", 1.0, "Extracted audio")
 
-    progress("extracting", 0.0, "Extracting audio…" if not wav_path.is_file() else "Reusing cached audio")
-    extracted = ensure_wav(source, wav_path)
-    progress("extracting", 1.0, "Extracted audio" if extracted else "Cached audio")
+        def whisper_progress(ratio: float, message: str) -> None:
+            progress("transcribing", ratio, message)
 
-    def whisper_progress(ratio: float, message: str) -> None:
-        progress("transcribing", ratio, message)
+        if words_are_cached(words_path, requested_language=options.language):
+            progress("transcribing", 1.0, "Reusing cached transcript", skipped=True)
+        else:
+            progress("transcribing", 0.0, "Transcribing…")
+        ensure_words(
+            wav_path,
+            words_path,
+            language=options.language,
+            on_progress=whisper_progress,
+            initial_prompt=options.initial_prompt,
+            cancelled=options.cancelled,
+            requested_language=options.language,
+        )
+        words = load_words(words_path)
 
-    if words_are_cached(words_path, requested_language=options.language):
-        progress("transcribing", 1.0, "Reusing cached transcript")
-    else:
-        progress("transcribing", 0.0, "Transcribing…")
-    ensure_words(
-        wav_path,
-        words_path,
-        language=options.language,
-        on_progress=whisper_progress,
-        initial_prompt=options.initial_prompt,
-        cancelled=options.cancelled,
-        requested_language=options.language,
-    )
-    words = load_words(words_path)
+        probe = probe_media(source)
+        source_duration = float(probe.duration or 0.0)
+        progress("segmenting", 0.2, "Building speech segments…")
+        segments = build_segments_from_words(
+            words,
+            silence_threshold=options.silence_threshold,
+            pad=options.pad,
+            source_duration=source_duration,
+        )
+        segments = extend_segment_tails(
+            wav_path,
+            segments,
+            source_duration,
+            max_extend_s=settings.tail_max_extend_s,
+            neighbor_guard_s=TAIL_NEIGHBOR_GUARD_S,
+            stop_on_reloud=True,
+        )
+        progress("segmenting", 1.0, f"Found {len(segments)} segments")
 
-    probe = probe_media(source)
-    source_duration = float(probe.duration or 0.0)
-    progress("segmenting", 0.2, "Building speech segments…")
-    segments = build_segments_from_words(
-        words,
-        silence_threshold=options.silence_threshold,
-        pad=options.pad,
-        source_duration=source_duration,
-    )
-    segments = extend_segment_tails(
-        wav_path,
-        segments,
-        source_duration,
-        max_extend_s=settings.tail_max_extend_s,
-        neighbor_guard_s=TAIL_NEIGHBOR_GUARD_S,
-        stop_on_reloud=True,
-    )
-    progress("segmenting", 1.0, f"Found {len(segments)} segments")
-
-    progress("grouping", 0.2, "Grouping retakes…")
-    clips, groups = build_segment_clips(
-        "studio",
-        segments,
-        words,
-        similarity_threshold=options.similarity_threshold,
-        pad=options.pad,
-        drop_junk_tokens=True,
-        avoid_untrusted_cuts=True,
-        language=options.language,
-    )
-    if options.snap_to_audio:
-        progress("snapping", 0.2, "Snapping cuts to the waveform…")
-        clips = snap_studio_clips(clips, wav_path, pad=options.pad, search=options.snap_search_seconds)
-        progress("snapping", 1.0, "Snapped cuts")
-    scores = score_clips(clips)
-    progress("grouping", 1.0, f"Grouped {len(clips)} clips")
-    progress("saving", 1.0, "Save clips")
+        progress("grouping", 0.2, "Grouping retakes…")
+        clips, groups = build_segment_clips(
+            "studio",
+            segments,
+            words,
+            similarity_threshold=options.similarity_threshold,
+            pad=options.pad,
+            drop_junk_tokens=True,
+            avoid_untrusted_cuts=True,
+            language=options.language,
+        )
+        if options.snap_to_audio:
+            progress("snapping", 0.2, "Snapping cuts to the waveform…")
+            clips = snap_studio_clips(clips, wav_path, pad=options.pad, search=options.snap_search_seconds)
+            progress("snapping", 1.0, "Snapped cuts")
+        scores = score_clips(clips)
+        progress("grouping", 1.0, f"Grouped {len(clips)} clips")
+        progress("saving", 1.0, "Save clips")
 
     return StudioAnalysis(
         source_duration=source_duration,

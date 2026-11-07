@@ -55,7 +55,11 @@ describe("formatting and media urls", () => {
   it("formats durations, sizes, and resolutions", () => {
     expect(formatDuration(75)).toBe("1:15");
     expect(formatDuration(0)).toBe("—");
-    expect(formatElapsedHuman(160)).toBe("2 min 40 sec");
+    expect(formatElapsedHuman(160)).toBe("2 min 40 s");
+    expect(formatElapsedHuman(2.3)).toBe("2.3 s");
+    expect(formatElapsedHuman(2)).toBe("2 s");
+    expect(formatElapsedHuman(18 * 60)).toBe("18 min");
+    expect(formatElapsedHuman(3720)).toBe("1 h 2 min");
     expect(formatSize(1024 * 1024)).toBe("1.0 MB");
     expect(formatResolution(1080, 1920)).toBe("1080×1920");
   });

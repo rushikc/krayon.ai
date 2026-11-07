@@ -1,4 +1,4 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { analysisOf, clip, http, listenStudio, seedProject, type PythonState } from "./helpers.js";
@@ -332,6 +332,9 @@ describe("analyze and reanalyze", () => {
     const ready = await project("analyze-demo");
     expect((ready.payload.meta as { status: string }).status).toBe("ready");
     expect((ready.payload.clips as unknown[]).length).toBe(1);
+    const timings = (ready.payload.meta as { analysisTimings?: { status: string; stages: unknown[] } }).analysisTimings;
+    expect(timings?.status).toBe("ready");
+    expect(timings?.stages.length).toBeGreaterThan(0);
 
     state.mode = "error";
     const failed = await http(base, "POST", "/api/studio/projects/analyze-demo/analyze", {});
@@ -368,11 +371,50 @@ describe("analyze and reanalyze", () => {
     const pending = http(base, "POST", "/api/studio/projects/cancel-demo/analyze", { baseRevision: 0 });
     try {
       await expect.poll(async () => ((await project("cancel-demo")).payload.meta as { status: string }).status).toBe("analyzing");
+      await mkdir(path.join(root, "cancel-demo", "analysis"), { recursive: true });
+      await writeFile(
+        path.join(root, "cancel-demo", "analysis", "job.json"),
+        JSON.stringify({
+          phase: "transcribing",
+          message: "Transcribing…",
+          ratio: 0.4,
+          timings: {
+            startedAt: "2026-11-07T14:00:00.000Z",
+            finishedAt: null,
+            totalSeconds: 8,
+            pipeline: "transcript",
+            status: "running",
+            stages: [
+              {
+                id: "extracting",
+                label: "Extract audio",
+                startedAt: "2026-11-07T14:00:00.000Z",
+                finishedAt: "2026-11-07T14:00:08.000Z",
+                seconds: 8,
+                status: "done",
+                message: "Extracted audio",
+              },
+              {
+                id: "transcribing",
+                label: "Transcribe",
+                startedAt: "2026-11-07T14:00:08.000Z",
+                finishedAt: null,
+                seconds: 2,
+                status: "running",
+                message: "Transcribing…",
+              },
+            ],
+          },
+        }),
+      );
+      const mid = await project("cancel-demo");
+      expect((mid.payload.meta as { analysisTimings: { stages: { seconds: number }[] } }).analysisTimings.stages[0]?.seconds).toBe(8);
       const cancelled = await http(base, "POST", "/api/studio/projects/cancel-demo/analyze/cancel", {});
       expect(cancelled.status).toBe(200);
       expect(cancelled.payload).toMatchObject({ cancelled: true, status: "empty", statusMessage: "Analysis cancelled" });
       const after = await project("cancel-demo");
       expect((after.payload.meta as { status: string }).status).toBe("empty");
+      expect((after.payload.meta as { analysisTimings: { status: string } }).analysisTimings.status).toBe("cancelled");
     } finally {
       state.release?.();
       await pending.catch(() => undefined);

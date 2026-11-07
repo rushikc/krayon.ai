@@ -33,6 +33,29 @@ export const DEFAULT_SETTINGS: AnalysisSettings = {
   language: "auto",
 };
 
+export type AnalysisStageId = "extracting" | "transcribing" | "segmenting" | "grouping" | "snapping" | "saving";
+export type AnalysisStageStatus = "pending" | "running" | "done" | "skipped" | "error" | "cancelled";
+export type AnalysisTimingsStatus = "running" | "ready" | "error" | "cancelled";
+
+export type AnalysisStageTiming = {
+  id: AnalysisStageId | string;
+  label: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  seconds: number;
+  status: AnalysisStageStatus;
+  message: string | null;
+};
+
+export type AnalysisTimings = {
+  startedAt: string;
+  finishedAt: string | null;
+  totalSeconds: number;
+  pipeline: "transcript" | "scripted";
+  status: AnalysisTimingsStatus;
+  stages: AnalysisStageTiming[];
+};
+
 export type Meta = {
   slug: string;
   title: string;
@@ -59,7 +82,125 @@ export type Meta = {
   lastPhaseRatio?: number | null;
   analysisStartedAt?: string | null;
   analysisDurationSeconds?: number | null;
+  analysisTimings?: AnalysisTimings | null;
 };
+
+const STAGE_LABELS: Record<"transcript" | "scripted", Record<string, string>> = {
+  transcript: {
+    extracting: "Extract audio",
+    transcribing: "Transcribe",
+    segmenting: "Cut by silence",
+    grouping: "Group retakes",
+    snapping: "Snap cuts to the waveform",
+    saving: "Save clips",
+  },
+  scripted: {
+    extracting: "Extract audio",
+    transcribing: "Transcribe",
+    segmenting: "Align to script",
+    grouping: "Match script lines to takes",
+    snapping: "Snap cuts to the waveform",
+    saving: "Save clips",
+  },
+};
+
+export function emptyAnalysisTimings(
+  pipeline: "transcript" | "scripted",
+  snapToAudio: boolean,
+  startedAt = new Date().toISOString(),
+): AnalysisTimings {
+  const labels = STAGE_LABELS[pipeline];
+  const ids = ["extracting", "transcribing", "segmenting", "grouping"];
+  if (snapToAudio) ids.push("snapping");
+  ids.push("saving");
+  return {
+    startedAt,
+    finishedAt: null,
+    totalSeconds: 0,
+    pipeline,
+    status: "running",
+    stages: ids.map((id) => ({
+      id,
+      label: labels[id] ?? id,
+      startedAt: null,
+      finishedAt: null,
+      seconds: 0,
+      status: "pending",
+      message: null,
+    })),
+  };
+}
+
+export function normalizeAnalysisStage(value: unknown): AnalysisStageTiming | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<AnalysisStageTiming>;
+  if (typeof raw.id !== "string" || typeof raw.label !== "string") return null;
+  const status: AnalysisStageStatus =
+    raw.status === "running" ||
+    raw.status === "done" ||
+    raw.status === "skipped" ||
+    raw.status === "error" ||
+    raw.status === "cancelled"
+      ? raw.status
+      : "pending";
+  return {
+    id: raw.id,
+    label: raw.label,
+    startedAt: typeof raw.startedAt === "string" ? raw.startedAt : null,
+    finishedAt: typeof raw.finishedAt === "string" ? raw.finishedAt : null,
+    seconds: typeof raw.seconds === "number" && Number.isFinite(raw.seconds) ? Math.max(0, raw.seconds) : 0,
+    status,
+    message: typeof raw.message === "string" ? raw.message : null,
+  };
+}
+
+export function normalizeAnalysisTimings(value: unknown): AnalysisTimings | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<AnalysisTimings>;
+  if (typeof raw.startedAt !== "string" || !Array.isArray(raw.stages)) return null;
+  const stages = raw.stages.map(normalizeAnalysisStage).filter((item): item is AnalysisStageTiming => item != null);
+  if (stages.length === 0) return null;
+  const status: AnalysisTimingsStatus =
+    raw.status === "ready" || raw.status === "error" || raw.status === "cancelled" ? raw.status : "running";
+  return {
+    startedAt: raw.startedAt,
+    finishedAt: typeof raw.finishedAt === "string" ? raw.finishedAt : null,
+    totalSeconds:
+      typeof raw.totalSeconds === "number" && Number.isFinite(raw.totalSeconds) ? Math.max(0, raw.totalSeconds) : 0,
+    pipeline: raw.pipeline === "scripted" ? "scripted" : "transcript",
+    status,
+    stages,
+  };
+}
+
+export function finalizeAnalysisTimings(
+  timings: AnalysisTimings,
+  status: Exclude<AnalysisTimingsStatus, "running">,
+  finishedAt = new Date().toISOString(),
+): AnalysisTimings {
+  if (timings.status !== "running") return timings;
+  const started = Date.parse(timings.startedAt);
+  const ended = Date.parse(finishedAt);
+  const totalSeconds =
+    Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, (ended - started) / 1000) : timings.totalSeconds;
+  const stageStatus: AnalysisStageStatus = status === "ready" ? "done" : status;
+  return {
+    ...timings,
+    status,
+    finishedAt,
+    totalSeconds,
+    stages: timings.stages.map((stage) => {
+      if (stage.status !== "running") return stage;
+      const t0 = stage.startedAt ? Date.parse(stage.startedAt) : NaN;
+      return {
+        ...stage,
+        status: stageStatus,
+        finishedAt,
+        seconds: Number.isFinite(t0) && Number.isFinite(ended) ? Math.max(0, (ended - t0) / 1000) : stage.seconds,
+      };
+    }),
+  };
+}
 
 export type HistoryEntry = {
   revision: number;
@@ -123,15 +264,21 @@ export async function projectExists(root: string, slug: string): Promise<boolean
 
 export async function readJobCheckpoint(
   dir: string,
-): Promise<{ phase: string; message: string; ratio?: number } | null> {
+): Promise<{ phase: string; message: string; ratio?: number; timings?: AnalysisTimings } | null> {
   try {
     const raw = JSON.parse(await readFile(path.join(dir, "analysis", "job.json"), "utf8")) as {
       phase?: string;
       message?: string;
       ratio?: number;
+      timings?: unknown;
     };
     if (!raw.phase) return null;
-    return { phase: raw.phase, message: raw.message ?? "", ratio: raw.ratio };
+    return {
+      phase: raw.phase,
+      message: raw.message ?? "",
+      ratio: raw.ratio,
+      timings: normalizeAnalysisTimings(raw.timings) ?? undefined,
+    };
   } catch {
     return null;
   }
@@ -269,10 +416,16 @@ export function normalizeMeta(meta: Meta): Meta {
       typeof meta.analysisDurationSeconds === "number" && Number.isFinite(meta.analysisDurationSeconds)
         ? Math.max(0, meta.analysisDurationSeconds)
         : null,
+    analysisTimings: normalizeAnalysisTimings(meta.analysisTimings),
   };
 }
 
 export function recordAnalysisDuration(meta: Meta, finishedAt = Date.now()): void {
+  const timings = meta.analysisTimings;
+  if (timings && typeof timings.totalSeconds === "number" && Number.isFinite(timings.totalSeconds)) {
+    meta.analysisDurationSeconds = Math.max(0, timings.totalSeconds);
+    return;
+  }
   if (!meta.analysisStartedAt) return;
   const started = Date.parse(meta.analysisStartedAt);
   if (!Number.isFinite(started)) return;

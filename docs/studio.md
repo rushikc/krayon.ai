@@ -10,7 +10,7 @@ Projects live in `studio/<slug>/` (gitignored):
 
 | Path | Role |
 |---|---|
-| `meta.json` | Title, source path, revision pointer, id counters, status, `pipeline` (`auto` / `transcript` / `scripted`), `lastPipeline`, `scriptLineCount`, `needsRebuild` |
+| `meta.json` | Title, source path, revision pointer, id counters, status, `pipeline` (`auto` / `transcript` / `scripted`), `lastPipeline`, `scriptLineCount`, `needsRebuild`, `analysisStartedAt`, `analysisDurationSeconds`, `analysisTimings` |
 | `script.txt` | Optional spoken script (one sentence per line). Source of truth for the scripted pipeline |
 | `cuts.json` | Clips, groups, selected order, `canvasDraft` |
 | `analysis/source.wav` | 16 kHz mono cache. Reused if present |
@@ -121,7 +121,7 @@ After pulling, reinstall the Python venv (`pip install -r src/backend/requiremen
 
 ## Services
 
-- UI: `http://localhost:5173/studio` (Vite proxies `/api/studio` to `127.0.0.1:8789`)
+- UI: `http://localhost:5174/studio` (Vite proxies `/api/studio` to `127.0.0.1:8789`)
 - Studio API: Fastify on `127.0.0.1:8789`, CORS limited to the Vite origin
 - Audio and render: Python `http://127.0.0.1:8000/api/audio-studio` (called by Fastify, not by the browser)
 
@@ -137,7 +137,7 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `GET /api/studio/projects/check-name?name=` — `{ available, reason? }`
 - `DELETE /api/studio/projects/:slug` — `{ deleted }`. Cancels analyze/render first. 404 unknown, 400 bad slug. Does not touch the original source video.
 - `DELETE /api/studio/projects` — body or query `{ confirm: "delete-all" }`. Returns `{ deleted, skipped }`.
-- `GET /projects/:slug` — clips, groups, order, revision, history, `hasTranscript` when `analysis/words.json` exists, plus `lastPhase` / `analysisStartedAt` for the stepper
+- `GET /projects/:slug` — clips, groups, order, revision, history, `hasTranscript` when `analysis/words.json` exists, plus `lastPhase` / `analysisStartedAt` for the stepper, and `meta.analysisTimings` after an analyze/rebuild run
 - `POST /projects/:slug/import` — `{ "path" }` or a multipart file streamed to `imported/`
 - `POST /projects/:slug/analyze` — Studio Analyze audio. Optional `pipeline`: `auto` (default), `transcript`, or `scripted`. Optional `language` overrides `meta.settings.language` (`auto` lets Whisper detect). Creating a project and importing a video auto-starts this once the project screen opens. Progress phases: `extracting`, `transcribing`, `segmenting`, `grouping`, `snapping` (when snap is on), `saving`. A second analyze while `status` is `analyzing` returns HTTP 409 `{ "error": "busy", "code": "analysis_running", "message": "Analysis is already running" }`. The UI attaches to the running job instead of treating that as a failed step.
 - `POST /projects/:slug/analyze/cancel` — stop the Python job, keep `analysis/source.wav` and any partial `words.json`, set status to `empty` (or `ready` if clips already exist) with message `Analysis cancelled`.
@@ -159,6 +159,10 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `GET /projects/:slug/events` — server-sent events for progress, revisions, confirmations, and `deleted`
 - `GET/POST /projects/:slug/confirmations`, `POST …/answer`, `POST …/cancel`, `GET …/wait`, `GET …/wait-any`
 - `POST /projects/:slug/reset-status`
+
+## Analysis timings
+
+Each analyze, rebuild, or reanalyze run writes `meta.analysisTimings`: wall-clock `totalSeconds` plus per-stage `seconds` for `extracting`, `transcribing`, `segmenting`, `grouping`, optional `snapping`, and `saving`. Cached steps are `skipped` with a near-zero duration (for example `Reusing cached transcript`). Python owns the clock and checkpoints `analysis/job.json` on every phase change; Fastify copies the blob into `meta.json` so a mid-run reload keeps completed stage times. `analysisDurationSeconds` stays in sync with `totalSeconds`. Projects without `analysisTimings` still show the overall “Last analysis took …” line when `analysisDurationSeconds` exists.
 
 ## Confirmations
 

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { AnalysisTimings } from "./store.js";
 
 export type StudioEvent = {
   type:
@@ -13,6 +14,7 @@ export type StudioEvent = {
   phase?: string;
   message?: string;
   ratio?: number;
+  timings?: AnalysisTimings;
   revision?: number;
   actor?: string;
   label?: string;

@@ -1,3 +1,4 @@
+import type { AnalysisTimings } from "@/lib/api/studio-client";
 import { studioCopy } from "@/lib/studio-copy";
 
 export type StepStatus = "pending" | "active" | "done" | "error";
@@ -8,6 +9,9 @@ export type StudioPipelineStep = {
   status: StepStatus;
   stepProgress: number;
   message: string | null;
+  seconds?: number | null;
+  startedAt?: string | null;
+  stageStatus?: "pending" | "running" | "done" | "skipped" | "error" | "cancelled";
 };
 
 export type StudioRunMode = "analyze" | "retranscribe" | "resegment" | "regroup";
@@ -108,4 +112,20 @@ export function overallStudioProgress(steps: StudioPipelineStep[]): number {
 
 export function phaseIndex(phase: string): number {
   return PHASE_ORDER.indexOf(phase as (typeof PHASE_ORDER)[number]);
+}
+
+export function applyTimingsToSteps(steps: StudioPipelineStep[], timings?: AnalysisTimings | null): StudioPipelineStep[] {
+  if (!timings?.stages?.length) return steps;
+  const byId = new Map(timings.stages.map((stage) => [stage.id, stage]));
+  return steps.map((step) => {
+    const stage = byId.get(step.id);
+    if (!stage) return step;
+    return {
+      ...step,
+      seconds: stage.seconds,
+      startedAt: stage.startedAt,
+      stageStatus: stage.status,
+      message: stage.message ?? step.message,
+    };
+  });
 }

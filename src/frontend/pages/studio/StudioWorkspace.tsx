@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import {
+  type AnalysisTimings,
   type ConfirmationItem,
   type StudioClip,
   type StudioProject,
@@ -42,6 +43,7 @@ import { toast } from "@/stores/toast-store";
 
 import {
   applyStudioPhase,
+  applyTimingsToSteps,
   initialStudioSteps,
   markActiveStepError,
   type StudioPipelineStep,
@@ -103,6 +105,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
     let steps = initialStudioSteps(pipelineOf(next), snap, mode, Boolean(next.hasTranscript));
     const phase = next.lastPhase || "extracting";
     steps = applyStudioPhase(steps, phase, next.lastPhaseRatio ?? 0, next.lastPhaseMessage ?? studioCopy.startingAnalysis);
+    steps = applyTimingsToSteps(steps, next.meta.analysisTimings);
     setAnalysisSteps(steps);
     const started = next.analysisStartedAt ?? next.meta.analysisStartedAt;
     setAnalysisStartedAt(started ? Date.parse(started) : Date.now());
@@ -170,6 +173,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         phase?: string;
         id?: string;
         status?: string;
+        timings?: AnalysisTimings;
       };
       if (data.type === "confirmation_created" && data.id) {
         setHighlightAsk(data.id);
@@ -186,7 +190,10 @@ export function StudioWorkspace({ slug }: { slug: string }) {
       if (data.type === "progress") {
         setAnalysisProgress(formatProgressLabel(data.message, data.ratio));
         if (data.phase) {
-          setAnalysisSteps((current) => applyStudioPhase(current, data.phase!, data.ratio ?? 0, data.message));
+          setAnalysisSteps((current) => {
+            const next = applyStudioPhase(current, data.phase!, data.ratio ?? 0, data.message);
+            return data.timings ? applyTimingsToSteps(next, data.timings) : next;
+          });
         }
       }
       if (data.type === "status") {
@@ -521,6 +528,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         analysisBusy={Boolean(analysisBusy)}
         analysisMessage={analysisProgress ?? (project?.status === "analyzing" ? project.meta.statusMessage : null)}
         analysisDurationSeconds={analysisDurationSeconds}
+        analysisTimings={project?.meta.analysisTimings}
         onAnalyze={() => void runAnalyze()}
         script={project?.script ?? ""}
         onSaveScript={(next) => {

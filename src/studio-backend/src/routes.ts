@@ -37,6 +37,8 @@ import {
   clearCurrent,
   commitRevision,
   recordAnalysisDuration,
+  emptyAnalysisTimings,
+  finalizeAnalysisTimings,
   countScriptLines,
   createProject,
   currentFile,
@@ -60,6 +62,7 @@ import {
   useProject,
   withLock,
   writeScript,
+  type AnalysisTimings,
   type Meta,
   type PipelineMode,
 } from "./store.js";
@@ -224,6 +227,11 @@ export function registerRoutes(
       loaded.meta.lastPhase = "extracting";
       loaded.meta.lastPhaseMessage = message;
       loaded.meta.lastPhaseRatio = 0;
+      loaded.meta.analysisTimings = emptyAnalysisTimings(
+        resolvedPipeline(loaded.meta),
+        loaded.meta.settings.snapToAudio !== false,
+        loaded.meta.analysisStartedAt,
+      );
       await saveMeta(loaded.dir, loaded.meta);
       return loaded;
     });
@@ -249,6 +257,12 @@ export function registerRoutes(
       if (loaded.meta.status === "analyzing") {
         loaded.meta.status = loaded.cuts.clips.length > 0 ? "ready" : "empty";
         loaded.meta.statusMessage = "Analysis cancelled";
+        const checkpoint = await readJobCheckpoint(loaded.dir);
+        if (checkpoint?.timings) loaded.meta.analysisTimings = checkpoint.timings;
+        if (loaded.meta.analysisTimings) {
+          loaded.meta.analysisTimings = finalizeAnalysisTimings(loaded.meta.analysisTimings, "cancelled");
+        }
+        recordAnalysisDuration(loaded.meta);
         await saveMeta(loaded.dir, loaded.meta);
       }
       deps.hub.publish(slug, { type: "status", status: loaded.meta.status, message: loaded.meta.statusMessage });
@@ -269,6 +283,12 @@ export function registerRoutes(
         if (loaded.meta.status !== "analyzing") return;
         loaded.meta.status = "error";
         loaded.meta.statusMessage = message;
+        const checkpoint = await readJobCheckpoint(loaded.dir);
+        if (checkpoint?.timings) loaded.meta.analysisTimings = checkpoint.timings;
+        if (loaded.meta.analysisTimings) {
+          loaded.meta.analysisTimings = finalizeAnalysisTimings(loaded.meta.analysisTimings, "error");
+        }
+        recordAnalysisDuration(loaded.meta);
         await saveMeta(loaded.dir, loaded.meta);
       } catch (error) {
         if (error instanceof NotFoundError) return;
@@ -279,7 +299,7 @@ export function registerRoutes(
 
   async function recordProgress(slug: string, phase?: string, message?: string, ratio?: number) {
     if (!phase || isDeleted(slug)) return;
-    deps.hub.publish(slug, { type: "progress", phase, message, ratio });
+    let timings: AnalysisTimings | undefined;
     await withLock(slug, async () => {
       if (isDeleted(slug)) return;
       try {
@@ -287,12 +307,18 @@ export function registerRoutes(
         loaded.meta.lastPhase = phase;
         loaded.meta.lastPhaseMessage = message ?? loaded.meta.lastPhaseMessage;
         loaded.meta.lastPhaseRatio = typeof ratio === "number" ? ratio : loaded.meta.lastPhaseRatio;
+        const checkpoint = await readJobCheckpoint(loaded.dir);
+        if (checkpoint?.timings) {
+          loaded.meta.analysisTimings = checkpoint.timings;
+          timings = checkpoint.timings;
+        }
         await saveMeta(loaded.dir, loaded.meta);
       } catch (error) {
         if (error instanceof NotFoundError) return;
         throw error;
       }
     });
+    deps.hub.publish(slug, { type: "progress", phase, message, ratio, timings });
   }
 
   async function runPythonAnalysis<T>(
@@ -543,7 +569,13 @@ export function registerRoutes(
     const { dir, meta, cuts } = await load(root, slug);
     const checkpoint = await readJobCheckpoint(dir);
     return {
-      meta,
+      meta: {
+        ...meta,
+        analysisTimings:
+          meta.status === "analyzing"
+            ? checkpoint?.timings ?? meta.analysisTimings ?? null
+            : meta.analysisTimings ?? checkpoint?.timings ?? null,
+      },
       revision: meta.revision,
       status: meta.status,
       lastPhase: checkpoint?.phase ?? meta.lastPhase ?? null,
@@ -712,6 +744,11 @@ export function registerRoutes(
         fresh.meta.rebuildReason = null;
         await applyTranscriptMeta(fresh.dir, fresh.meta);
         fresh.meta.statusMessage = `Analyzed ${adopted.doc.clips.length} clips`;
+        const checkpoint = await readJobCheckpoint(fresh.dir);
+        if (checkpoint?.timings) fresh.meta.analysisTimings = checkpoint.timings;
+        if (fresh.meta.analysisTimings) {
+          fresh.meta.analysisTimings = finalizeAnalysisTimings(fresh.meta.analysisTimings, "ready");
+        }
         recordAnalysisDuration(fresh.meta);
         if (fresh.meta.lastPipeline === "scripted") {
           await enqueueScriptConfirms(
@@ -1000,6 +1037,11 @@ export function registerRoutes(
           await enqueueScriptConfirms(fresh.dir, adopted.doc, fresh.meta.settings.scriptConfirmThreshold, "algorithm");
         }
         fresh.meta.statusMessage = adopted.retired.length ? `Retired ${adopted.retired.join(", ")}` : "Reanalysis kept clip ids";
+        const checkpoint = await readJobCheckpoint(fresh.dir);
+        if (checkpoint?.timings) fresh.meta.analysisTimings = checkpoint.timings;
+        if (fresh.meta.analysisTimings) {
+          fresh.meta.analysisTimings = finalizeAnalysisTimings(fresh.meta.analysisTimings, "ready");
+        }
         recordAnalysisDuration(fresh.meta);
         const entry = await commitRevision(fresh.dir, fresh.meta, adopted.doc, actor, body.label ?? body.mode, fresh.meta.statusMessage);
         deps.hub.publish(slug, { type: "revision", revision: entry.revision, actor, label: entry.label, summary: entry.summary });

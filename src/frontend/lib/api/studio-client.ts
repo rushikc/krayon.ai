@@ -42,6 +42,25 @@ export type HistoryItem = {
   current: boolean;
 };
 
+export type AnalysisStageTiming = {
+  id: string;
+  label: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  seconds: number;
+  status: "pending" | "running" | "done" | "skipped" | "error" | "cancelled";
+  message: string | null;
+};
+
+export type AnalysisTimings = {
+  startedAt: string;
+  finishedAt: string | null;
+  totalSeconds: number;
+  pipeline: "transcript" | "scripted";
+  status: "running" | "ready" | "error" | "cancelled";
+  stages: AnalysisStageTiming[];
+};
+
 export type StudioProject = {
   meta: {
     slug: string;
@@ -60,6 +79,7 @@ export type StudioProject = {
     detectedLanguageProbability?: number | null;
     analysisStartedAt?: string | null;
     analysisDurationSeconds?: number | null;
+    analysisTimings?: AnalysisTimings | null;
   };
   revision: number;
   status: string;

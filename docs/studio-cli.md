@@ -8,7 +8,7 @@ pnpm krayon status
 
 The studio server must be up (`pnpm studio-backend`, `127.0.0.1:8789`). The CLI talks only to that server. Override the base URL with `KRAYON_STUDIO_URL` (default `http://127.0.0.1:8789`).
 
-Output is one JSON object. `--pretty` indents it. Default actor is `grok`. Override with `--actor human`. Pick a project with `--project <slug>` or `projects use`. Most failures exit `1`. HTTP 409 (stale `baseRevision`, or the project is busy) exits `2`. A duplicate project name is also HTTP 409 but exits `1`. `projects new` requires a title. `projects delete-all` refuses without `--yes`. Confirmation waits use `0` and `3`–`6`, listed below.
+Output is one JSON object. `--pretty` indents it. `status` is the same payload as `GET /api/studio/projects/:slug`, including `meta.analysisTimings` when a run has started. Default actor is `grok`. Override with `--actor human`. Pick a project with `--project <slug>` or `projects use`. Most failures exit `1`. HTTP 409 (stale `baseRevision`, or the project is busy) exits `2`. A duplicate project name is also HTTP 409 but exits `1`. `projects new` requires a title. `projects delete-all` refuses without `--yes`. Confirmation waits use `0` and `3`–`6`, listed below.
 
 ## Commands
 

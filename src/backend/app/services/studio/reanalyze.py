@@ -18,6 +18,7 @@ from app.services.segments import (
     build_segments_from_words,
     extend_segment_tails,
 )
+from app.services.studio.common.timings import analysis_timing_session
 from app.services.studio.scoring import score_clips
 from app.services.studio.transcribe_resume import load_words, save_words, transcribe_wav
 
@@ -179,76 +180,87 @@ def reanalyze_project(
     if not words_path.is_file():
         raise FileNotFoundError("words.json is missing; run analysis first")
 
-    words = load_words(words_path)
-    probe = probe_media(source)
-    source_duration = float(probe.duration or 0.0)
-    scope = "full"
-    affected_start = range_start
-    affected_end = range_end
+    skip_ids = {
+        "retranscribe": ("extracting",),
+        "resegment": ("extracting", "transcribing"),
+        "regroup": ("extracting", "transcribing", "segmenting"),
+    }.get(mode, ())
 
-    if mode == "retranscribe":
-        if range_start is None or range_end is None:
-            raise ValueError("retranscribe requires a time range")
-        if on_progress:
-            on_progress("transcribing", 0.1, "Re-transcribing range…")
-        replacement = transcribe_range(source, range_start, range_end, language=language)
-        if cancelled and cancelled():
-            from app.services.studio.transcribe_resume import AnalysisCancelled
+    with analysis_timing_session(
+        analysis_dir,
+        pipeline="transcript",
+        snap_to_audio=snap_to_audio,
+        on_progress=on_progress,
+        skip_ids=skip_ids,
+    ) as progress:
+        words = load_words(words_path)
+        probe = probe_media(source)
+        source_duration = float(probe.duration or 0.0)
+        scope = "full"
+        affected_start = range_start
+        affected_end = range_end
 
-            raise AnalysisCancelled()
-        words = splice_words(words, range_start, range_end, replacement)
-        save_words(words_path, words)
-        scope = "range"
-    elif mode == "resegment":
-        if range_start is None or range_end is None:
-            range_start = 0.0
-            range_end = source_duration
-            affected_start = range_start
-            affected_end = range_end
-            scope = "full"
-        else:
+        if mode == "retranscribe":
+            if range_start is None or range_end is None:
+                raise ValueError("retranscribe requires a time range")
+            progress("transcribing", 0.1, "Re-transcribing range…")
+            replacement = transcribe_range(source, range_start, range_end, language=language)
+            if cancelled and cancelled():
+                from app.services.studio.transcribe_resume import AnalysisCancelled
+
+                raise AnalysisCancelled()
+            words = splice_words(words, range_start, range_end, replacement)
+            save_words(words_path, words)
             scope = "range"
-    elif mode == "regroup":
-        scope = "full" if range_start is None else "range"
-    else:
-        raise ValueError(f"unknown reanalyze mode {mode}")
+        elif mode == "resegment":
+            if range_start is None or range_end is None:
+                range_start = 0.0
+                range_end = source_duration
+                affected_start = range_start
+                affected_end = range_end
+                scope = "full"
+            else:
+                scope = "range"
+        elif mode == "regroup":
+            scope = "full" if range_start is None else "range"
+        else:
+            raise ValueError(f"unknown reanalyze mode {mode}")
 
-    if mode == "regroup" and scope == "full":
-        next_clips, groups = regroup_clips(clips, similarity_threshold)
-    elif mode == "regroup" and range_start is not None and range_end is not None:
-        inside = [
-            clip
-            for clip in clips
-            if clip.source_end > range_start and clip.source_start < range_end
-        ]
-        outside = _clips_outside(clips, range_start, range_end)
-        regrouped, _inside_groups = regroup_clips(inside, similarity_threshold)
-        next_clips = outside + regrouped
-        groups = _groups_from_clips(next_clips)
-    else:
-        assert range_start is not None and range_end is not None
-        outside = _clips_outside(clips, range_start, range_end)
-        created, _created_groups = _build_range_clips(
-            words,
-            start=range_start,
-            end=range_end,
-            source_duration=source_duration,
-            wav_path=wav_path,
-            silence_threshold=silence_threshold,
-            pad=pad,
-            similarity_threshold=similarity_threshold,
-            language=language,
-            snap_to_audio=snap_to_audio,
-            snap_search_seconds=snap_search_seconds,
-            on_progress=on_progress,
-        )
-        next_clips = outside + created
-        groups = _groups_from_clips(next_clips)
+        if mode == "regroup" and scope == "full":
+            next_clips, groups = regroup_clips(clips, similarity_threshold)
+        elif mode == "regroup" and range_start is not None and range_end is not None:
+            inside = [
+                clip
+                for clip in clips
+                if clip.source_end > range_start and clip.source_start < range_end
+            ]
+            outside = _clips_outside(clips, range_start, range_end)
+            regrouped, _inside_groups = regroup_clips(inside, similarity_threshold)
+            next_clips = outside + regrouped
+            groups = _groups_from_clips(next_clips)
+        else:
+            assert range_start is not None and range_end is not None
+            outside = _clips_outside(clips, range_start, range_end)
+            created, _created_groups = _build_range_clips(
+                words,
+                start=range_start,
+                end=range_end,
+                source_duration=source_duration,
+                wav_path=wav_path,
+                silence_threshold=silence_threshold,
+                pad=pad,
+                similarity_threshold=similarity_threshold,
+                language=language,
+                snap_to_audio=snap_to_audio,
+                snap_search_seconds=snap_search_seconds,
+                on_progress=progress,
+            )
+            next_clips = outside + created
+            groups = _groups_from_clips(next_clips)
 
-    scores = score_clips(next_clips)
-    if on_progress:
-        on_progress("grouping", 1.0, f"Reanalyzed {len(next_clips)} clips")
-        on_progress("saving", 1.0, "Save clips")
+        scores = score_clips(next_clips)
+        progress("grouping", 1.0, f"Reanalyzed {len(next_clips)} clips")
+        progress("saving", 1.0, "Save clips")
 
     return {
         "sourceDuration": source_duration,

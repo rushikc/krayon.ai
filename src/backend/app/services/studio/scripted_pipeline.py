@@ -8,8 +8,8 @@ from app.services.studio.common.project import (
     PipelineOptions,
     ProjectAudio,
     StudioAnalysis,
-    write_checkpoint,
 )
+from app.services.studio.common.timings import analysis_timing_session
 from app.services.studio.scripted_alignment import (
     AlignmentResult,
     Candidate,
@@ -18,7 +18,7 @@ from app.services.studio.scripted_alignment import (
     trusted_cut_times,
     whisper_prompt_from_script,
 )
-from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words, words_are_cached
+from app.services.studio.transcribe_resume import ensure_wav, ensure_words, load_words, wav_is_cached, words_are_cached
 
 
 def execute_scripted_pipeline(
@@ -33,56 +33,61 @@ def execute_scripted_pipeline(
     wav_path = analysis_dir / "source.wav"
     words_path = analysis_dir / "words.json"
 
-    def progress(phase: str, ratio: float, message: str) -> None:
-        write_checkpoint(analysis_dir, phase, message, ratio)
-        if on_progress:
-            on_progress(phase, ratio, message)
+    with analysis_timing_session(
+        analysis_dir,
+        pipeline="scripted",
+        snap_to_audio=options.snap_to_audio,
+        on_progress=on_progress,
+    ) as progress:
+        if wav_is_cached(wav_path):
+            progress("extracting", 1.0, "Reusing cached audio", skipped=True)
+            ensure_wav(source, wav_path)
+        else:
+            progress("extracting", 0.0, "Extracting audio…")
+            ensure_wav(source, wav_path)
+            progress("extracting", 1.0, "Extracted audio")
 
-    progress("extracting", 0.0, "Extracting audio…" if not wav_path.is_file() else "Reusing cached audio")
-    extracted = ensure_wav(source, wav_path)
-    progress("extracting", 1.0, "Extracted audio" if extracted else "Cached audio")
+        def whisper_progress(ratio: float, message: str) -> None:
+            progress("transcribing", ratio, message)
 
-    def whisper_progress(ratio: float, message: str) -> None:
-        progress("transcribing", ratio, message)
+        prompt = options.initial_prompt
+        if prompt is None and options.script_whisper_prompt and not words_path.is_file():
+            prompt = whisper_prompt_from_script(script, WHISPER_PROMPT_MAX_CHARS)
 
-    prompt = options.initial_prompt
-    if prompt is None and options.script_whisper_prompt and not words_path.is_file():
-        prompt = whisper_prompt_from_script(script, WHISPER_PROMPT_MAX_CHARS)
+        if words_are_cached(words_path, requested_language=options.language):
+            progress("transcribing", 1.0, "Reusing cached transcript", skipped=True)
+        else:
+            progress("transcribing", 0.0, "Transcribing…")
+        ensure_words(
+            wav_path,
+            words_path,
+            language=options.language,
+            on_progress=whisper_progress,
+            initial_prompt=prompt,
+            cancelled=options.cancelled,
+            requested_language=options.language,
+        )
+        words = load_words(words_path)
+        probe = probe_media(source)
+        source_duration = float(probe.duration or 0.0)
 
-    if words_are_cached(words_path, requested_language=options.language):
-        progress("transcribing", 1.0, "Reusing cached transcript")
-    else:
-        progress("transcribing", 0.0, "Transcribing…")
-    ensure_words(
-        wav_path,
-        words_path,
-        language=options.language,
-        on_progress=whisper_progress,
-        initial_prompt=prompt,
-        cancelled=options.cancelled,
-        requested_language=options.language,
-    )
-    words = load_words(words_path)
-    probe = probe_media(source)
-    source_duration = float(probe.duration or 0.0)
-
-    progress("segmenting", 0.2, "Aligning script…")
-    lines = parse_script_lines(script)
-    aligned = align_script(
-        lines,
-        words,
-        match_threshold=options.script_match_threshold,
-        prefer_last_takes=options.script_prefer_last_takes,
-    )
-    clips, groups, clip_meta, group_meta, scores = build_scripted_clips(aligned, options)
-    if options.snap_to_audio and wav_path.is_file():
-        progress("snapping", 0.2, "Snapping cuts to the waveform…")
-        clips = snap_studio_clips(clips, wav_path, pad=options.pad, search=options.snap_search_seconds)
-        clips = clamp_clips_to_matches(clips, aligned, words)
-        progress("snapping", 1.0, "Snapped cuts")
-    clips = drop_overlapping_rejects(clips, clip_meta)
-    progress("grouping", 1.0, f"Matched {sum(1 for item in aligned.line_results if item.chosen)} lines")
-    progress("saving", 1.0, "Save clips")
+        progress("segmenting", 0.2, "Aligning script…")
+        lines = parse_script_lines(script)
+        aligned = align_script(
+            lines,
+            words,
+            match_threshold=options.script_match_threshold,
+            prefer_last_takes=options.script_prefer_last_takes,
+        )
+        clips, groups, clip_meta, group_meta, scores = build_scripted_clips(aligned, options)
+        if options.snap_to_audio and wav_path.is_file():
+            progress("snapping", 0.2, "Snapping cuts to the waveform…")
+            clips = snap_studio_clips(clips, wav_path, pad=options.pad, search=options.snap_search_seconds)
+            clips = clamp_clips_to_matches(clips, aligned, words)
+            progress("snapping", 1.0, "Snapped cuts")
+        clips = drop_overlapping_rejects(clips, clip_meta)
+        progress("grouping", 1.0, f"Matched {sum(1 for item in aligned.line_results if item.chosen)} lines")
+        progress("saving", 1.0, "Save clips")
 
     timings = [WordTiming(text=word.text, start=word.start, end=word.end) for word in words]
     selected = [clip for clip in clips if clip_meta.get(clip.id, {}).get("status") == "selected"]

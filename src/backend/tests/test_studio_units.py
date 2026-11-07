@@ -6,7 +6,7 @@ import pytest
 
 from app.schemas import ClipItem, SourceSegment
 from app.services.pipeline_log import PipelineContext
-from app.services.pipeline_progress import overall_progress
+from app.services.pipeline_progress import PHASE_WEIGHTS, overall_progress
 from app.services.studio.audio_stats import clip_audio_stats, clip_peaks
 from app.services.studio.clip_preview import slice_clip_audio
 from app.services.studio.common.project import ProjectAudio, StudioAnalysis
@@ -78,4 +78,5 @@ def test_analysis_payload_score_and_progress(tmp_path: Path) -> None:
     assert overall_progress("segmenting", 0.5) == pytest.approx(0.88)
     assert overall_progress("segmenting", 2.0) <= 1.0
     assert overall_progress("unknown", 0.5) == pytest.approx(0.5)
+    assert "extracting" in PHASE_WEIGHTS and "snapping" in PHASE_WEIGHTS and "saving" in PHASE_WEIGHTS
     assert ProjectAudio(source=tmp_path / "talk.wav", analysis_dir=tmp_path).analysis_dir == tmp_path

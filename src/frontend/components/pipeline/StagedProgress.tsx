@@ -2,7 +2,7 @@ import { Check, Circle, Loader2, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
-import { formatDuration } from "@/lib/format";
+import { formatDuration, formatElapsedHuman } from "@/lib/format";
 
 export type StagedProgressStep = {
   id: string;
@@ -10,6 +10,9 @@ export type StagedProgressStep = {
   status: "pending" | "active" | "done" | "error";
   stepProgress: number;
   message: string | null;
+  seconds?: number | null;
+  startedAt?: string | null;
+  stageStatus?: "pending" | "running" | "done" | "skipped" | "error" | "cancelled";
 };
 
 export function StagedProgress({
@@ -30,6 +33,7 @@ export function StagedProgress({
   children?: ReactNode;
 }) {
   const [elapsed, setElapsed] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (!startedAt) return;
@@ -38,6 +42,12 @@ export function StagedProgress({
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [startedAt]);
+
+  useEffect(() => {
+    if (!steps.some((step) => step.status === "active" && step.startedAt)) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [steps]);
 
   return (
     <main className="flex min-w-0 flex-1 flex-col items-center justify-center bg-background p-8">
@@ -67,6 +77,7 @@ export function StagedProgress({
           {steps.map((step, index) => {
             const isLast = index === steps.length - 1;
             const pct = Math.round(step.stepProgress * 100);
+            const duration = stepDurationLabel(step, nowMs);
             return (
               <li key={step.id} className="flex gap-3" data-testid="analysis-step" data-status={step.status} data-step={step.id}>
                 <div className="flex flex-col items-center">
@@ -94,7 +105,15 @@ export function StagedProgress({
                       {step.label}
                     </p>
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {step.status === "done" ? "100%" : step.status === "active" ? `${pct}%` : "—"}
+                      {duration
+                        ? step.status === "active"
+                          ? `${duration} · ${pct}%`
+                          : duration
+                        : step.status === "done"
+                          ? "100%"
+                          : step.status === "active"
+                            ? `${pct}%`
+                            : "—"}
                     </span>
                   </div>
                   {step.status === "active" ? (
@@ -121,6 +140,19 @@ export function StagedProgress({
       </div>
     </main>
   );
+}
+
+function stepDurationLabel(step: StagedProgressStep, nowMs: number): string | null {
+  if (step.stageStatus === "skipped") {
+    return `skipped ${formatElapsedHuman(step.seconds ?? 0) ?? "0 s"}`;
+  }
+  if (step.status === "pending") return null;
+  if (step.status === "active" && step.startedAt) {
+    const started = Date.parse(step.startedAt);
+    if (Number.isFinite(started)) return formatElapsedHuman((nowMs - started) / 1000);
+  }
+  if (step.seconds != null) return formatElapsedHuman(step.seconds);
+  return null;
 }
 
 function StepIcon({ status }: { status: "pending" | "active" | "done" | "error" }) {

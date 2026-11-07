@@ -573,4 +573,60 @@ describe("StudioWorkspace", () => {
     const failed = screen.queryAllByTestId("analysis-step").filter((node) => node.getAttribute("data-status") === "error");
     expect(failed).toEqual([]);
   });
+
+  it("hydrates completed stage durations from meta.analysisTimings on reload", async () => {
+    const running: StudioProject = {
+      ...project([]),
+      status: "analyzing",
+      lastPhase: "transcribing",
+      lastPhaseRatio: 0.4,
+      lastPhaseMessage: "Transcribing…",
+      meta: {
+        ...project([]).meta,
+        status: "analyzing",
+        statusMessage: "Starting analysis",
+        sourcePath: "/tmp/talk.mp4",
+        analysisTimings: {
+          startedAt: "2026-11-07T14:00:00.000Z",
+          finishedAt: null,
+          totalSeconds: 8,
+          pipeline: "transcript",
+          status: "running",
+          stages: [
+            {
+              id: "extracting",
+              label: "Extract audio",
+              startedAt: "2026-11-07T14:00:00.000Z",
+              finishedAt: "2026-11-07T14:00:08.000Z",
+              seconds: 8,
+              status: "done",
+              message: "Extracted audio",
+            },
+            {
+              id: "transcribing",
+              label: "Transcribe",
+              startedAt: "2026-11-07T14:00:08.000Z",
+              finishedAt: null,
+              seconds: 2,
+              status: "running",
+              message: "Transcribing…",
+            },
+          ],
+        },
+      },
+    };
+    getProject.mockResolvedValue(running);
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId("studio-analysis-stepper");
+    await waitFor(() => {
+      const extract = screen.getAllByTestId("analysis-step").find((node) => node.getAttribute("data-step") === "extracting");
+      expect(extract).toHaveTextContent("8 s");
+      expect(extract?.getAttribute("data-status")).toBe("done");
+    });
+  });
 });

@@ -20,6 +20,39 @@ describe("StagedProgress", () => {
     expect(screen.getByText("Transcribing…")).toBeInTheDocument();
   });
 
+  it("shows completed and skipped stage durations", () => {
+    render(
+      <StagedProgress
+        title="Analyzing"
+        message="Working"
+        progress={0.5}
+        steps={[
+          {
+            id: "a",
+            label: "Extract audio",
+            status: "done",
+            stepProgress: 1,
+            message: null,
+            seconds: 8,
+            stageStatus: "done",
+          },
+          {
+            id: "b",
+            label: "Transcribe",
+            status: "done",
+            stepProgress: 1,
+            message: "Reusing cached transcript",
+            seconds: 0,
+            stageStatus: "skipped",
+          },
+          { id: "c", label: "Save clips", status: "pending", stepProgress: 0, message: null },
+        ]}
+      />,
+    );
+    expect(screen.getByText("8 s")).toBeInTheDocument();
+    expect(screen.getByText("skipped 0 s")).toBeInTheDocument();
+  });
+
   it("renders an error step and message", () => {
     render(
       <StagedProgress

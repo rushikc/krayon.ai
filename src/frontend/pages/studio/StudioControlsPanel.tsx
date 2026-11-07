@@ -7,7 +7,7 @@ import { FieldLabel } from "@/components/ui/field-label";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getToolsStatus } from "@/lib/api/client";
-import type { ConfirmationItem, StudioSettings } from "@/lib/api/studio-client";
+import type { AnalysisTimings, ConfirmationItem, StudioSettings } from "@/lib/api/studio-client";
 import { countScriptLines } from "@/lib/studio-clip";
 import { formatDuration, formatProgressLabel, formatSize, formatElapsedHuman } from "@/lib/format";
 import { STUDIO_LANGUAGES } from "@/lib/studio-analysis-steps";
@@ -66,6 +66,7 @@ export function StudioControlsPanel({
   analysisBusy,
   analysisMessage,
   analysisDurationSeconds,
+  analysisTimings,
   onAnalyze,
   onRebuild,
   script,
@@ -104,6 +105,7 @@ export function StudioControlsPanel({
   analysisBusy: boolean;
   analysisMessage?: string | null;
   analysisDurationSeconds?: number | null;
+  analysisTimings?: AnalysisTimings | null;
   onAnalyze: () => void;
   onRebuild: (pipeline?: "scripted" | "transcript") => void;
   script: string;
@@ -316,9 +318,38 @@ export function StudioControlsPanel({
 
         <section className="space-y-2 rounded-xl border border-border bg-card/50 p-4">
           {analysisDurationLabel && !analysisBusy ? (
-            <p className="text-xs text-muted-foreground" data-testid="analysis-duration">
-              {studioCopy.analysisTook(analysisDurationLabel)}
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground" data-testid="analysis-duration">
+                {studioCopy.analysisTook(analysisDurationLabel)}
+              </p>
+              {analysisTimings?.stages?.length ? (
+                <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 text-xs text-muted-foreground" data-testid="analysis-timings">
+                  {analysisTimings.stages.map((stage) => {
+                    const duration = formatElapsedHuman(stage.seconds) ?? "0 s";
+                    const value =
+                      stage.status === "skipped"
+                        ? `skipped ${duration}`
+                        : stage.status === "pending"
+                          ? "—"
+                          : duration;
+                    return (
+                      <div key={stage.id} className="contents">
+                        <dt className={stage.status === "error" ? "truncate text-destructive" : "truncate"}>{stage.label}</dt>
+                        <dd
+                          className={
+                            stage.status === "error"
+                              ? "shrink-0 text-right tabular-nums text-destructive"
+                              : "shrink-0 text-right tabular-nums"
+                          }
+                        >
+                          {value}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              ) : null}
+            </div>
           ) : null}
           {analysisMessage ? <p className="text-xs text-muted-foreground">{analysisMessage}</p> : null}
           <TooltipProvider>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyStudioPhase, initialStudioSteps, studioStepDefs } from "@/lib/studio-analysis-steps";
+import { applyStudioPhase, applyTimingsToSteps, initialStudioSteps, studioStepDefs } from "@/lib/studio-analysis-steps";
 
 describe("studio analysis steps", () => {
   it("maps transcript and scripted labels and optional snap", () => {
@@ -31,5 +31,39 @@ describe("studio analysis steps", () => {
     expect(steps[0]?.status).toBe("done");
     expect(steps[1]?.status).toBe("done");
     expect(steps[1]?.message).toMatch(/cached transcript/i);
+  });
+
+  it("copies completed stage seconds from analysisTimings without resetting them", () => {
+    const steps = applyStudioPhase(initialStudioSteps("transcript", true), "transcribing", 0.4, "Transcribing…");
+    const next = applyTimingsToSteps(steps, {
+      startedAt: "2026-11-07T14:00:00.000Z",
+      finishedAt: null,
+      totalSeconds: 8,
+      pipeline: "transcript",
+      status: "running",
+      stages: [
+        {
+          id: "extracting",
+          label: "Extract audio",
+          startedAt: "2026-11-07T14:00:00.000Z",
+          finishedAt: "2026-11-07T14:00:08.000Z",
+          seconds: 8,
+          status: "done",
+          message: "Extracted audio",
+        },
+        {
+          id: "transcribing",
+          label: "Transcribe",
+          startedAt: "2026-11-07T14:00:08.000Z",
+          finishedAt: null,
+          seconds: 2.1,
+          status: "running",
+          message: "Transcribing…",
+        },
+      ],
+    });
+    expect(next.find((step) => step.id === "extracting")?.seconds).toBe(8);
+    expect(next.find((step) => step.id === "transcribing")?.startedAt).toBe("2026-11-07T14:00:08.000Z");
+    expect(next.find((step) => step.id === "transcribing")?.stageStatus).toBe("running");
   });
 });
