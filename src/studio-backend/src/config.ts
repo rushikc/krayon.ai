@@ -36,7 +36,7 @@ export function loadConfig(): StudioConfig {
     host: env("KRAYON_STUDIO_HOST") ?? toml.host ?? "127.0.0.1",
     port: Number(env("KRAYON_STUDIO_PORT") ?? toml.port ?? 8789),
     corsOrigins: env("KRAYON_STUDIO_CORS_ORIGINS")?.split(",") ??
-      toml.cors_origins ?? ["http://localhost:5173", "http://127.0.0.1:5173"],
+      toml.cors_origins ?? ["http://localhost:5175", "http://127.0.0.1:5175", "http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:5173", "http://127.0.0.1:5173"],
     pythonBase: env("KRAYON_STUDIO_PYTHON") ?? toml.python_base ?? "http://127.0.0.1:8000",
     projectsDir: path.resolve(projects),
   };

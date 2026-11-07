@@ -65,6 +65,7 @@ export function WorkspaceToolRow({
   previewAudioMuted,
   onMutedChange,
   onUploadAudio,
+  allowAudioUpload = true,
 }: {
   sideView: WorkspaceSideView;
   onSideViewChange: (view: WorkspaceSideView) => void;
@@ -75,6 +76,7 @@ export function WorkspaceToolRow({
   previewAudioMuted: boolean;
   onMutedChange: (muted: boolean) => void;
   onUploadAudio: (file: File) => void;
+  allowAudioUpload?: boolean;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
@@ -130,6 +132,7 @@ export function WorkspaceToolRow({
           muted={previewAudioMuted}
           onMutedChange={onMutedChange}
           onUploadAudio={onUploadAudio}
+          allowUpload={allowAudioUpload}
         />
         <ComingSoonButton compact={compact} label="Zoom" icon={ZoomIn} />
         <div className="ml-auto shrink-0">
@@ -312,11 +315,13 @@ function AudioPopover({
   muted,
   onMutedChange,
   onUploadAudio,
+  allowUpload,
 }: {
   compact: boolean;
   muted: boolean;
   onMutedChange: (muted: boolean) => void;
   onUploadAudio: (file: File) => void;
+  allowUpload: boolean;
 }) {
   const audioInputRef = useRef<HTMLInputElement>(null);
 
@@ -346,24 +351,28 @@ function AudioPopover({
           {compact ? null : <span className="text-xs font-normal">Audio</span>}
         </PopoverTrigger>
         <PopoverContent align="start" className="w-56">
-          <input
-            ref={audioInputRef}
-            type="file"
-            accept={PREVIEW_AUDIO_ACCEPT}
-            aria-hidden="true"
-            tabIndex={-1}
-            className="sr-only"
-            onChange={onAudioFileChange}
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => audioInputRef.current?.click()}
-          >
-            <Upload />
-            Upload audio
-          </Button>
+          {allowUpload ? (
+            <>
+              <input
+                ref={audioInputRef}
+                type="file"
+                accept={PREVIEW_AUDIO_ACCEPT}
+                aria-hidden="true"
+                tabIndex={-1}
+                className="sr-only"
+                onChange={onAudioFileChange}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => audioInputRef.current?.click()}
+              >
+                <Upload />
+                Upload audio
+              </Button>
+            </>
+          ) : null}
           <Button
             type="button"
             size="sm"

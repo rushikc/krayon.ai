@@ -442,6 +442,10 @@ export async function readCuts(dir: string): Promise<Cuts> {
   return normalizeCuts(raw);
 }
 
+export async function saveCuts(dir: string, cuts: Cuts): Promise<void> {
+  await writeJson(path.join(dir, "cuts.json"), normalizeCuts(cuts));
+}
+
 export async function listProjects(root: string): Promise<Meta[]> {
   await mkdir(root, { recursive: true });
   const names = await readdir(root, { withFileTypes: true });
@@ -598,9 +602,10 @@ export async function moveHistory(dir: string, meta: Meta, direction: "undo" | "
   if (direction === "redo" && target > meta.head) {
     throw new Error("Nothing to redo");
   }
+  const liveDraft = (await readCuts(dir)).canvasDraft;
   if (target === 0) {
     meta.revision = 0;
-    const cuts = emptyCuts();
+    const cuts = { ...emptyCuts(), canvasDraft: liveDraft };
     await writeJson(path.join(dir, "cuts.json"), cuts);
     await restoreScript(dir, meta.scriptOriginal);
     meta.scriptLineCount = countScriptLines(meta.scriptOriginal);
@@ -609,13 +614,14 @@ export async function moveHistory(dir: string, meta: Meta, direction: "undo" | "
   }
   const entry = await readHistory(dir, target);
   meta.revision = target;
-  await writeJson(path.join(dir, "cuts.json"), entry.cuts);
+  const cuts = { ...entry.cuts, canvasDraft: liveDraft };
+  await writeJson(path.join(dir, "cuts.json"), cuts);
   await restoreScript(dir, entry.script);
   if (entry.script !== undefined) {
     meta.scriptLineCount = countScriptLines(entry.script ?? "");
   }
   await saveMeta(dir, meta);
-  return entry.cuts;
+  return cuts;
 }
 
 export async function currentFile(root: string): Promise<string | null> {

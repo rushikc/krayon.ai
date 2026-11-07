@@ -2,7 +2,7 @@
 
 Studio turns one long talking-head recording into a single video made of the chosen takes. The browser, the `krayon` CLI, and Grok all edit the same cut list. Nothing is uploaded.
 
-Canvas animation is not part of this phase. `cuts.json` keeps an empty `canvasDraft` for later.
+After audio is ready, **2 Video** opens the shared rushk reel editor at `/studio/:slug/video`. `cuts.json` `canvasDraft` stores the chosen diagram reel as `{ version: 2, reelId }` (version 1 `{ elements: [] }` still loads as an empty picker).
 
 ## Folders
 
@@ -137,13 +137,15 @@ All project routes are under `/api/studio/projects/:slug`. Send `X-Krayon-Actor:
 - `GET /api/studio/projects/check-name?name=` — `{ available, reason? }`
 - `DELETE /api/studio/projects/:slug` — `{ deleted }`. Cancels analyze/render first. 404 unknown, 400 bad slug. Does not touch the original source video.
 - `DELETE /api/studio/projects` — body or query `{ confirm: "delete-all" }`. Returns `{ deleted, skipped }`.
-- `GET /projects/:slug` — clips, groups, order, revision, history, `hasTranscript` when `analysis/words.json` exists, plus `lastPhase` / `analysisStartedAt` for the stepper, and `meta.analysisTimings` after an analyze/rebuild run
+- `GET /projects/:slug` — clips, groups, order, `canvasDraft`, revision, history, `hasTranscript` when `analysis/words.json` exists, plus `lastPhase` / `analysisStartedAt` for the stepper, and `meta.analysisTimings` after an analyze/rebuild run
 - `POST /projects/:slug/import` — `{ "path" }` or a multipart file streamed to `imported/`
 - `POST /projects/:slug/analyze` — Studio Analyze audio. Optional `pipeline`: `auto` (default), `transcript`, or `scripted`. Optional `language` overrides `meta.settings.language` (`auto` lets Whisper detect). Creating a project and importing a video auto-starts this once the project screen opens. Progress phases: `extracting`, `transcribing`, `segmenting`, `grouping`, `snapping` (when snap is on), `saving`. A second analyze while `status` is `analyzing` returns HTTP 409 `{ "error": "busy", "code": "analysis_running", "message": "Analysis is already running" }`. The UI attaches to the running job instead of treating that as a failed step.
 - `POST /projects/:slug/analyze/cancel` — stop the Python job, keep `analysis/source.wav` and any partial `words.json`, set status to `empty` (or `ready` if clips already exist) with message `Analysis cancelled`.
 - `GET /projects/:slug/clips?group=&label=&status=`
 - `GET /projects/:slug/clips/:id` — words, neighbours, group mates, reasons
 - `GET /projects/:slug/clips/:id/audio.wav?pad=0.5`
+- `GET /projects/:slug/cut-audio.wav` — concatenated selected-order clip audio, `pad=0`
+- `PATCH /projects/:slug/canvas-draft` — `{ version: 2, reelId }` (null/empty reelId shows the picker)
 - `GET /projects/:slug/clips/:id/peaks?buckets=800` — `{ duration, peaks: [min, max, …] }` in -1..1, cached per clip id + revision + pad
 - `GET /projects/:slug/clips/:id/transcript`
 - `GET /projects/:slug/clips/:id/frame.png?at=`

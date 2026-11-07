@@ -27,6 +27,8 @@ export const studioCopy = {
   stepAudio: "1 Audio",
   stepVideo: "2 Video",
   comingSoon: "Coming soon",
+  openVisuals: "Open visuals",
+  continueToVisuals: "Continue to visuals",
   clips: "Clips",
   accepted: "Accepted",
   notAccepted: "Not accepted",

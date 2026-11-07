@@ -102,6 +102,9 @@ export async function listenStudio() {
       state.release?.();
       return json({ status: "cancelled" });
     }
+    if (url.includes("/clip-audio")) {
+      return new Response(Buffer.from("RIFFWAV"), { status: 200, headers: { "content-type": "audio/wav" } });
+    }
     if (url.includes("/analyze/async") || url.includes("/reanalyze/async")) return json({ jobId: "job-1" });
     if (url.includes("/progress/")) return progressResponse(state);
     return json({ ok: true });

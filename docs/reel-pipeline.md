@@ -9,13 +9,13 @@ Nothing is stored in the cloud except the script, scene JSON, and keyframe image
 ```bash
 pnpm install
 pnpm reel-backend          # http://127.0.0.1:8788
-pnpm dev                   # frontend :5173 + Python :8000 + reel :8788 + studio :8789
+pnpm dev                   # frontend :5174 + Python :8000 + reel :8788 + studio :8789
 pnpm dev:all               # same as pnpm dev
 ```
 
 Vite proxies `/api/reel` to `127.0.0.1:8788`, `/api/studio` to `127.0.0.1:8789`, and `/api` to the Python app on port 8000.
 
-Package: [`src/reel-backend/`](../src/reel-backend/) (`@krayon/reel-backend`). Bind address is **127.0.0.1 only**. CORS origins: `http://localhost:5173`, `http://127.0.0.1:5173`.
+Package: [`src/reel-backend/`](../src/reel-backend/) (`@krayon/reel-backend`). Bind address is **127.0.0.1 only**. CORS origins: `http://localhost:5174`, `http://127.0.0.1:5174`.
 
 ## Architecture
 

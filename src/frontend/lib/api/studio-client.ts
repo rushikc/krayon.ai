@@ -93,6 +93,7 @@ export type StudioProject = {
   clips: StudioClip[];
   groups: StudioGroup[];
   order: string[];
+  canvasDraft?: { version: 1; elements: unknown[] } | { version: 2; reelId: string };
   history: HistoryItem[];
 };
 
@@ -383,6 +384,18 @@ export function eventsUrl(slug: string) {
 
 export function audioUrl(slug: string, id: string, pad = 0.5) {
   return `${API}/projects/${slug}/clips/${id}/audio.wav?pad=${pad}`;
+}
+
+export function cutAudioUrl(slug: string, revision?: number) {
+  const params = revision != null ? `?rev=${revision}` : "";
+  return `${API}/projects/${slug}/cut-audio.wav${params}`;
+}
+
+export function updateCanvasDraft(slug: string, reelId: string | null) {
+  return request<{ canvasDraft: { version: 2; reelId: string } }>(`/projects/${slug}/canvas-draft`, {
+    method: "PATCH",
+    body: JSON.stringify({ version: 2, reelId }),
+  });
 }
 
 export function peaksUrl(slug: string, id: string, buckets = 800, pad?: number) {

@@ -3,6 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+const fixed = process.env.KRAYON_FIXED === "1";
+
 export default defineConfig({
   root: "src/frontend",
   plugins: [react(), tailwindcss()],
@@ -13,7 +15,10 @@ export default defineConfig({
   },
   publicDir: path.resolve(__dirname, "public"),
   server: {
-    port: 5173,
+    port: 5174,
+    strictPort: true,
+    hmr: fixed ? false : undefined,
+    watch: fixed ? null : undefined,
     proxy: {
       "/api/reel": {
         target: "http://127.0.0.1:8788",

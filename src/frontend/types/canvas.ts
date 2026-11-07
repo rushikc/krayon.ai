@@ -65,7 +65,19 @@ export interface NumberNode {
   time: ElementTime;
 }
 
-export type CanvasElement = BoxNode | ArrowNode | NumberNode;
+export interface DiagramNode {
+  id: string;
+  type: "diagram";
+  cardId: string;
+  step: number;
+  at: number;
+  title: string;
+  caption: string;
+  pngUrl: string;
+  time: ElementTime;
+}
+
+export type CanvasElement = BoxNode | ArrowNode | NumberNode | DiagramNode;
 
 export function isBoxNode(element: CanvasElement): element is BoxNode {
   return element.type === "box";
@@ -79,12 +91,23 @@ export function isNumberNode(element: CanvasElement): element is NumberNode {
   return element.type === "number";
 }
 
+export function isDiagramNode(element: CanvasElement): element is DiagramNode {
+  return element.type === "diagram";
+}
+
 export function getElementLabel(element: CanvasElement): string {
   if (isBoxNode(element)) {
     return element.label;
   }
   if (isNumberNode(element)) {
     return String(element.value);
+  }
+  if (isDiagramNode(element)) {
+    const caption = element.caption.trim();
+    if (caption) {
+      return caption;
+    }
+    return `${element.cardId} · step ${String(element.step).padStart(2, "0")}`;
   }
   return `${element.sourceId} → ${element.targetId}`;
 }

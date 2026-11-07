@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, createJob, refineJob, subscribeToJob } from "@/lib/api/reel-client";
+import { ApiError, createJob, diagramPngUrl, refineJob, subscribeToJob } from "@/lib/api/reel-client";
 import { setGeminiApiKey, clearGeminiApiKey } from "@/lib/gemini-key";
 import type { ErrorCode, JobState, ReelEvent } from "@/types/reel-pipeline";
 import { friendlyErrorMessage, isErrorCode } from "@/types/reel-pipeline";
@@ -76,6 +76,12 @@ describe("reel-client", () => {
       });
       expect(isErrorCode(code)).toBe(true);
     }
+  });
+
+  it("builds diagram png urls without a Gemini key", () => {
+    expect(diagramPngUrl("_examples/uber-ttl", "redis-dynamo", 3)).toBe(
+      "/api/reel/diagrams/png?reel=_examples%2Fuber-ttl&card=redis-dynamo&step=3",
+    );
   });
 
   it("throws UNAUTHORIZED without calling fetch when the key is missing", async () => {

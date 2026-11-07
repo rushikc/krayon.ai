@@ -39,6 +39,10 @@ test("reel page loads, chat asks for a key, timeline edit opens, and fulfilled j
       await route.fulfill({ json: { ok: true, service: "reel-backend" } });
       return;
     }
+    if (url.includes("/diagrams")) {
+      await route.fulfill({ json: { reels: [] } });
+      return;
+    }
     if (url.endsWith("/jobs") && route.request().method() === "GET") {
       await route.fulfill({ json: { jobs: [] } });
       return;
@@ -64,11 +68,7 @@ test("reel page loads, chat asks for a key, timeline edit opens, and fulfilled j
   await page.keyboard.press("Escape");
 
   await page.getByRole("tab", { name: "Timeline" }).click();
-  const block = page.locator('[data-segment-type="box"]').filter({ hasText: "Client" }).locator('[tabindex="0"]');
-  await block.click();
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("rushk-stage")).toBeVisible();
 
   await page.evaluate(() => localStorage.setItem("krayon-reel-thread-ids", JSON.stringify(["job-valid"])));
   await page.reload();

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import type { ReelConfig } from "./config.js";
+import { diagramMeta, diagramPng, listDiagramReels } from "./diagram/http.js";
 import { AppError, httpErrorBody } from "./errors.js";
 import type { EventHub } from "./events.js";
 import type { JobRunner } from "./jobs.js";
@@ -30,6 +31,45 @@ export function registerRoutes(
   const { store, runner, hub, config } = deps;
 
   app.get("/api/reel/health", async () => ({ ok: true, service: "reel-backend" }));
+
+  app.get("/api/reel/diagrams", async (_req, reply) => {
+    try {
+      return listDiagramReels(config.diagram.diagramsDir);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.get("/api/reel/diagrams/meta", async (req, reply) => {
+    try {
+      const reel = (req.query as { reel?: string }).reel;
+      if (typeof reel !== "string" || reel.trim() === "") {
+        throw new AppError("BAD_REQUEST", "reel is required");
+      }
+      return diagramMeta(config.diagram.diagramsDir, reel);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.get("/api/reel/diagrams/png", async (req, reply) => {
+    try {
+      const query = req.query as { reel?: string; card?: string; step?: string };
+      if (typeof query.reel !== "string" || query.reel.trim() === "") {
+        throw new AppError("BAD_REQUEST", "reel is required");
+      }
+      if (typeof query.card !== "string" || query.card.trim() === "") {
+        throw new AppError("BAD_REQUEST", "card is required");
+      }
+      const step = Number(query.step);
+      const file = diagramPng(config.diagram.diagramsDir, query.reel, query.card, step);
+      const buf = readFileSync(file);
+      return reply.type("image/png").send(buf);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
 
   app.post("/api/reel/jobs", async (req, reply) => {
     try {

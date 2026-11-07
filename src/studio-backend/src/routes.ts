@@ -50,6 +50,7 @@ import {
   projectExists,
   readCuts,
   readHistory,
+  saveCuts,
   readJobCheckpoint,
   readMeta,
   readScript,
@@ -840,6 +841,53 @@ export function registerRoutes(
     const clip = cuts.clips.find((item) => item.id === id);
     if (!clip) throw new OpError([{ clipId: id, field: "id", message: `Unknown clip ${id}` }]);
     return { id: clip.id, text: clip.text, words: clip.words };
+  });
+
+  app.patch("/api/studio/projects/:slug/canvas-draft", async (request) => {
+    const { slug } = request.params as { slug: string };
+    const body = z
+      .object({
+        version: z.literal(2),
+        reelId: z.string().nullable(),
+      })
+      .parse(request.body ?? {});
+    return withLock(slug, async () => {
+      const { dir, cuts } = await load(root, slug);
+      cuts.canvasDraft = { version: 2, reelId: body.reelId?.trim() ?? "" };
+      await saveCuts(dir, cuts);
+      return { canvasDraft: cuts.canvasDraft };
+    });
+  });
+
+  app.get("/api/studio/projects/:slug/cut-audio.wav", async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const { dir, cuts } = await load(root, slug);
+    const selected = cuts.order
+      .map((id) => cuts.clips.find((clip) => clip.id === id))
+      .filter((clip): clip is Clip => clip != null && clip.status === "selected");
+    if (selected.length === 0) {
+      throw new OpError([{ clipId: null, field: "order", message: "No selected clips" }]);
+    }
+    const cacheDir = path.join(dir, "analysis", "previews");
+    const cachePath = path.join(cacheDir, `cut-r${cuts.revision}-p0.wav`);
+    try {
+      await stat(cachePath);
+    } catch {
+      const wav = path.join(dir, "analysis", "source.wav");
+      const ranges = selected
+        .flatMap((clip) => playRanges(clip))
+        .map((range) => `${range.sourceStart},${range.sourceEnd}`)
+        .join(";");
+      const url = new URL("/api/audio-studio/clip-audio", python);
+      url.searchParams.set("wav", wav);
+      url.searchParams.set("ranges", ranges);
+      url.searchParams.set("pad", "0");
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(await response.text());
+      await mkdir(cacheDir, { recursive: true });
+      await writeFile(cachePath, Buffer.from(await response.arrayBuffer()));
+    }
+    return sendFile(request, reply, cachePath, "audio/wav");
   });
 
   app.get("/api/studio/projects/:slug/clips/:id/audio.wav", async (request, reply) => {

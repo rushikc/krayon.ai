@@ -60,14 +60,14 @@ pnpm dev
 **One process at a time**
 
 ```bash
-pnpm frontend        # Vite, http://localhost:5173
+pnpm frontend        # Vite, http://localhost:5174
 pnpm backend         # FastAPI audio, :8000
 pnpm reel-backend    # Fastify reel pipeline, 127.0.0.1:8788
 pnpm studio-backend  # Fastify studio API, 127.0.0.1:8789
 pnpm studio:doctor   # studio + python + ffmpeg + av + Whisper checks
 ```
 
-`pnpm dev:all` is the same as `pnpm dev`. Open **http://localhost:5173**. Vite proxies `/api/reel` to port 8788, `/api/studio` to port 8789, and `/api` to the FastAPI server on port 8000.
+`pnpm dev:all` is the same as `pnpm dev`. Open **http://localhost:5174**. Vite proxies `/api/reel` to port 8788, `/api/studio` to port 8789, and `/api` to the FastAPI server on port 8000.
 
 ## First use
 

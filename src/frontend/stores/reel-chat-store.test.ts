@@ -62,6 +62,7 @@ beforeEach(() => {
     keyDialogOpen: false,
     pendingSend: null,
     hydrating: false,
+    diagramLocked: false,
   });
   vi.mocked(reelClient.createJob).mockReset();
   vi.mocked(reelClient.refineJob).mockReset();
@@ -159,6 +160,31 @@ describe("reel chat store", () => {
     expect(useCanvasStore.getState().selectedId).toBeNull();
     expect(useCanvasStore.getState().currentTime).toBe(0);
     useCanvasStore.getState().undo();
+    expect(useCanvasStore.getState().elements).toEqual(before);
+  });
+
+  it("does not replace diagram elements while a diagram reel is loaded", () => {
+    const done = job({
+      status: "done",
+      result: { scene, scores: null, round: 1 },
+      rounds: [
+        {
+          n: 1,
+          scene,
+          scores: null,
+          pass: true,
+          issues: [],
+          keyframes: [],
+        },
+      ],
+    });
+    useReelChatStore.setState({
+      jobIds: ["job-1"],
+      jobsById: { "job-1": done },
+      diagramLocked: true,
+    });
+    const before = useCanvasStore.getState().elements;
+    expect(useReelChatStore.getState().applyRound("job-1", 1)).toBe(false);
     expect(useCanvasStore.getState().elements).toEqual(before);
   });
 

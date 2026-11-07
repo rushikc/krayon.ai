@@ -8,7 +8,8 @@ Local talking-head editor: Whisper transcription, silence cuts, retake grouping,
 pnpm install
 pnpm dev            # frontend + Python audio + reel Fastify + studio Fastify
 pnpm dev:all        # same as pnpm dev
-pnpm frontend       # Vite only, http://localhost:5173
+pnpm frontend       # Vite only, http://localhost:5174
+pnpm fixed          # same stack as pnpm dev, Vite on 5175, no reload (`npm run fixed`)
 pnpm backend        # FastAPI audio only
 pnpm reel-backend   # Fastify reel pipeline, 127.0.0.1:8788
 pnpm studio-backend # Fastify studio API, 127.0.0.1:8789

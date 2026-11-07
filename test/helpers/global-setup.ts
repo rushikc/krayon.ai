@@ -1,5 +1,5 @@
 const checks: Array<[string, string]> = [
-  ["Vite frontend", process.env.E2E_BASE_URL ?? "http://localhost:5173"],
+  ["Vite frontend", process.env.E2E_BASE_URL ?? "http://localhost:5174"],
   ["Studio backend", "http://127.0.0.1:8789/api/studio/health"],
 ];
 

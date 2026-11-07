@@ -169,12 +169,19 @@ export function cssValueNeedsRgbFallback(value: string): boolean {
   return UNSAFE_CSS_COLOR.test(value);
 }
 
+function isRushkStage(element: HTMLElement) {
+  return element.hasAttribute("data-reel-stage") && !element.hasAttribute("data-render-theme");
+}
+
 function designForElement(element: HTMLElement) {
   const theme = element.getAttribute("data-render-theme");
   return getCanvasDesign(isRenderTheme(theme) ? theme : "bright");
 }
 
 function captureBackground(element: HTMLElement): string {
+  if (isRushkStage(element)) {
+    return "#000000";
+  }
   return designForElement(element).exportBackground;
 }
 
@@ -292,8 +299,9 @@ async function snapshotReel(
 
   const { toCanvas } = await import("html-to-image");
   const pixelRatio = Math.max(EXPORT_WIDTH / width, EXPORT_HEIGHT / height);
-  const design = designForElement(element);
-  const backgroundColor = design.exportBackground;
+  const rushk = isRushkStage(element);
+  const design = rushk ? null : designForElement(element);
+  const backgroundColor = rushk ? "#000000" : design!.exportBackground;
 
   return withForeignObjectSafeStyles(element, () =>
     toCanvas(element, {
@@ -301,13 +309,15 @@ async function snapshotReel(
       backgroundColor,
       cacheBust: false,
       skipAutoScale: true,
-      style: {
-        backgroundColor,
-        backgroundImage: design.exportBackgroundImage,
-        backgroundSize: design.exportBackgroundSize,
-        backgroundPosition: design.exportBackgroundPosition,
-        backgroundRepeat: design.exportBackgroundRepeat,
-      },
+      style: rushk
+        ? { backgroundColor }
+        : {
+            backgroundColor,
+            backgroundImage: design!.exportBackgroundImage,
+            backgroundSize: design!.exportBackgroundSize,
+            backgroundPosition: design!.exportBackgroundPosition,
+            backgroundRepeat: design!.exportBackgroundRepeat,
+          },
     }),
   );
 }

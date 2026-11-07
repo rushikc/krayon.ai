@@ -6,9 +6,10 @@ Krayon uses a home screen with three product tiles: an **audio library** and **e
 
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/` | Home | Three tiles: Audio analysis, Reel animations (“Coming soon”), Studio |
+| `/` | Home | Three tiles: Audio analysis, Reel animations (9:16 diagram reels), Studio |
 | `/audio` | Dashboard | Folder + video library, preview, metadata |
-| `/reel-animations` | Reel animations | 9:16 canvas, compact timeline, and reel-assistant chat |
+| `/reel-animations`, `/reel-animations/*` | Reel animations | Shared 9:16 rushk workspace (Timeline \| Chat). Nested reel ids such as `/reel-animations/_examples/uber-ttl` |
+| `/studio/:slug/video` | Studio visuals | Same rushk workspace with Studio-cut audio and the Audio / Video step chrome |
 | `/editor/:mediaId` | Editor | Single-video processing workspace |
 | `/studio` | Studio landing | Project name, video path, optional Script box, recent projects |
 | `/studio/:slug` | Studio workspace | Clip list, waveform editor, preview tabs, controls, confirmation tray |
@@ -21,6 +22,8 @@ flowchart LR
   Audio -->|"Open in editor"| Editor["/editor/:mediaId"]
   Editor -->|"Back to library"| Audio
   Studio -->|"Open project"| Workspace["/studio/:slug"]
+  Workspace -->|"2 Video"| Visuals["/studio/:slug/video"]
+  Visuals -->|"1 Audio"| Workspace
   Workspace -->|"Back to library"| Studio
 ```
 
@@ -35,7 +38,7 @@ flowchart LR
 
 ## Home layout
 
-Three tiles in a row from `sm` up: **Audio analysis** (silence removal & clip grouping), **Reel animations** (subtitle “Coming soon”), **Studio** (pick the best takes from a long recording).
+Three tiles in a row from `sm` up: **Audio analysis** (silence removal & clip grouping), **Reel animations** (9:16 diagram reels), **Studio** (pick the best takes from a long recording).
 
 ## Reel animations layout
 
@@ -53,10 +56,10 @@ Portrait reels only (9:16). No landscape editor.
 ```
 
 - **Top bar (~44px)** — Home, editable project name, app light/dark toggle, Export (solid primary).
-- **Far left** — 9:16 canvas, always exactly 9:16. Size is `min(stage width, stage height × 9/16, 45% of the workspace)` with a 220px preferred minimum; on a short window it scales down. Explicit pixel width/height; the left column is the fitted reel plus padding. Compact playbar underneath.
+- **Far left** — 9:16 rushk stage (black frame, HTML title/caption, review PNG), always exactly 9:16. The legacy box/number/arrow `Canvas` is not this destination. Size is `min(stage width, stage height × 9/16, 45% of the workspace)` with a 220px preferred minimum; on a short window it scales down. Explicit pixel width/height; the left column is the fitted reel plus padding. Compact playbar underneath.
 - **Right column** — remaining width. The tool row’s primary control is a large `Timeline | Chat` tab switch (Cmd/Ctrl+K toggles). Secondary ghost tools follow: Canvas, Takes, Captions, Audio, Zoom, then Settings right-aligned. Takes, Captions, and Zoom are disabled (“Coming soon”). Below ~900px, tool labels collapse to icons.
 - **Timeline view** — existing tracks, full width, compact rows. Double-click (or Enter on a focused block) opens an **Edit element** modal with the same Config fields as before. Save is one undo step; Cancel / Escape discards; a dirty dialog ignores outside clicks. There is no Config/JSON inspector on the page.
-- **Chat view** — reel assistant wired to `POST /api/reel/jobs` (script) and refine. Apply writes through `setElements` (undoable). The reel preview stays visible on the left with the same sizing.
+- **Chat view** — reel assistant still talks to `POST /api/reel/jobs`. While a diagram reel is loaded, Apply does not replace the diagram timeline.
 - The chosen Timeline | Chat view is persisted in `localStorage` (`krayon-workspace-side-view`). Default is Timeline.
 - **Gemini key** lives in the first-party cookie `krayon_gemini_api_key` (`SameSite=Strict`, not `HttpOnly`) and is sent only as `X-Gemini-Api-Key` on create/refine. Never localStorage.
 
@@ -68,8 +71,8 @@ Portrait reels only (9:16). No landscape editor.
 
 - **Clip list** — single click opens the clip. Double click collapses that group. Collapse all / Expand all toggles every visible group.
 - **Preview** — tabs for clip audio, rendered video, and full source. Undo and Redo sit on that tabs row. The waveform playhead (`waveform-playhead`) tracks the padded clip audio. While analyzing, this column shows a staged vertical stepper (overall bar, elapsed time, per-step spinner/check/X).
-- **Header** — Audio / Video steps, then a Delete project control.
-- **Controls** — Analyze, Rebuild (with script / without script when a script exists), View transcript (one scrollable wrapping dialog; click a word to open its clip), and the confirmation tray for the oldest pending ask. The text status line still updates during analysis.
+- **Header** — Audio / Video steps (Video enabled when status is ready and a selection exists), then a Delete project control. Video navigates to `/studio/:slug/video`.
+- **Controls** — Analyze, Rebuild, Continue to visuals (when ready), View transcript, and the confirmation tray.
 
 ### App chrome tokens (Velo-like)
 

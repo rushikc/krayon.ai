@@ -87,7 +87,9 @@ describe("studio client", () => {
     expect(client.sourceUrl("demo")).toBe("/api/studio/projects/demo/media/source");
     expect(client.outputUrl("demo", "final 1.mp4")).toContain("final%201.mp4");
     expect(client.eventsUrl("demo")).toBe("/api/studio/projects/demo/events");
+    await client.updateCanvasDraft("demo", "_examples/uber-ttl");
     expect(client.audioUrl("demo", "c-0001", 0.25)).toContain("pad=0.25");
+    expect(client.cutAudioUrl("demo", 4)).toContain("cut-audio.wav?rev=4");
     expect(client.peaksUrl("demo", "c-0001", 40, 0.2)).toContain("buckets=40");
   });
 

@@ -191,8 +191,8 @@ async function renderScene(payload: {
       exportWithDarkMode: false,
     },
     getDimensions: (width: number, height: number) => ({
-      width,
-      height,
+      width: width * payload.scale,
+      height: height * payload.scale,
       scale: payload.scale,
     }),
   });

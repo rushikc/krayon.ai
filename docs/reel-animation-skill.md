@@ -627,7 +627,7 @@ Check every item before you answer.
 
 ## 14. How the user applies your output
 
-1. Open `http://localhost:5173/reel-animations`.
+1. Open `http://localhost:5174/reel-animations`.
 2. In the right inspector, click the **JSON** tab.
 3. Select all existing JSON, paste the new array over it.
 4. Press **Cmd/Ctrl+Enter** (or click outside the textarea) to apply.

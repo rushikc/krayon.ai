@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 /**
  * End-to-end tests for Krayon Studio. They run against the dev servers you already
- * have up (`pnpm dev`): Vite on 5173, studio backend on 8789 and the Python audio
+ * have up (`pnpm dev`): Vite on 5174, studio backend on 8789 and the Python audio
  * backend on 8000. See test/README.md.
  */
 export default defineConfig({
@@ -18,7 +18,7 @@ export default defineConfig({
   snapshotPathTemplate: "{testDir}/__screenshots__/{testFilePath}/{arg}{ext}",
   globalSetup: "./helpers/global-setup.ts",
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:5173",
+    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:5174",
     // Uses the Google Chrome already installed on the machine, so no browser download.
     channel: process.env.E2E_CHANNEL ?? "chrome",
     viewport: { width: 1440, height: 900 },

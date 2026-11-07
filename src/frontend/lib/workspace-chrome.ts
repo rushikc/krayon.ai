@@ -4,6 +4,7 @@ export const RENDER_THEME_STORAGE_KEY = "krayon-render-theme";
 export const SHOW_TIMELINE_STORAGE_KEY = "krayon-show-timeline";
 export const SHOW_REEL_PREVIEW_STORAGE_KEY = "krayon-show-reel-preview";
 export const WORKSPACE_SIDE_VIEW_STORAGE_KEY = "krayon-workspace-side-view";
+export const DIAGRAM_REEL_STORAGE_KEY = "krayon-diagram-reel-id";
 
 export type WorkspaceSideView = "timeline" | "chat";
 
@@ -70,4 +71,21 @@ export function getStoredWorkspaceSideView(): WorkspaceSideView {
 
 export function persistWorkspaceSideView(value: WorkspaceSideView): void {
   writeItem(WORKSPACE_SIDE_VIEW_STORAGE_KEY, value);
+}
+
+export function getStoredDiagramReelId(): string | null {
+  const stored = readItem(DIAGRAM_REEL_STORAGE_KEY);
+  return stored?.trim() ? stored.trim() : null;
+}
+
+export function persistDiagramReelId(reelId: string | null): void {
+  if (!reelId) {
+    try {
+      localStorage.removeItem(DIAGRAM_REEL_STORAGE_KEY);
+    } catch {
+      // localStorage unavailable
+    }
+    return;
+  }
+  writeItem(DIAGRAM_REEL_STORAGE_KEY, reelId);
 }

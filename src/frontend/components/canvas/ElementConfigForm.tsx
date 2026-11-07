@@ -27,12 +27,14 @@ import { cn } from "@/lib/utils";
 import {
   isArrowNode,
   isBoxNode,
+  isDiagramNode,
   isNumberNode,
   type ArrowNode,
   type ArrowVariant,
   type BoxNode,
   type CanvasElement,
   type ColorTheme,
+  type DiagramNode,
   type NumberNode,
 } from "@/types/canvas";
 
@@ -613,7 +615,55 @@ export function elementConfigErrors(
   return errors;
 }
 
+function DiagramConfigForm({
+  node,
+  duration,
+  onChange,
+}: {
+  node: DiagramNode;
+  duration: number;
+  onChange: (next: CanvasElement) => void;
+}) {
+  return (
+    <div>
+      <ConfigSection title="Card">
+        <ConfigField label="card" help="Diagram card id.">
+          <input readOnly value={node.cardId} className={configControlClass} />
+        </ConfigField>
+        <ConfigField label="step" help="Reveal step on this card.">
+          <input readOnly value={String(node.step).padStart(2, "0")} className={configNumberClass} />
+        </ConfigField>
+        <ConfigField label="at" help="Skeleton time in seconds.">
+          <input readOnly value={String(node.at)} className={configNumberClass} />
+        </ConfigField>
+        <ConfigField label="title" help="Reel title from the skeleton.">
+          <input readOnly value={node.title} className={configControlClass} />
+        </ConfigField>
+        <ConfigField label="caption" help="Caption under the card.">
+          <input readOnly value={node.caption} className={configControlClass} />
+        </ConfigField>
+        <ConfigField label="png" help="Review PNG URL.">
+          <input readOnly value={node.pngUrl} className={configControlClass} />
+        </ConfigField>
+      </ConfigSection>
+      <ConfigSection title="Timing">
+        <TimeFields element={node} duration={duration} onChange={onChange} />
+      </ConfigSection>
+    </div>
+  );
+}
+
 export function ElementGlyph({ element }: { element: CanvasElement }) {
+  if (isDiagramNode(element)) {
+    return (
+      <span
+        aria-hidden
+        className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-black text-[8px] font-semibold text-white"
+      >
+        Dg
+      </span>
+    );
+  }
   if (isBoxNode(element)) {
     return (
       <span
@@ -679,6 +729,11 @@ export function ElementConfigForm({
         duration={duration}
         onChange={onChange}
       />
+    );
+  }
+  if (isDiagramNode(element)) {
+    return (
+      <DiagramConfigForm node={element} duration={duration} onChange={onChange} />
     );
   }
   return null;

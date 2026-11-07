@@ -1,12 +1,12 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { act } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { exportReelMp4 } from "@/lib/export-reel";
 import {
+  DIAGRAM_REEL_STORAGE_KEY,
   RENDER_THEME_STORAGE_KEY,
   SHOW_REEL_PREVIEW_STORAGE_KEY,
   WORKSPACE_SIDE_VIEW_STORAGE_KEY,
@@ -36,6 +36,8 @@ vi.mock("@/lib/api/reel-client", async (importOriginal) => {
     listJobs: vi.fn().mockResolvedValue([]),
     getJob: vi.fn(),
     subscribeToJob: vi.fn(() => () => undefined),
+    listDiagrams: vi.fn().mockResolvedValue([]),
+    getDiagramMeta: vi.fn(),
   };
 });
 
@@ -63,6 +65,7 @@ describe("reel animations layout", () => {
     localStorage.removeItem(RENDER_THEME_STORAGE_KEY);
     localStorage.removeItem(SHOW_REEL_PREVIEW_STORAGE_KEY);
     localStorage.removeItem(WORKSPACE_SIDE_VIEW_STORAGE_KEY);
+    localStorage.removeItem(DIAGRAM_REEL_STORAGE_KEY);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -92,11 +95,12 @@ describe("reel animations layout", () => {
     expect(screen.queryByRole("button", { name: "Config" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mute" })).not.toBeInTheDocument();
-    expect(screen.getByText("00:00 / 00:30")).toBeInTheDocument();
-    expect(screen.getAllByText("API Gateway").length).toBeGreaterThanOrEqual(1);
+    expect(document.querySelector(".tabular-nums")?.textContent).toMatch(/00:00 \//);
+    expect(screen.queryByText("API Gateway")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add track" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete track 1" })).toBeInTheDocument();
     expect(screen.getByText("Track 1")).toBeInTheDocument();
+    expect(screen.getByTestId("rushk-stage")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Project name" })).toHaveValue(
       "krayon-reel",
     );
@@ -111,10 +115,10 @@ describe("reel animations layout", () => {
     expect(screen.getByRole("button", { name: "Takes" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Captions" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Zoom" })).toBeDisabled();
-    const canvas = document.querySelector("[data-render-theme]");
-    expect(canvas).toBeInstanceOf(HTMLElement);
-    const width = parseFloat((canvas as HTMLElement).style.width);
-    const height = parseFloat((canvas as HTMLElement).style.height);
+    const stage = document.querySelector("[data-reel-stage]");
+    expect(stage).toBeInstanceOf(HTMLElement);
+    const width = parseFloat((stage as HTMLElement).style.width);
+    const height = parseFloat((stage as HTMLElement).style.height);
     expect(width).toBeGreaterThan(0);
     expect(height / width).toBeCloseTo(16 / 9);
   });
@@ -136,22 +140,7 @@ describe("reel animations layout", () => {
     );
   });
 
-  it("opens the element editor from a timeline double-click", () => {
-    render(
-      <MemoryRouter>
-        <ReelAnimationsPage />
-      </MemoryRouter>,
-    );
-    const block = document.querySelector(
-      '[data-segment-type="box"] [tabindex="0"]',
-    );
-    expect(block).toBeInstanceOf(HTMLElement);
-    fireEvent.doubleClick(block as HTMLElement);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
-  });
-
-  it("shows the reel preview overlay from Settings", async () => {
+  it("does not overlay a talking-head reel preview on the rushk stage", async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -160,10 +149,9 @@ describe("reel animations layout", () => {
     );
     await user.click(screen.getByRole("button", { name: "Settings" }));
     const toggle = await screen.findByRole("button", { name: /reel preview/i });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
-    expect(screen.queryByTestId("reel-preview-overlay")).not.toBeInTheDocument();
     await user.click(toggle);
-    expect(screen.getByTestId("reel-preview-overlay")).toBeInTheDocument();
+    expect(screen.queryByTestId("reel-preview-overlay")).not.toBeInTheDocument();
+    expect(screen.getByTestId("rushk-stage")).toBeInTheDocument();
   });
 
   it("plays with Space and cuts with S only when the timeline is focused", async () => {
@@ -187,37 +175,10 @@ describe("reel animations layout", () => {
     expect(timeline).toBeInstanceOf(HTMLElement);
     (timeline as HTMLElement).focus();
     await user.keyboard("s");
-    expect(useCanvasStore.getState().elements.length).toBeGreaterThan(before);
+    expect(useCanvasStore.getState().elements.length).toBe(before);
   });
 
-  it("deletes the selected element with Delete unless an input is focused", async () => {
-    const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <ReelAnimationsPage />
-      </MemoryRouter>,
-    );
-
-    act(() => {
-      useCanvasStore.getState().selectElement("lambda");
-    });
-    const before = useCanvasStore.getState().elements.length;
-    await user.keyboard("{Delete}");
-    expect(useCanvasStore.getState().elements.length).toBe(before - 1);
-    expect(useCanvasStore.getState().elements.find((el) => el.id === "lambda")).toBeUndefined();
-    expect(useCanvasStore.getState().selectedId).toBeNull();
-
-    act(() => {
-      useCanvasStore.getState().selectElement("client");
-    });
-    const afterFirst = useCanvasStore.getState().elements.length;
-    await user.click(screen.getByRole("textbox", { name: "Project name" }));
-    await user.keyboard("{Backspace}");
-    expect(useCanvasStore.getState().elements.length).toBe(afterFirst);
-    expect(useCanvasStore.getState().elements.find((el) => el.id === "client")).toBeDefined();
-  });
-
-  it("switches canvas skins from the Canvas popover", async () => {
+  it("switches canvas skins from the Canvas popover without painting the rushk stage", async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -228,26 +189,9 @@ describe("reel animations layout", () => {
     const json = JSON.stringify(useCanvasStore.getState().elements);
     await user.click(screen.getByRole("button", { name: "Canvas" }));
     await user.click(await screen.findByRole("button", { name: "Dark" }));
-    expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
-      "data-render-theme",
-      "dark",
-    );
+    expect(useCanvasStore.getState().renderTheme).toBe("dark");
+    expect(document.querySelector("[data-reel-stage]")).not.toHaveAttribute("data-render-theme");
     expect(JSON.stringify(useCanvasStore.getState().elements)).toBe(json);
-
-    await user.click(screen.getByRole("button", { name: "Calidraw light" }));
-    expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
-      "data-render-theme",
-      "calidraw-light",
-    );
-    await user.click(screen.getByRole("button", { name: "Calidraw dark" }));
-    expect(document.querySelector("[data-render-theme]")).toHaveAttribute(
-      "data-render-theme",
-      "calidraw-dark",
-    );
-    await user.click(screen.getByRole("button", { name: "Canary" }));
-    const canaryCanvas = document.querySelector("[data-render-theme]");
-    expect(canaryCanvas).toHaveAttribute("data-render-theme", "canary");
-    expect((canaryCanvas as HTMLElement).style.backgroundImage).toMatch(/url\(/);
   });
 
   it("opens a view prompt dialog with copy buttons for the selected skin", async () => {

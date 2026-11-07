@@ -49,4 +49,7 @@ if [[ ! -f "$WHISPER_MARKER" ]]; then
   touch "$WHISPER_MARKER"
 fi
 
+if [[ "${KRAYON_FIXED:-}" == "1" ]]; then
+  exec uvicorn app.main:app --port 8000
+fi
 exec uvicorn app.main:app --reload --port 8000

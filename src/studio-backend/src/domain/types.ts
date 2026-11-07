@@ -41,13 +41,28 @@ export type Group = {
   scriptLine?: number;
 };
 
+export type CanvasDraft = { version: 1; elements: unknown[] } | { version: 2; reelId: string };
+
 export type Cuts = {
   revision: number;
   clips: Clip[];
   groups: Group[];
   order: string[];
-  canvasDraft: { version: 1; elements: unknown[] };
+  canvasDraft: CanvasDraft;
 };
+
+export function normalizeCanvasDraft(value: unknown): CanvasDraft {
+  if (value && typeof value === "object" && (value as { version?: unknown }).version === 2) {
+    const reelId = (value as { reelId?: unknown }).reelId;
+    if (typeof reelId === "string") {
+      return { version: 2, reelId };
+    }
+  }
+  if (value && typeof value === "object" && Array.isArray((value as { elements?: unknown }).elements)) {
+    return { version: 1, elements: (value as { elements: unknown[] }).elements };
+  }
+  return { version: 1, elements: [] };
+}
 
 export type IdState = { nextClipSeq: number; nextGroupSeq: number };
 
@@ -161,7 +176,7 @@ export function normalizeCuts(doc: Cuts): Cuts {
       scriptLine: typeof group.scriptLine === "number" ? group.scriptLine : group.scriptLine,
     })),
     order: doc.order ?? [],
-    canvasDraft: doc.canvasDraft ?? { version: 1, elements: [] },
+    canvasDraft: normalizeCanvasDraft(doc.canvasDraft),
   };
 }
 

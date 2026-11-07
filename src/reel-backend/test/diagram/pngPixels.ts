@@ -14,15 +14,7 @@ function paeth(a: number, b: number, c: number): number {
   return c;
 }
 
-/** Decode 8-bit RGBA PNG. Returns [r,g,b,a] at each corner. */
-export function pngCornerRgba(buf: Buffer): {
-  width: number;
-  height: number;
-  tl: [number, number, number, number];
-  tr: [number, number, number, number];
-  bl: [number, number, number, number];
-  br: [number, number, number, number];
-} {
+export function decodePngRgba(buf: Buffer): { width: number; height: number; raw: Buffer } {
   if (buf.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") {
     throw new Error("not a png");
   }
@@ -69,8 +61,22 @@ export function pngCornerRgba(buf: Buffer): {
       raw[dest + i] = val;
     }
   }
+  return { width, height, raw };
+}
+
+/** Decode 8-bit RGBA PNG. Returns [r,g,b,a] at each corner. */
+export function pngCornerRgba(buf: Buffer): {
+  width: number;
+  height: number;
+  tl: [number, number, number, number];
+  tr: [number, number, number, number];
+  bl: [number, number, number, number];
+  br: [number, number, number, number];
+} {
+  const { width, height, raw } = decodePngRgba(buf);
+  const stride = width * 4;
   const px = (x: number, y: number): [number, number, number, number] => {
-    const i = y * stride + x * bpp;
+    const i = y * stride + x * 4;
     return [raw[i]!, raw[i + 1]!, raw[i + 2]!, raw[i + 3]!];
   };
   return {
@@ -81,6 +87,22 @@ export function pngCornerRgba(buf: Buffer): {
     bl: px(0, height - 1),
     br: px(width - 1, height - 1),
   };
+}
+
+export function inkTouchesRightOrBottom(buf: Buffer): boolean {
+  const { width, height, raw } = decodePngRgba(buf);
+  const stride = width * 4;
+  const ink = (x: number, y: number) => {
+    const i = y * stride + x * 4;
+    return !isWhite([raw[i]!, raw[i + 1]!, raw[i + 2]!, raw[i + 3]!]);
+  };
+  for (let y = 0; y < height; y += 1) {
+    if (ink(width - 1, y)) return true;
+  }
+  for (let x = 0; x < width; x += 1) {
+    if (ink(x, height - 1)) return true;
+  }
+  return false;
 }
 
 export function isWhite(rgba: [number, number, number, number]): boolean {

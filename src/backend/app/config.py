@@ -57,7 +57,7 @@ class Settings(BaseSettings):
 
     clip_similarity_threshold: float = 0.7
 
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: list[str] = ["http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:5173", "http://127.0.0.1:5173"]
 
 
 settings = Settings(**_load_toml_defaults())

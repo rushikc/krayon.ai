@@ -127,6 +127,49 @@ export function imageUrl(jobId: string, round: number, index: number): string {
   return `${API_BASE}/jobs/${jobId}/rounds/${round}/images/${index}`;
 }
 
+export type DiagramListItem = {
+  reelArg: string;
+  title: string;
+  hasStatus: boolean;
+  ok: boolean | null;
+  builtAt: string | null;
+  stepCount: number;
+};
+
+export type DiagramMetaResponse = {
+  reelArg: string;
+  title: string;
+  cards: Array<{
+    id: string;
+    caption: string;
+    steps: Array<{ step: number; at: number }>;
+  }>;
+  status: {
+    ok: boolean;
+    builtAt: string | null;
+    issues: Array<{ code?: string; severity?: string; message: string }>;
+  } | null;
+};
+
+export async function listDiagrams(): Promise<DiagramListItem[]> {
+  const data = await request<{ reels: DiagramListItem[] }>("/diagrams");
+  return data.reels;
+}
+
+export async function getDiagramMeta(reelArg: string): Promise<DiagramMetaResponse> {
+  const params = new URLSearchParams({ reel: reelArg });
+  return request(`/diagrams/meta?${params.toString()}`);
+}
+
+export function diagramPngUrl(reelArg: string, cardId: string, step: number): string {
+  const params = new URLSearchParams({
+    reel: reelArg,
+    card: cardId,
+    step: String(step),
+  });
+  return `${API_BASE}/diagrams/png?${params.toString()}`;
+}
+
 export type ReelEventHandlers = {
   onJob: (job: JobState) => void;
   onEvent?: (event: ReelEvent) => void;

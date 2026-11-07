@@ -20,7 +20,7 @@ pnpm dev
 `pnpm dev` (and `pnpm dev:all`) starts the frontend, the Python audio backend, the reel Fastify backend, and the studio Fastify backend together. To run one of them alone:
 
 ```bash
-pnpm frontend         # http://localhost:5173
+pnpm frontend         # http://localhost:5174
 pnpm backend          # FastAPI audio, :8000
 pnpm reel-backend     # Fastify reel pipeline, 127.0.0.1:8788
 pnpm studio-backend   # Fastify studio API, 127.0.0.1:8789
@@ -35,7 +35,7 @@ pnpm test:e2e:slow    # also @slow render and Whisper
 pnpm coverage         # Vitest + pytest coverage into tmp/coverage
 ```
 
-Open **http://localhost:5173**
+Open **http://localhost:5174**
 
 ## Prerequisites
 
@@ -67,15 +67,15 @@ Studio heavy audio (transcribe, segment, snap, script align, render) runs on the
 
 ### Layout
 
-**Home (`/`)** — three tiles: Audio analysis (silence removal and clip grouping), Reel animations (subtitle “Coming soon”), Studio (pick the best takes from a long recording).
+**Home (`/`)** — three tiles: Audio analysis (silence removal and clip grouping), Reel animations (9:16 diagram reels), Studio (pick the best takes from a long recording).
 
 **Audio library (`/audio`)** — video library + preview + metadata panel.
 
 **Editor (`/editor/:mediaId`)** — single-video workspace with processing controls; clips sidebar appears after generation.
 
-**Reel animations (`/reel-animations`)** — 9:16 teaching canvas pinned to the left, with Timeline | Chat on the right. Double-click a timeline block to edit it. Chat generates a scene from a script (local reel pipeline; Gemini key is a first-party cookie). See [docs/reel-pipeline.md](docs/reel-pipeline.md) and [docs/ui-design.md](docs/ui-design.md).
+**Reel animations (`/reel-animations`)** — shared 9:16 rushk workspace (diagram PNGs from `diagrams/`), Timeline | Chat. Nested ids: `/reel-animations/_examples/uber-ttl`. See [docs/diagram-pipeline.md](docs/diagram-pipeline.md) and [docs/ui-design.md](docs/ui-design.md).
 
-**Studio (`/studio`, `/studio/:slug`)** — landing (project name, video path, optional script) and a workspace (clip list, waveform, controls). See [docs/studio.md](docs/studio.md).
+**Studio (`/studio`, `/studio/:slug`, `/studio/:slug/video`)** — landing, audio take-picking, then the same rushk visuals editor with selected-cut audio. See [docs/studio.md](docs/studio.md).
 
 ## Studio pipelines
 

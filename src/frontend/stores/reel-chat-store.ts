@@ -42,6 +42,8 @@ interface ReelChatState {
   keyDialogOpen: boolean;
   pendingSend: PendingSend | null;
   hydrating: boolean;
+  diagramLocked: boolean;
+  setDiagramLocked: (locked: boolean) => void;
   checkHealth: () => Promise<void>;
   hydrate: () => Promise<void>;
   refreshHistory: () => Promise<void>;
@@ -133,6 +135,8 @@ export const useReelChatStore = create<ReelChatState>((set, get) => ({
   keyDialogOpen: false,
   pendingSend: null,
   hydrating: false,
+  diagramLocked: false,
+  setDiagramLocked: (locked) => set({ diagramLocked: locked }),
 
   checkHealth: async () => {
     try {
@@ -322,6 +326,10 @@ export const useReelChatStore = create<ReelChatState>((set, get) => ({
   },
 
   applyRound: (jobId, round) => {
+    if (get().diagramLocked) {
+      toast("Diagrams load from the diagrams/ folder, not from Generate");
+      return false;
+    }
     const job = get().jobsById[jobId];
     if (!job) {
       return false;

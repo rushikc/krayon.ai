@@ -57,7 +57,7 @@ If Vite or the Studio API is down, the suite stops immediately with a message te
 | --- | --- | --- |
 | `E2E_PROJECT` | auto | Project slug when `E2E_REAL=1` |
 | `E2E_REAL` | off | Set to `1` to use `pickProject()` instead of the fixture |
-| `E2E_BASE_URL` | `http://localhost:5173` | Frontend URL |
+| `E2E_BASE_URL` | `http://localhost:5174` | Frontend URL |
 | `E2E_API` | `http://127.0.0.1:8789/api/studio` | Studio API URL |
 | `E2E_CHANNEL` | `chrome` | Browser channel (`chromium` to use Playwright's own) |
 | `E2E_RENDER` | off | Set to `1` to include the slow real-render tests |

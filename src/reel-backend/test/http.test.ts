@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -137,5 +137,62 @@ describe("HTTP API", () => {
       const status = store.getJob(jobId)?.status;
       return status === "cancelled";
     });
+  });
+
+  it("lists diagram reels, serves meta, png, and rejects path escape", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "reel-diagrams-"));
+    const reelDir = path.join(dir, "diagrams", "_examples", "uber-ttl");
+    mkdirSync(path.join(reelDir, "review", "redis-dynamo"), { recursive: true });
+    writeFileSync(
+      path.join(reelDir, "diagram.skeleton.json"),
+      JSON.stringify({
+        version: 1,
+        reelId: "uber-ttl",
+        title: "Uber System Design",
+        cards: [{ id: "redis-dynamo", caption: "Not a precise timer", steps: [{ step: 1, at: 4.2 }] }],
+      }),
+    );
+    writeFileSync(
+      path.join(reelDir, "status.json"),
+      JSON.stringify({
+        reelId: "uber-ttl",
+        builtAt: "2026-01-01T00:00:00Z",
+        ok: true,
+        round: 1,
+        cards: [{ id: "redis-dynamo", steps: [{ step: 1, at: 4.2, excalidraw: "x", png: "y" }] }],
+        issues: [],
+      }),
+    );
+    writeFileSync(path.join(reelDir, "review", "redis-dynamo", "step-01.png"), Buffer.from([137, 80, 78, 71]));
+    const { app } = await buildApp({
+      config: testConfig(dir),
+      log: silentLogger,
+      client: fakeGemini({ generate: () => envelope(MINIMAL_SCENE) }),
+    });
+    apps.push(app);
+    const listed = await app.inject({ method: "GET", url: "/api/reel/diagrams" });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().reels[0]).toMatchObject({
+      reelArg: "_examples/uber-ttl",
+      title: "Uber System Design",
+      ok: true,
+    });
+    const meta = await app.inject({
+      method: "GET",
+      url: "/api/reel/diagrams/meta?reel=_examples/uber-ttl",
+    });
+    expect(meta.statusCode).toBe(200);
+    expect(meta.json().title).toBe("Uber System Design");
+    const png = await app.inject({
+      method: "GET",
+      url: "/api/reel/diagrams/png?reel=_examples/uber-ttl&card=redis-dynamo&step=1",
+    });
+    expect(png.statusCode).toBe(200);
+    expect(png.headers["content-type"]).toMatch(/png/);
+    const escape = await app.inject({
+      method: "GET",
+      url: "/api/reel/diagrams/meta?reel=../secret",
+    });
+    expect(escape.statusCode).toBe(400);
   });
 });

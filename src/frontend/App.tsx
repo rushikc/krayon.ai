@@ -6,6 +6,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { EditorPage } from "@/pages/EditorPage";
 import { HomePage } from "@/pages/HomePage";
 import { StudioPage } from "@/pages/studio/StudioPage";
+import { StudioVisualsPage } from "@/pages/studio/StudioVisualsPage";
 import { ReelAnimationsPage } from "@/pages/ReelAnimationsPage";
 
 function AppRoutes() {
@@ -16,8 +17,10 @@ function AppRoutes() {
       <Route path="/" element={<HomePage />} />
       <Route path="/audio" element={<DashboardPage />} />
       <Route path="/reel-animations" element={<ReelAnimationsPage />} />
+      <Route path="/reel-animations/*" element={<ReelAnimationsPage />} />
       <Route path="/studio" element={<StudioPage />} />
       <Route path="/studio/:slug" element={<StudioPage />} />
+      <Route path="/studio/:slug/video" element={<StudioVisualsPage />} />
       <Route path="/editor/:mediaId" element={<EditorPage />} />
     </Routes>
   );

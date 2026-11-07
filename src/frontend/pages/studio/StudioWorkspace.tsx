@@ -394,7 +394,12 @@ export function StudioWorkspace({ slug }: { slug: string }) {
       subtitle={project?.meta.title ?? slug}
       actions={
         <div className="flex items-center gap-2">
-          <StudioStepIndicator />
+          <StudioStepIndicator
+            activeId="audio"
+            videoEnabled={project?.status === "ready" && (project.order.length ?? 0) > 0}
+            onAudioClick={() => navigate(`/studio/${slug}`)}
+            onVideoClick={() => navigate(`/studio/${slug}/video`)}
+          />
           <Button
             type="button"
             variant="destructive"
@@ -544,6 +549,11 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         detectedLanguage={project?.meta.detectedLanguage}
         matchedLines={(project?.groups ?? []).filter((group) => group.scriptLine != null && group.clipIds.length > 0).length}
         missingLines={(project?.groups ?? []).filter((group) => group.scriptLine != null && group.clipIds.length === 0).length}
+        onContinueToVisuals={
+          project?.status === "ready" && (project.order.length ?? 0) > 0
+            ? () => navigate(`/studio/${slug}/video`)
+            : undefined
+        }
         onRebuild={(pipeline) => {
           if (!project || analyzeInFlightRef.current) return;
           analyzeInFlightRef.current = true;

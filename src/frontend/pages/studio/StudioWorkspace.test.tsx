@@ -508,6 +508,41 @@ describe("StudioWorkspace", () => {
     expect(applyOps.mock.calls.at(-1)?.[2]).toEqual([expect.objectContaining({ op: "reject", clipId: "c-0001" })]);
   });
 
+  it("enables step 2 and Continue when ready with a selection", async () => {
+    getProject.mockResolvedValue(project([clip({ id: "c-0001", status: "selected", text: "kept" })]));
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter initialEntries={["/studio/real"]}>
+        <Routes>
+          <Route path="/studio/:slug" element={<StudioWorkspace slug="real" />} />
+          <Route path="/studio/:slug/video" element={<div>visuals</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("kept");
+    const video = screen.getByRole("button", { name: "2 Video" });
+    expect(video).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Continue to visuals" })).toBeEnabled();
+    await userEvent.click(video);
+    expect(await screen.findByText("visuals")).toBeInTheDocument();
+  });
+
+  it("keeps step 2 disabled while analyzing", async () => {
+    const next = project([clip({ id: "c-0001", status: "selected", text: "kept" })]);
+    next.status = "analyzing";
+    next.meta.status = "analyzing";
+    getProject.mockResolvedValue(next);
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByText("kept");
+    expect(screen.getByRole("button", { name: "2 Video" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Continue to visuals" })).toBeNull();
+  });
+
   it("goes to the studio home when the project is deleted over SSE", async () => {
     getProject.mockResolvedValue(project([clip({ id: "c-0001", status: "selected", text: "kept" })]));
     const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");

@@ -18,7 +18,13 @@ const EXAMPLE_SCRIPTS = [
   "Walk through binary search on a sorted list, one comparison at a time.",
 ];
 
-export function ChatPanel({ onApplied }: { onApplied: () => void }) {
+export function ChatPanel({
+  onApplied,
+  diagramMode = false,
+}: {
+  onApplied: () => void;
+  diagramMode?: boolean;
+}) {
   const healthOk = useReelChatStore((state) => state.healthOk);
   const jobIds = useReelChatStore((state) => state.jobIds);
   const jobsById = useReelChatStore((state) => state.jobsById);
@@ -113,6 +119,10 @@ export function ChatPanel({ onApplied }: { onApplied: () => void }) {
         {healthOk === false ? (
           <p className="rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground">
             Reel backend isn't running. Run `pnpm dev`.
+          </p>
+        ) : diagramMode ? (
+          <p className="rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground">
+            Diagrams load from the diagrams/ folder, not from Generate.
           </p>
         ) : jobIds.length === 0 ? (
           <EmptyState

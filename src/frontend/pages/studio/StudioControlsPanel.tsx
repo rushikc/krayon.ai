@@ -78,6 +78,7 @@ export function StudioControlsPanel({
   detectedLanguage,
   matchedLines,
   missingLines,
+  onContinueToVisuals,
 }: {
   asks: ConfirmationItem[];
   highlightAsk: string | null;
@@ -117,6 +118,7 @@ export function StudioControlsPanel({
   detectedLanguage?: string | null;
   matchedLines: number;
   missingLines: number;
+  onContinueToVisuals?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(settings);
@@ -421,6 +423,11 @@ export function StudioControlsPanel({
 
         <section className="space-y-3 rounded-xl border border-border bg-card/50 p-4">
           <p className="text-xs text-muted-foreground">{studioCopy.selectedSummary(selectedCount, selectedClock)}</p>
+          {onContinueToVisuals && selectedCount > 0 && !analysisBusy ? (
+            <Button type="button" className="w-full" onClick={onContinueToVisuals}>
+              {studioCopy.continueToVisuals}
+            </Button>
+          ) : null}
           {warnings.length > 0 ? (
             <details>
               <summary className="cursor-pointer text-xs font-medium">{studioCopy.lintWarnings}</summary>

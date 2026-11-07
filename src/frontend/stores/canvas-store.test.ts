@@ -417,6 +417,19 @@ describe("element labels and zoom keys", () => {
         time: { start: 0, end: 10, track: 0 },
       }),
     ).toBe("api-gateway → lambda");
+    expect(
+      getElementLabel({
+        id: "d",
+        type: "diagram",
+        cardId: "redis-dynamo",
+        step: 1,
+        at: 4.2,
+        title: "Uber System Design",
+        caption: "Not a precise timer",
+        pngUrl: "/png",
+        time: { start: 4.2, end: 5, track: 0 },
+      }),
+    ).toBe("Not a precise timer");
   });
 
   it("treats +/= and -/_ as zoom keys", () => {

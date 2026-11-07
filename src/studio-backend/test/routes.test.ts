@@ -679,6 +679,30 @@ describe("project names and delete", () => {
     }
   });
 
+  it("concatenates selected cut audio and patches canvasDraft", async () => {
+    await seedProject(root, "cut-audio", [
+      clip({ id: "c-0001", text: "one", status: "selected", sourceStart: 0, sourceEnd: 1 }),
+      clip({ id: "c-0002", text: "two", status: "selected", sourceStart: 2, sourceEnd: 3.5, groupId: "g-0002" }),
+    ]);
+    await mkdir(path.join(root, "cut-audio", "analysis"), { recursive: true });
+    await writeFile(path.join(root, "cut-audio", "analysis", "source.wav"), Buffer.from("RIFF"));
+    const wav = await fetch(`${base}/api/studio/projects/cut-audio/cut-audio.wav`);
+    expect(wav.status).toBe(200);
+    expect(wav.headers.get("content-type")).toMatch(/wav/);
+    expect(state.calls.some((url) => url.includes("clip-audio") && url.includes("pad=0"))).toBe(true);
+    const clipAudio = state.calls.find((url) => url.includes("clip-audio")) ?? "";
+    expect(decodeURIComponent(clipAudio)).toContain("0,1");
+    expect(decodeURIComponent(clipAudio)).toContain("2,3.5");
+    const patched = await http(base, "PATCH", "/api/studio/projects/cut-audio/canvas-draft", {
+      version: 2,
+      reelId: "_examples/uber-ttl",
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.payload.canvasDraft).toEqual({ version: 2, reelId: "_examples/uber-ttl" });
+    const loaded = await project("cut-audio");
+    expect(loaded.payload.canvasDraft).toEqual({ version: 2, reelId: "_examples/uber-ttl" });
+  });
+
   it("requires confirm for delete-all and then removes project folders only", async () => {
     const denied = await http(base, "DELETE", "/api/studio/projects");
     expect(denied.status).toBe(400);

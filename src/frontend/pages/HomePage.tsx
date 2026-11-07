@@ -13,7 +13,7 @@ const tiles = [
   {
     to: "/reel-animations",
     title: "Reel animations",
-    description: "Coming soon",
+    description: "9:16 diagram reels",
     icon: Clapperboard,
   },
   {

@@ -19,6 +19,8 @@ const TYPE_BLOCK_CLASS: Record<CanvasElement["type"], string> = {
     "bg-[var(--timeline-number-bg)] border-[var(--timeline-number-border)] text-[var(--timeline-number-fg)]",
   arrow:
     "bg-[var(--timeline-arrow-bg)] border-[var(--timeline-arrow-border)] text-[var(--timeline-arrow-fg)]",
+  diagram:
+    "bg-[var(--timeline-box-bg)] border-[var(--timeline-box-border)] text-[var(--timeline-box-fg)]",
 };
 
 interface SegmentBlockProps {
@@ -157,7 +159,7 @@ export function SegmentBlock({
           )}
         >
           <span className="max-w-full truncate text-[9px] leading-none font-medium uppercase tracking-wide opacity-80">
-            {element.type}
+            {element.type === "diagram" ? "Card" : element.type}
           </span>
           <span className="max-w-full truncate text-[11px] leading-tight font-medium">
             {label}
