@@ -194,7 +194,7 @@ export function adoptAnalysis(
       hit.sourceStart = span.sourceStart;
       hit.sourceEnd = span.sourceEnd;
       hit.ranges = ranges;
-      hit.duration = incoming.duration ?? rangeDuration(ranges);
+      hit.duration = (incoming.duration ?? rangeDuration(ranges)) + (hit.silenceBefore ?? 0) + (hit.silenceAfter ?? 0);
       hit.text = incoming.text;
       hit.words = incoming.words ?? [];
       hit.label = labelFromPy(incoming);
@@ -238,6 +238,8 @@ export function adoptAnalysis(
       statusAt: hit?.statusAt ?? (scripted ? new Date().toISOString() : ""),
       note: hit?.note ?? "",
       llm: hit?.llm ?? {},
+      silenceBefore: hit?.silenceBefore ?? 0,
+      silenceAfter: hit?.silenceAfter ?? 0,
       script: incoming.script ?? hit?.script,
     };
     if (regroup && hit) {

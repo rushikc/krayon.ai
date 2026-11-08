@@ -49,7 +49,7 @@ Grok loop, all local: `krayon status` → `krayon lint` → `krayon clip <id>` a
 
 Never ask the human to confirm Studio edits in chat. Write a confirmation with `krayon ask confirm|choice … --wait` (run it as a background shell command) and continue when it finishes. The Studio UI shows the question; the answer is stored on the project.
 
-`canvasDraft` on `cuts.json` is reserved and unused. Do not edit the Gemini reel pipeline or the existing audio editor as part of Studio work.
+Studio floors: `/studio/:slug` (clips), `/studio/:slug/edit` (selected-audio timeline), `/studio/:slug/video` (diagram reel). `canvasDraft` on `cuts.json` is `{ version: 2, reelId }` for the diagram reel. Version 1 `{ elements: [] }` still loads as the picker. Do not edit the Gemini reel pipeline or the existing audio editor as part of Studio work.
 
 App chrome theme (`lib/theme.ts`, light/dark, default dark, `localStorage` key `krayon-theme`) is separate from canvas `RenderTheme`.
 
@@ -63,4 +63,4 @@ Leave the legacy audio editor alone. `POST /api/silence` and `POST /api/clips` s
 
 ## Docs
 
-`README.md`, `install.md`, `test/README.md`, `docs/` (UI, ffmpeg, silence removal, pipeline stages, reel JSON, reel pipeline, studio, studio CLI).
+`README.md`, `install.md`, `test/README.md`, `docs/testing.md`, `docs/` (UI, ffmpeg, silence removal, pipeline stages, reel JSON, reel pipeline, diagram pipeline, rushk, studio, studio CLI).

@@ -2,7 +2,7 @@
 
 Studio turns one long talking-head recording into a single video made of the chosen takes. The browser, the `krayon` CLI, and Grok all edit the same cut list. Nothing is uploaded.
 
-After audio is ready, **2 Video** opens the shared rushk reel editor at `/studio/:slug/video`. `cuts.json` `canvasDraft` stores the chosen diagram reel as `{ version: 2, reelId }` (version 1 `{ elements: [] }` still loads as an empty picker).
+Studio has three floors: **1 Clips** (`/studio/:slug`) to pick takes, **2 Edit** (`/studio/:slug/edit`) to trim and cut the selected audio on one timeline, then **3 Video** (`/studio/:slug/video`) for the rushk reel editor. `cuts.json` `canvasDraft` stores the chosen diagram reel as `{ version: 2, reelId }` (version 1 `{ elements: [] }` still loads as an empty picker).
 
 ## Folders
 

@@ -36,6 +36,8 @@ function makeClip(partial: Partial<Clip> & Pick<Clip, "id" | "sourceStart" | "so
     statusAt: "",
     note: "",
     llm: {},
+    silenceBefore: 0,
+    silenceAfter: 0,
     ...partial,
   };
 }
@@ -204,9 +206,9 @@ describe("ops", () => {
   it("selects the reference take and orders groups by first appearance", () => {
     const doc = emptyCuts();
     doc.clips = [
-      makeClip({ id: "c-0002", groupId: "g-0002", sourceStart: 5, sourceEnd: 6, text: "second line", reasons: ["reference take"] }),
+      makeClip({ id: "c-0002", groupId: "g-0002", sourceStart: 5, sourceEnd: 8, text: "second line", reasons: ["reference take"] }),
       makeClip({ id: "c-0003", groupId: "g-0002", sourceStart: 8, sourceEnd: 9, text: "sec", label: "cut_off" }),
-      makeClip({ id: "c-0001", groupId: "g-0001", sourceStart: 0, sourceEnd: 1, text: "first", reasons: ["only take in group"] }),
+      makeClip({ id: "c-0001", groupId: "g-0001", sourceStart: 0, sourceEnd: 3, text: "first", reasons: ["only take in group"] }),
     ];
     doc.groups = [
       { id: "g-0002", label: "second line", clipIds: ["c-0002", "c-0003"], recommendedClipId: "c-0002" },
@@ -221,13 +223,40 @@ describe("ops", () => {
   it("selects the reference-reason take when scores match", () => {
     const doc = emptyCuts();
     doc.clips = [
-      makeClip({ id: "c-0001", groupId: "g-0001", sourceStart: 0, sourceEnd: 1, text: "line", score: 3 }),
-      makeClip({ id: "c-0002", groupId: "g-0001", sourceStart: 2, sourceEnd: 3, text: "line", score: 3, reasons: ["reference take"] }),
+      makeClip({ id: "c-0001", groupId: "g-0001", sourceStart: 0, sourceEnd: 3, text: "line", score: 3 }),
+      makeClip({ id: "c-0002", groupId: "g-0001", sourceStart: 4, sourceEnd: 7, text: "line", score: 3, reasons: ["reference take"] }),
     ];
     doc.groups = [{ id: "g-0001", label: "line", clipIds: ["c-0001", "c-0002"], recommendedClipId: "c-0001" }];
     applyAlgorithmCut(doc);
     expect(doc.clips.find((clip) => clip.id === "c-0002")?.status).toBe("selected");
     expect(doc.clips.find((clip) => clip.id === "c-0001")?.status).toBe("undecided");
+    expect(doc.order).toEqual(["c-0002"]);
+  });
+
+  it("does not auto-accept a reference take shorter than 2s", () => {
+    const doc = emptyCuts();
+    doc.clips = [
+      makeClip({ id: "c-0001", groupId: "g-0001", sourceStart: 0, sourceEnd: 1.5, text: "short", reasons: ["reference take"] }),
+      makeClip({ id: "c-0002", groupId: "g-0001", sourceStart: 2, sourceEnd: 5, text: "longer line" }),
+    ];
+    doc.groups = [{ id: "g-0001", label: "line", clipIds: ["c-0001", "c-0002"], recommendedClipId: "c-0001" }];
+    applyAlgorithmCut(doc);
+    expect(doc.clips.find((clip) => clip.id === "c-0001")?.status).toBe("rejected");
+    expect(doc.clips.find((clip) => clip.id === "c-0001")?.statusReason).toBe("shorter than 2s");
+    expect(doc.clips.find((clip) => clip.id === "c-0002")?.status).toBe("selected");
+    expect(doc.order).toEqual(["c-0002"]);
+  });
+
+  it("rejects a take that says come on", () => {
+    const doc = emptyCuts();
+    doc.clips = [
+      makeClip({ id: "c-0001", groupId: "g-0001", sourceStart: 0, sourceEnd: 4, text: "Come on, that was wrong", reasons: ["reference take"] }),
+      makeClip({ id: "c-0002", groupId: "g-0001", sourceStart: 5, sourceEnd: 8, text: "the real line" }),
+    ];
+    doc.groups = [{ id: "g-0001", label: "line", clipIds: ["c-0001", "c-0002"], recommendedClipId: "c-0001" }];
+    applyAlgorithmCut(doc);
+    expect(doc.clips.find((clip) => clip.id === "c-0001")?.status).toBe("rejected");
+    expect(doc.clips.find((clip) => clip.id === "c-0001")?.statusReason).toBe("mess-up phrase");
     expect(doc.order).toEqual(["c-0002"]);
   });
 
@@ -284,8 +313,8 @@ describe("ops", () => {
     expect(result.summary).toBe("split c-0001 into 3 clips");
     expect(result.doc.clips).toHaveLength(3);
     expect(result.doc.clips.map((clip) => clip.id)).not.toContain("c-0001");
-    expect(result.doc.order).toEqual([]);
-    expect(result.doc.clips.every((clip) => clip.status === "undecided")).toBe(true);
+    expect(result.doc.order).toEqual(result.doc.clips.map((clip) => clip.id));
+    expect(result.doc.clips.every((clip) => clip.status === "selected")).toBe(true);
     expect(result.doc.clips.every((clip) => clip.statusReason === "split from c-0001")).toBe(true);
     expect(result.doc.clips.every((clip) => clip.parentIds[0] === "c-0001")).toBe(true);
     expect(result.doc.clips.every((clip) => clip.label === "none" && clip.score === 0)).toBe(true);
@@ -296,6 +325,43 @@ describe("ops", () => {
     expect(doc.clips).toHaveLength(1);
     expect(() => applyOps(doc, state, [{ op: "splitMany", clipId: "c-0001", at: [0.05] }], "human")).toThrow(OpError);
     expect(() => applyOps(doc, state, [{ op: "splitMany", clipId: "c-0001", at: [1.2, 1.25] }], "human")).toThrow(OpError);
+  });
+
+  it("grows and shrinks bounds and keeps silence on outer split children", () => {
+    const state = ids();
+    state.nextClipSeq = 2;
+    const doc = emptyCuts();
+    const parent = makeClip({
+      id: "c-0001",
+      groupId: "g-0001",
+      sourceStart: 2,
+      sourceEnd: 5,
+      text: "alpha beta gamma",
+      status: "selected",
+      silenceBefore: 0.2,
+      silenceAfter: 0.1,
+      words: [
+        { text: "alpha", start: 2.1, end: 2.8 },
+        { text: "beta", start: 3.1, end: 3.7 },
+        { text: "gamma", start: 4.1, end: 4.8 },
+      ],
+    });
+    doc.clips = [parent];
+    doc.groups = [{ id: "g-0001", label: "line", clipIds: ["c-0001"], recommendedClipId: "c-0001" }];
+    doc.order = ["c-0001"];
+    const grown = applyOps(doc, state, [{ op: "adjustBounds", clipId: "c-0001", start: 1.5, end: 5.5, sampleAccurate: true }], "human");
+    expect(grown.doc.clips[0]?.sourceStart).toBe(1.5);
+    expect(grown.doc.clips[0]?.sourceEnd).toBe(5.5);
+    const silent = applyOps(grown.doc, state, [{ op: "setSilence", clipId: "c-0001", before: 0.3, after: 0.4 }], "human");
+    expect(silent.doc.clips[0]?.silenceBefore).toBe(0.3);
+    expect(silent.doc.clips[0]?.silenceAfter).toBe(0.4);
+    expect(silent.doc.clips[0]?.duration).toBeCloseTo(5.5 - 1.5 + 0.7);
+    const split = applyOps(silent.doc, state, [{ op: "splitMany", clipId: "c-0001", at: [3.2] }], "human");
+    expect(split.doc.clips[0]?.silenceBefore).toBe(0.3);
+    expect(split.doc.clips[0]?.silenceAfter).toBe(0);
+    expect(split.doc.clips[1]?.silenceBefore).toBe(0);
+    expect(split.doc.clips[1]?.silenceAfter).toBe(0.4);
+    expect(split.doc.clips.every((clip) => clip.status === "selected")).toBe(true);
   });
 });
 

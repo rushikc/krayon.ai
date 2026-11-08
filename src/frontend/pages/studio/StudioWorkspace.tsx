@@ -250,12 +250,14 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         if (data.phase === "done" && data.outputName) {
           sessionStorage.removeItem(renderStorageKey(slug));
           setActiveRenderName(data.outputName);
+          void refresh().catch(() => undefined);
           void listOutputs(slug).then((result) => setRenders(result.manifests)).catch(() => undefined);
           if (playingRef.current) toast(studioCopy.renderReady);
           else setTab(tabForRender(data.outputName));
         }
         if (data.phase === "cancelled" || data.phase === "error") {
           sessionStorage.removeItem(renderStorageKey(slug));
+          void refresh().catch(() => undefined);
         }
       }
     };
@@ -368,7 +370,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
   const selectedDuration = (project?.order ?? [])
     .map((id) => clips.find((clip) => clip.id === id)?.duration ?? 0)
     .reduce((sum, value) => sum + value, 0);
-  const renderBusy = render?.status === "rendering" || project?.status === "rendering";
+  const renderBusy = render?.status === "rendering";
   const analysisBusy = project?.status === "analyzing" || renderBusy || analyzeInFlight;
 
   async function attachToRunningAnalysis(mode: StudioRunMode = "analyze") {
@@ -439,8 +441,10 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         <div className="flex items-center gap-2">
           <StudioStepIndicator
             activeId="audio"
+            editEnabled={(project?.order.length ?? 0) > 0}
             videoEnabled={project?.status === "ready" && (project.order.length ?? 0) > 0}
             onAudioClick={() => navigate(`/studio/${slug}`)}
+            onEditClick={() => navigate(`/studio/${slug}/edit`)}
             onVideoClick={() => navigate(`/studio/${slug}/video`)}
           />
           <Button
@@ -553,11 +557,16 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         warnings={warnings}
         onSelectWarning={(id) => selectClip(id, false)}
         renderBusy={Boolean(renderBusy)}
-        renderProgress={render}
+        renderProgress={renderBusy ? render : null}
         onRender={(quality) => {
           void startRender(slug, quality).then((job) => {
             sessionStorage.setItem(renderStorageKey(slug), job.renderId);
-            setRender({ id: job.renderId, message: "Starting render", ratio: 0, outputName: job.outputName, status: "rendering" });
+            setRender((current) => {
+              if (current?.id === job.renderId && current.status && current.status !== "rendering") {
+                return current;
+              }
+              return { id: job.renderId, message: "Starting render", ratio: 0, outputName: job.outputName, status: "rendering" };
+            });
           });
         }}
         onCancelRender={() => {
@@ -598,9 +607,7 @@ export function StudioWorkspace({ slug }: { slug: string }) {
         matchedLines={(project?.groups ?? []).filter((group) => group.scriptLine != null && group.clipIds.length > 0).length}
         missingLines={(project?.groups ?? []).filter((group) => group.scriptLine != null && group.clipIds.length === 0).length}
         onContinueToVisuals={
-          project?.status === "ready" && (project.order.length ?? 0) > 0
-            ? () => navigate(`/studio/${slug}/video`)
-            : undefined
+          (project?.order.length ?? 0) > 0 ? () => navigate(`/studio/${slug}/edit`) : undefined
         }
         onRebuild={(pipeline) => {
           if (!project || analyzeInFlightRef.current) return;

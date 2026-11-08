@@ -436,7 +436,7 @@ export function StudioControlsPanel({
           <p className="text-xs text-muted-foreground">{studioCopy.selectedSummary(selectedCount, selectedClock)}</p>
           {onContinueToVisuals && selectedCount > 0 && !analysisBusy ? (
             <Button type="button" className="w-full" onClick={onContinueToVisuals}>
-              {studioCopy.continueToVisuals}
+              {studioCopy.continueToEdit}
             </Button>
           ) : null}
           {warnings.length > 0 ? (

@@ -22,6 +22,8 @@ export type StudioClip = {
   statusAt?: string;
   note: string;
   llm?: Record<string, unknown>;
+  silenceBefore?: number;
+  silenceAfter?: number;
   script?: { line: number; text: string; score: number };
 };
 
@@ -393,9 +395,12 @@ export function audioUrl(slug: string, id: string, pad = 0.5) {
   return `${API}/projects/${slug}/clips/${id}/audio.wav?pad=${pad}`;
 }
 
-export function cutAudioUrl(slug: string, revision?: number) {
-  const params = revision != null ? `?rev=${revision}` : "";
-  return `${API}/projects/${slug}/cut-audio.wav${params}`;
+export function cutAudioUrl(slug: string, revision?: number, include: "selected" | "all" = "selected") {
+  const params = new URLSearchParams();
+  if (revision != null) params.set("rev", String(revision));
+  if (include === "all") params.set("include", "all");
+  const query = params.toString();
+  return `${API}/projects/${slug}/cut-audio.wav${query ? `?${query}` : ""}`;
 }
 
 export function updateCanvasDraft(slug: string, reelId: string | null) {

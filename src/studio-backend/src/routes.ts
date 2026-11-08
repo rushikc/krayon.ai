@@ -26,6 +26,7 @@ import {
   NameConflictError,
   NotFoundError,
   OpError,
+  clipPlayDuration,
   playRanges,
   throwIfBusy,
 } from "./domain/types.js";
@@ -161,6 +162,8 @@ function clipSummary(clip: Clip) {
     statusAt: clip.statusAt,
     note: clip.note,
     llm: clip.llm,
+    silenceBefore: clip.silenceBefore ?? 0,
+    silenceAfter: clip.silenceAfter ?? 0,
   };
 }
 
@@ -876,15 +879,20 @@ export function registerRoutes(
 
   app.get("/api/studio/projects/:slug/cut-audio.wav", async (request, reply) => {
     const { slug } = request.params as { slug: string };
+    const include = String((request.query as { include?: string }).include ?? "selected");
     const { dir, cuts } = await load(root, slug);
-    const selected = cuts.order
-      .map((id) => cuts.clips.find((clip) => clip.id === id))
-      .filter((clip): clip is Clip => clip != null && clip.status === "selected");
+    const selected = (
+      include === "all"
+        ? [...cuts.clips].sort((left, right) => left.sourceStart - right.sourceStart || left.id.localeCompare(right.id))
+        : cuts.order
+            .map((id) => cuts.clips.find((clip) => clip.id === id))
+            .filter((clip): clip is Clip => clip != null && clip.status === "selected")
+    );
     if (selected.length === 0) {
       throw new OpError([{ clipId: null, field: "order", message: "No selected clips" }]);
     }
     const cacheDir = path.join(dir, "analysis", "previews");
-    const cachePath = path.join(cacheDir, `cut-r${cuts.revision}-p0.wav`);
+    const cachePath = path.join(cacheDir, `cut-r${cuts.revision}-p0-${include === "all" ? "all" : "sel"}.wav`);
     try {
       await stat(cachePath);
     } catch {
@@ -905,10 +913,13 @@ export function registerRoutes(
       await stat(cachePath);
     } catch {
       const wav = path.join(dir, "analysis", "source.wav");
-      const ranges = playRanges(clip).map((range) => `${range.sourceStart},${range.sourceEnd}`).join(";");
+      const tokens: string[] = [];
+      if ((clip.silenceBefore ?? 0) > 0.0005) tokens.push(`s,${clip.silenceBefore}`);
+      for (const range of playRanges(clip)) tokens.push(`${range.sourceStart},${range.sourceEnd}`);
+      if ((clip.silenceAfter ?? 0) > 0.0005) tokens.push(`s,${clip.silenceAfter}`);
       const url = new URL("/api/audio-studio/clip-audio", python);
       url.searchParams.set("wav", wav);
-      url.searchParams.set("ranges", ranges);
+      url.searchParams.set("ranges", tokens.join(";"));
       url.searchParams.set("pad", String(Number.isFinite(pad) ? pad : 0));
       const response = await fetch(url);
       if (!response.ok) throw new Error(await response.text());
@@ -1656,13 +1667,18 @@ async function concatSelectedAudio(
   } catch {
     throw new OpError([{ clipId: null, field: "source", message: "Analyze first so there is cached audio" }]);
   }
-  const ranges = selected.flatMap((clip) => playRanges(clip).map((range) => ({ clipId: clip.id, ...range })));
-  if (ranges.length === 0) {
+  const tokens: string[] = [];
+  for (const clip of selected) {
+    if ((clip.silenceBefore ?? 0) > 0.0005) tokens.push(`s,${clip.silenceBefore}`);
+    for (const range of playRanges(clip)) tokens.push(`${range.sourceStart},${range.sourceEnd}`);
+    if ((clip.silenceAfter ?? 0) > 0.0005) tokens.push(`s,${clip.silenceAfter}`);
+  }
+  if (tokens.length === 0) {
     throw new OpError([{ clipId: null, field: "order", message: "Select at least one clip before rendering" }]);
   }
   const url = new URL("/api/audio-studio/clip-audio", pythonBase);
   url.searchParams.set("wav", sourceWav);
-  url.searchParams.set("ranges", ranges.map((item) => `${item.sourceStart},${item.sourceEnd}`).join(";"));
+  url.searchParams.set("ranges", tokens.join(";"));
   url.searchParams.set("pad", "0");
   const response = await fetch(url);
   if (!response.ok) throw new Error(await response.text());
@@ -1672,7 +1688,7 @@ async function concatSelectedAudio(
   const clips: Array<{ clipId: string; outStart: number; outEnd: number }> = [];
   for (const clip of selected) {
     const start = cursor;
-    for (const range of playRanges(clip)) cursor += Math.max(0, range.sourceEnd - range.sourceStart);
+    cursor += clipPlayDuration(clip);
     clips.push({ clipId: clip.id, outStart: Math.round(start * 1000) / 1000, outEnd: Math.round(cursor * 1000) / 1000 });
   }
   return { duration: cursor, clips };

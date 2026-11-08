@@ -85,7 +85,7 @@ describe("StudioVisualsPage", () => {
     updateCanvasDraft.mockReset().mockResolvedValue({ canvasDraft: { version: 2, reelId: "" } });
   });
 
-  it("returns to audio when 1 Audio is clicked", async () => {
+  it("returns to clips when 1 Clips is clicked", async () => {
     const { StudioVisualsPage } = await import("@/pages/studio/StudioVisualsPage");
     render(
       <MemoryRouter initialEntries={["/studio/real/video"]}>
@@ -95,8 +95,8 @@ describe("StudioVisualsPage", () => {
         </Routes>
       </MemoryRouter>,
     );
-    await waitFor(() => expect(screen.getByRole("button", { name: "1 Audio" })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: "1 Audio" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "1 Clips" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "1 Clips" }));
     expect(await screen.findByText("audio workspace")).toBeInTheDocument();
   });
 });

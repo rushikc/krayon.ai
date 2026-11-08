@@ -45,6 +45,10 @@ def _slice_wav(source_wav: Path, output: Path, ranges: list[tuple[float, float]]
 
         chunks = array.array("h")
         for start, end in ranges:
+            if start < 0:
+                n = max(0, int(round(end * rate)))
+                chunks.extend(array.array("h", [0] * n))
+                continue
             start_i = max(0, int(round(start * rate)))
             end_i = min(len(payload), int(round(end * rate)))
             if end_i > start_i:

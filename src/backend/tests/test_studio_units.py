@@ -51,6 +51,17 @@ def test_stats_and_peaks_reject_empty_ranges_and_cache(tmp_path: Path) -> None:
     assert len(peaks["peaks"]) == 16
 
 
+def test_slice_clip_audio_inserts_silence(tmp_path: Path) -> None:
+    wav = tmp_path / "source.wav"
+    write_wav(wav, render_samples(duration_s=1.0))
+    out = tmp_path / "out.wav"
+    slice_clip_audio(wav, out, [(-1.0, 0.25), (0.0, 0.25)])
+    import wave
+
+    with wave.open(str(out), "rb") as handle:
+        assert handle.getnframes() / handle.getframerate() == pytest.approx(0.5, abs=0.05)
+
+
 def test_analysis_payload_score_and_progress(tmp_path: Path) -> None:
     clip = _clip("c-0001", "alpha beta")
     scores = score_clips([clip])

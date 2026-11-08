@@ -182,7 +182,6 @@ export function ReelWorkspace({
       setMeta(null);
       setLoadError(null);
       setElements([]);
-      useCanvasStore.setState({ trackCount: 1 });
       return;
     }
     let cancelled = false;
@@ -431,8 +430,10 @@ export function ReelWorkspace({
           <div className="flex items-center gap-2">
             <StudioStepIndicator
               activeId="video"
+              editEnabled
               videoEnabled
               onAudioClick={() => navigate(`/studio/${studioChrome.slug}`)}
+              onEditClick={() => navigate(`/studio/${studioChrome.slug}/edit`)}
               onVideoClick={() => navigate(`/studio/${studioChrome.slug}/video`)}
             />
             <Button

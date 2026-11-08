@@ -7,6 +7,22 @@ export function takeNumberFromId(id: string): number {
   return match ? Number(match[1]) : 0;
 }
 
+export function takeRootId(clip: { id: string; parentIds?: string[] }): string {
+  return clip.parentIds?.[0] ?? clip.id;
+}
+
+export function takeLabel(clip: { id: string; parentIds?: string[]; sourceStart: number }, clips: Array<{ id: string; parentIds?: string[]; sourceStart: number }>): string {
+  const root = takeRootId(clip);
+  const number = takeNumberFromId(root);
+  const pieces = clips
+    .filter((item) => takeRootId(item) === root)
+    .sort((left, right) => left.sourceStart - right.sourceStart || left.id.localeCompare(right.id));
+  if (pieces.length <= 1) return `Take ${number}`;
+  const index = Math.max(0, pieces.findIndex((item) => item.id === clip.id));
+  const letter = index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+  return `Take ${number}-${letter}`;
+}
+
 export function takeLabelFromId(id: string): string {
   return `Take ${takeNumberFromId(id)}`;
 }
@@ -51,6 +67,14 @@ export function statusWord(status: StudioClip["status"]): "Accepted" | "Rejected
   if (status === "selected") return "Accepted";
   if (status === "rejected") return "Rejected";
   return "Undecided";
+}
+
+export function clipPlayDuration(clip: Pick<StudioClip, "ranges" | "sourceStart" | "sourceEnd" | "silenceBefore" | "silenceAfter" | "duration">): number {
+  const speech =
+    clip.ranges?.length > 0
+      ? clip.ranges.reduce((sum, range) => sum + Math.max(0, range.sourceEnd - range.sourceStart), 0)
+      : Math.max(0, (clip.sourceEnd ?? 0) - (clip.sourceStart ?? 0));
+  return speech + Math.max(0, clip.silenceBefore ?? 0) + Math.max(0, clip.silenceAfter ?? 0);
 }
 
 export const SPLIT_MIN_GAP = 0.15;

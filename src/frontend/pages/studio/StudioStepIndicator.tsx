@@ -4,18 +4,23 @@ import { cn } from "@/lib/utils";
 
 export const STUDIO_STEPS = [
   { id: "audio", label: studioCopy.stepAudio },
+  { id: "edit", label: studioCopy.stepEdit },
   { id: "video", label: studioCopy.stepVideo },
 ] as const;
 
 export function StudioStepIndicator({
   activeId = "audio",
+  editEnabled = false,
   videoEnabled = false,
   onAudioClick,
+  onEditClick,
   onVideoClick,
 }: {
   activeId?: string;
+  editEnabled?: boolean;
   videoEnabled?: boolean;
   onAudioClick?: () => void;
+  onEditClick?: () => void;
   onVideoClick?: () => void;
 }) {
   return (
@@ -23,8 +28,8 @@ export function StudioStepIndicator({
       <ol className="ml-4 flex items-center gap-2 text-xs" data-testid="studio-steps">
         {STUDIO_STEPS.map((step) => {
           const active = step.id === activeId;
-          const enabled = step.id === "audio" || videoEnabled;
-          const onClick = step.id === "audio" ? onAudioClick : onVideoClick;
+          const enabled = step.id === "audio" || (step.id === "edit" && editEnabled) || (step.id === "video" && videoEnabled);
+          const onClick = step.id === "audio" ? onAudioClick : step.id === "edit" ? onEditClick : onVideoClick;
           const chip = (
             <button
               type="button"

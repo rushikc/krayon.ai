@@ -195,6 +195,12 @@ def _parse_ranges(text: str) -> list[tuple[float, float]]:
         bits = piece.split(",")
         if len(bits) != 2:
             raise HTTPException(status_code=400, detail="ranges must be start,end pairs separated by ';'")
+        if bits[0].strip().lower() == "s":
+            duration = float(bits[1])
+            if duration < 0:
+                raise HTTPException(status_code=400, detail="silence duration must be >= 0")
+            ranges.append((-1.0, duration))
+            continue
         start, end = float(bits[0]), float(bits[1])
         if end <= start:
             raise HTTPException(status_code=400, detail="range end must be after start")

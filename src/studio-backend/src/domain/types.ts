@@ -30,6 +30,8 @@ export type Clip = {
   statusAt: string;
   note: string;
   llm: Record<string, unknown>;
+  silenceBefore: number;
+  silenceAfter: number;
   script?: { line: number; text: string; score: number };
 };
 
@@ -164,6 +166,8 @@ export function normalizeClip(clip: Clip): Clip {
     ranges: Array.isArray(clip.ranges) ? clip.ranges : [],
     words: Array.isArray(clip.words) ? clip.words : [],
     reasons: Array.isArray(clip.reasons) ? clip.reasons : [],
+    silenceBefore: Math.max(0, Number(clip.silenceBefore) || 0),
+    silenceAfter: Math.max(0, Number(clip.silenceAfter) || 0),
   };
 }
 
@@ -217,6 +221,10 @@ export function playRanges(clip: Pick<Clip, "ranges" | "sourceStart" | "sourceEn
 
 export function rangeDuration(ranges: SourceRange[]): number {
   return ranges.reduce((sum, range) => sum + Math.max(0, range.sourceEnd - range.sourceStart), 0);
+}
+
+export function clipPlayDuration(clip: Pick<Clip, "ranges" | "sourceStart" | "sourceEnd" | "silenceBefore" | "silenceAfter">): number {
+  return rangeDuration(playRanges(clip)) + Math.max(0, clip.silenceBefore ?? 0) + Math.max(0, clip.silenceAfter ?? 0);
 }
 
 export function textFromWords(words: Word[]): string {

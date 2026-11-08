@@ -21,6 +21,9 @@ def slice_clip_audio(
     padded: list[tuple[float, float]] = []
     last = len(ranges) - 1
     for index, (start, end) in enumerate(ranges):
+        if start < 0:
+            padded.append((start, end))
+            continue
         left = start - pad if index == 0 else start
         right = end + pad if index == last else end
         padded.append((max(0.0, left), max(left, right)))

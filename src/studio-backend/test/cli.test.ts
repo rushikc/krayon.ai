@@ -43,6 +43,8 @@ function clip(partial: Partial<Clip> & Pick<Clip, "id" | "text">): Clip {
     statusAt: "",
     note: "",
     llm: {},
+    silenceBefore: 0,
+    silenceAfter: 0,
   };
 }
 
@@ -248,7 +250,7 @@ describe("studio http and cli", () => {
     expect(split.summary).toBe("split c-0001 into 3 clips");
     const status = (await runCli(["status"], env())) as { clips: { id: string; status: string }[]; revision: number };
     expect(status.clips).toHaveLength(4);
-    expect(status.clips.filter((item) => item.status === "undecided").length).toBeGreaterThanOrEqual(3);
+    expect(status.clips.filter((item) => item.status === "selected").length).toBeGreaterThanOrEqual(3);
     const undone = (await runCli(["undo"], env())) as { revision: number };
     expect(undone.revision).toBe(split.revision - 1);
     const restored = (await runCli(["status"], env())) as { clips: { id: string }[] };

@@ -186,6 +186,16 @@ describe("StudioControlsPanel", () => {
     expect(onSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ groupingMode: "global" }));
   });
 
+  it("hides render progress and cancel when not busy", () => {
+    renderPanel({
+      renderBusy: false,
+      renderProgress: null,
+      clipCount: 2,
+    });
+    expect(screen.queryByTestId("render-progress")).toBeNull();
+    expect(screen.queryByRole("button", { name: studioCopy.cancelRender })).toBeNull();
+  });
+
   it("renders audio, preview video, and final video actions with hints", async () => {
     const onRender = vi.fn();
     renderPanel({ onRender, clipCount: 2 });

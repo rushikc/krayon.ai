@@ -5,6 +5,7 @@ import {
   cycleStatusFilter,
   playheadToSource,
   statusDotTone,
+  takeLabel,
   takeLabelFromId,
   takeNumberFromId,
   validateCut,
@@ -14,6 +15,16 @@ describe("studio clip helpers", () => {
   it("reads take numbers from clip ids", () => {
     expect(takeNumberFromId("c-0007")).toBe(7);
     expect(takeLabelFromId("c-0007")).toBe("Take 7");
+  });
+
+  it("labels split pieces from the original take in audio order", () => {
+    const clips = [
+      { id: "c-0200", parentIds: ["c-0107"], sourceStart: 4 },
+      { id: "c-0201", parentIds: ["c-0107"], sourceStart: 1 },
+    ];
+    expect(takeLabel(clips[1], clips)).toBe("Take 107-A");
+    expect(takeLabel(clips[0], clips)).toBe("Take 107-B");
+    expect(takeLabel({ id: "c-0107", parentIds: [], sourceStart: 0 }, [{ id: "c-0107", parentIds: [], sourceStart: 0 }])).toBe("Take 107");
   });
 
   it("maps selected to accepted and everything else to not accepted", () => {

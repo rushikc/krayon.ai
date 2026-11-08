@@ -245,6 +245,32 @@ describe("StudioWorkspace", () => {
     await waitFor(() => expect(screen.getByTestId("rendered-video")).toBeTruthy());
   });
 
+  it("does not stick on Starting render when SSE done beats startRender", async () => {
+    getProject.mockResolvedValue(project([clip({ id: "c-0001", status: "selected", text: "keep" })]));
+    listOutputs.mockResolvedValue({
+      manifests: [{ name: "audio-1.wav", quality: "audio", duration: 2, size: 1000, createdAt: new Date().toISOString() }],
+    });
+    let release: (value: { renderId: string; outputName: string }) => void = () => undefined;
+    startRender.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const { StudioWorkspace } = await import("@/pages/studio/StudioWorkspace");
+    render(
+      <MemoryRouter>
+        <StudioWorkspace slug="real" />
+      </MemoryRouter>,
+    );
+    await screen.findByText("Take 1");
+    await userEvent.click(screen.getByRole("button", { name: "Render audio" }));
+    emit({ type: "render", renderId: "audio-1", phase: "done", ratio: 1, message: "Render complete", outputName: "audio-1.wav" });
+    release({ renderId: "audio-1", outputName: "audio-1.wav" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel render" })).toBeNull());
+    expect(screen.queryByTestId("render-progress")).toBeNull();
+  });
+
   it("shows a single percent for analysis progress", async () => {
     getProject.mockResolvedValue({
       ...project([]),
@@ -545,16 +571,17 @@ describe("StudioWorkspace", () => {
       <MemoryRouter initialEntries={["/studio/real"]}>
         <Routes>
           <Route path="/studio/:slug" element={<StudioWorkspace slug="real" />} />
+          <Route path="/studio/:slug/edit" element={<div>edit floor</div>} />
           <Route path="/studio/:slug/video" element={<div>visuals</div>} />
         </Routes>
       </MemoryRouter>,
     );
     await screen.findByText("kept");
-    const video = screen.getByRole("button", { name: "2 Video" });
-    expect(video).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Continue to visuals" })).toBeEnabled();
-    await userEvent.click(video);
-    expect(await screen.findByText("visuals")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2 Edit" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "3 Video" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Continue to edit" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Continue to edit" }));
+    expect(await screen.findByText("edit floor")).toBeInTheDocument();
   });
 
   it("keeps step 2 disabled while analyzing", async () => {
@@ -569,8 +596,8 @@ describe("StudioWorkspace", () => {
       </MemoryRouter>,
     );
     await screen.findByText("kept");
-    expect(screen.getByRole("button", { name: "2 Video" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Continue to visuals" })).toBeNull();
+    expect(screen.getByRole("button", { name: "3 Video" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Continue to edit" })).toBeNull();
   });
 
   it("goes to the studio home when the project is deleted over SSE", async () => {

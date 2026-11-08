@@ -38,6 +38,8 @@ export function clip(partial: Partial<Clip> & Pick<Clip, "id" | "text">): Clip {
     statusAt: partial.statusAt ?? "",
     note: partial.note ?? "",
     llm: partial.llm ?? {},
+    silenceBefore: partial.silenceBefore ?? 0,
+    silenceAfter: partial.silenceAfter ?? 0,
     script: partial.script,
   };
 }

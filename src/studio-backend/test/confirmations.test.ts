@@ -46,6 +46,8 @@ function clip(id: string, extra: Partial<Clip> = {}): Clip {
     statusAt: "",
     note: "",
     llm: {},
+    silenceBefore: 0,
+    silenceAfter: 0,
   };
 }
 

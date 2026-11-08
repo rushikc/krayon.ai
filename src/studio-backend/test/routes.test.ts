@@ -605,6 +605,20 @@ describe("events and render", () => {
     expect(state.calls.filter((url) => url.includes("/render/async")).length).toBe(videoJobs);
   });
 
+  it("includes digital silence in the audio stitch ranges", async () => {
+    await seedProject(root, "silence-render", [
+      clip({ id: "c-0001", text: "alpha beta", sourceStart: 0, sourceEnd: 2, status: "selected", silenceBefore: 0.2, silenceAfter: 0.1 }),
+    ]);
+    await mkdir(path.join(root, "silence-render", "analysis"), { recursive: true });
+    await writeFile(path.join(root, "silence-render", "analysis", "source.wav"), Buffer.from("RIFF"));
+    const started = await http(base, "POST", "/api/studio/projects/silence-render/render", { quality: "audio" });
+    expect(started.status).toBe(200);
+    await expect.poll(async () => (await http(base, "GET", `/api/studio/projects/silence-render/render/${started.payload.renderId}`)).payload.status).toBe("done");
+    const clipAudio = state.calls.find((url) => url.includes("clip-audio") && url.includes("silence-render")) ?? "";
+    expect(decodeURIComponent(clipAudio)).toContain("s,0.2");
+    expect(decodeURIComponent(clipAudio)).toContain("s,0.1");
+  });
+
   it("lints a project that has no wav", async () => {
     await seedProject(root, "lint-demo", [
       clip({ id: "c-0001", text: "alpha", sourceStart: 0, sourceEnd: 0.2, duration: 0.2, status: "selected" }),

@@ -10,10 +10,10 @@ import {
   LLM_MAX_BYTES,
   OpError,
   clipById,
+  clipPlayDuration,
   mintClipId,
   mintGroupId,
   playRanges,
-  rangeDuration,
   textFromWords,
 } from "./types.js";
 
@@ -32,6 +32,15 @@ export type Op =
       end?: number;
       sampleAccurate?: boolean;
     }
+  | {
+      op: "adjustBounds";
+      clipId: string;
+      start?: number;
+      end?: number;
+      sampleAccurate?: boolean;
+      sourceDuration?: number;
+    }
+  | { op: "setSilence"; clipId: string; before?: number; after?: number }
   | { op: "ungroup"; clipId: string }
   | { op: "moveToGroup"; clipId: string; groupId: string }
   | { op: "note"; clipId: string; note: string }
@@ -39,6 +48,9 @@ export type Op =
 
 const ADJACENT_GAP_SECONDS = 1;
 export const SPLIT_MIN_GAP = 0.15;
+export const ADJUST_MAX_NUDGE_S = 3;
+export const SILENCE_MAX_S = 3;
+const NEIGHBOR_OVERLAP_S = 0.05;
 
 function fail(clipId: string | null, field: string, message: string, allowed?: unknown): never {
   throw new OpError([{ clipId, field, message, allowed }]);
@@ -51,7 +63,9 @@ function syncBounds(clip: Clip, ranges: SourceRange[], words: Word[]): void {
   clip.sourceEnd = ordered[ordered.length - 1]?.sourceEnd ?? clip.sourceEnd;
   clip.words = [...words].sort((a, b) => a.start - b.start || a.end - b.end);
   clip.text = textFromWords(clip.words) || clip.text;
-  clip.duration = rangeDuration(ordered);
+  clip.silenceBefore = Math.max(0, Number(clip.silenceBefore) || 0);
+  clip.silenceAfter = Math.max(0, Number(clip.silenceAfter) || 0);
+  clip.duration = clipPlayDuration(clip);
 }
 
 function detach(doc: Cuts, clipId: string): void {
@@ -111,6 +125,11 @@ function replaceInGroup(doc: Cuts, groupId: string, removeIds: string[], add: Cl
   });
 }
 
+function splitAncestry(parent: Clip): string[] {
+  const root = parent.parentIds[0] ?? parent.id;
+  return parent.parentIds.length ? [root, parent.id] : [parent.id];
+}
+
 function childFrom(
   ids: IdState,
   parent: Clip,
@@ -121,7 +140,7 @@ function childFrom(
   const clip: Clip = {
     ...parent,
     id: mintClipId(ids),
-    parentIds: [parent.id],
+    parentIds: splitAncestry(parent),
     words: [],
     ranges: [],
     status: "undecided",
@@ -131,8 +150,21 @@ function childFrom(
     score: parent.score,
     reasons: [`split from ${parent.id}`],
   };
+  clip.silenceBefore = 0;
+  clip.silenceAfter = 0;
   syncBounds(clip, ranges, words);
   return clip;
+}
+
+function assignSplitSilence(parent: Clip, children: Clip[]): void {
+  if (children.length === 0) return;
+  for (const child of children) {
+    child.silenceBefore = 0;
+    child.silenceAfter = 0;
+  }
+  children[0]!.silenceBefore = parent.silenceBefore ?? 0;
+  children[children.length - 1]!.silenceAfter = parent.silenceAfter ?? 0;
+  for (const child of children) syncBounds(child, playRanges(child), child.words);
 }
 
 function splitAtWords(clip: Clip, wordIndex: number): { left: Word[]; right: Word[] } {
@@ -217,6 +249,7 @@ function applySplit(doc: Cuts, ids: IdState, op: Extract<Op, { op: "split" }>, a
   detach(doc, clip.id);
   left.status = parentStatus;
   right.status = parentStatus;
+  assignSplitSilence(clip, [left, right]);
   doc.clips.push(left, right);
   replaceInGroup(doc, clip.groupId, [clip.id], [left, right]);
   if (parentStatus === "selected") {
@@ -262,8 +295,8 @@ function applySplitMany(doc: Cuts, ids: IdState, op: Extract<Op, { op: "splitMan
     const child: Clip = {
       ...clip,
       id: mintClipId(ids),
-      parentIds: [clip.id],
-      status: "undecided",
+      parentIds: splitAncestry(clip),
+      status: clip.status,
       decidedBy: actor,
       statusReason: reason,
       statusAt: new Date().toISOString(),
@@ -277,9 +310,16 @@ function applySplitMany(doc: Cuts, ids: IdState, op: Extract<Op, { op: "splitMan
     if (!child.text) child.text = "";
     children.push(child);
   }
+  assignSplitSilence(clip, children);
+  const parentStatus = clip.status;
+  const orderIndex = doc.order.indexOf(clip.id);
   detach(doc, clip.id);
   doc.clips.push(...children);
   replaceInGroup(doc, clip.groupId, [clip.id], children);
+  if (parentStatus === "selected") {
+    const index = orderIndex === -1 ? doc.order.length : Math.min(orderIndex, doc.order.length);
+    doc.order.splice(index, 0, ...children.map((child) => child.id));
+  }
   return `split ${clip.id} into ${children.length} clips`;
 }
 
@@ -394,6 +434,56 @@ function applyTrim(doc: Cuts, op: Extract<Op, { op: "trim" }>, actor: Actor): st
   return `trimmed ${clip.id}`;
 }
 
+function applyAdjustBounds(doc: Cuts, op: Extract<Op, { op: "adjustBounds" }>, actor: Actor): string {
+  const clip = clipById(doc, op.clipId);
+  if (playRanges(clip).length > 1) {
+    fail(clip.id, "ranges", "adjustBounds needs a single-range clip");
+  }
+  if (op.start == null && op.end == null) fail(clip.id, "start", "Provide start or end");
+  let start = op.start ?? clip.sourceStart;
+  let end = op.end ?? clip.sourceEnd;
+  if (end - start <= 0.01) fail(clip.id, "end", "clip must keep a positive duration");
+  if (start < clip.sourceStart - ADJUST_MAX_NUDGE_S - 1e-3 || end > clip.sourceEnd + ADJUST_MAX_NUDGE_S + 1e-3) {
+    fail(clip.id, "start", `bounds may move at most ${ADJUST_MAX_NUDGE_S}s from the current clip`, {
+      min: clip.sourceStart - ADJUST_MAX_NUDGE_S,
+      max: clip.sourceEnd + ADJUST_MAX_NUDGE_S,
+    });
+  }
+  start = Math.max(0, start);
+  const sourceDuration = op.sourceDuration;
+  if (sourceDuration != null && Number.isFinite(sourceDuration)) {
+    end = Math.min(sourceDuration, end);
+  }
+  const neighbors = doc.clips
+    .filter((item) => item.status === "selected" && item.id !== clip.id)
+    .sort((left, right) => left.sourceStart - right.sourceStart);
+  const prev = [...neighbors].reverse().find((item) => item.sourceStart < clip.sourceStart);
+  const next = neighbors.find((item) => item.sourceStart > clip.sourceStart);
+  if (prev) start = Math.max(start, prev.sourceEnd - NEIGHBOR_OVERLAP_S);
+  if (next) end = Math.min(end, next.sourceStart + NEIGHBOR_OVERLAP_S);
+  if (end - start <= 0.01) fail(clip.id, "end", "clip must keep a positive duration");
+  const words = op.sampleAccurate !== false
+    ? clip.words.filter((word) => word.end > start && word.start < end)
+    : snapTrim({ ...clip, sourceStart: Math.min(clip.sourceStart, start), sourceEnd: Math.max(clip.sourceEnd, end), words: clip.words }, start, end).words;
+  syncBounds(clip, [{ sourceStart: start, sourceEnd: end }], words);
+  clip.decidedBy = actor;
+  return `adjusted ${clip.id}`;
+}
+
+function applySetSilence(doc: Cuts, op: Extract<Op, { op: "setSilence" }>, actor: Actor): string {
+  const clip = clipById(doc, op.clipId);
+  const before = op.before ?? clip.silenceBefore ?? 0;
+  const after = op.after ?? clip.silenceAfter ?? 0;
+  if (before < -1e-6 || after < -1e-6 || before > SILENCE_MAX_S + 1e-6 || after > SILENCE_MAX_S + 1e-6) {
+    fail(clip.id, "before", `silence must be between 0 and ${SILENCE_MAX_S}s`, { min: 0, max: SILENCE_MAX_S });
+  }
+  clip.silenceBefore = Math.max(0, Math.min(SILENCE_MAX_S, before));
+  clip.silenceAfter = Math.max(0, Math.min(SILENCE_MAX_S, after));
+  clip.decidedBy = actor;
+  syncBounds(clip, playRanges(clip), clip.words);
+  return `silence ${clip.id}`;
+}
+
 function applyOne(doc: Cuts, ids: IdState, op: Op, actor: Actor): string {
   switch (op.op) {
     case "select":
@@ -482,6 +572,10 @@ function applyOne(doc: Cuts, ids: IdState, op: Op, actor: Actor): string {
       return applyMerge(doc, ids, op.clipIds, actor);
     case "trim":
       return applyTrim(doc, op, actor);
+    case "adjustBounds":
+      return applyAdjustBounds(doc, op, actor);
+    case "setSilence":
+      return applySetSilence(doc, op, actor);
     default:
       fail(null, "op", "Unknown operation");
   }
@@ -498,6 +592,15 @@ export function applyOps(doc: Cuts, ids: IdState, ops: Op[], actor: Actor): { do
   return { doc: next, summary: parts.join("; ") };
 }
 
+const MIN_AUTO_ACCEPT_S = 2;
+
+export function autoAcceptBlockReason(clip: Pick<Clip, "duration" | "text">): string | null {
+  if (clip.duration < MIN_AUTO_ACCEPT_S) return "shorter than 2s";
+  const text = clip.text.toLowerCase();
+  if (text.includes("come on") || text.includes("i would never say that")) return "mess-up phrase";
+  return null;
+}
+
 export function applyAlgorithmCut(doc: Cuts): void {
   const byStart = (group: Group) => {
     const times = group.clipIds.map((id) => doc.clips.find((clip) => clip.id === id)?.sourceStart ?? 0);
@@ -509,14 +612,20 @@ export function applyAlgorithmCut(doc: Cuts): void {
     const members = group.clipIds
       .map((id) => doc.clips.find((clip) => clip.id === id))
       .filter((clip): clip is Clip => clip != null);
+    const eligible = members.filter((clip) => autoAcceptBlockReason(clip) == null);
     const recommended =
-      members.find((clip) => clip.reasons.includes("reference take")) ??
-      members.find((clip) => clip.id === group.recommendedClipId) ??
-      members.find((clip) => clip.label !== "falseStart") ??
-      members[0];
+      eligible.find((clip) => clip.reasons.includes("reference take")) ??
+      eligible.find((clip) => clip.id === group.recommendedClipId) ??
+      eligible.find((clip) => clip.label !== "falseStart") ??
+      eligible[0];
     for (const clip of members) {
-      if (recommended && clip.id === recommended.id) {
+      const blocked = autoAcceptBlockReason(clip);
+      if (blocked) {
+        clip.status = "rejected";
+        clip.statusReason = blocked;
+      } else if (recommended && clip.id === recommended.id) {
         clip.status = "selected";
+        clip.statusReason = "";
         order.push(clip.id);
       } else if (clip.label !== "none") {
         clip.status = "rejected";
