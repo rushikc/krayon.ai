@@ -1,5 +1,5 @@
-import { ChevronsDownUp, ChevronsUpDown, Loader2, Scissors } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Check, ChevronsDownUp, ChevronsUpDown, Loader2, Scissors } from "lucide-react";
+import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ClipGroups } from "@/components/layout/clip-list";
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,38 @@ import {
   statusDotTone,
   statusWord,
   scriptedGroupLabel,
-  takeLabelFromId,
+  takeLabel,
   type ClipStatusFilter,
 } from "@/lib/studio-clip";
 import { studioCopy } from "@/lib/studio-copy";
 import { cn } from "@/lib/utils";
 
+const CLIPS_WIDTH_KEY = "krayon-studio-clips-width";
+const DEFAULT_CLIPS_WIDTH = 576;
+const MIN_CLIPS_WIDTH = 240;
+const MAX_CLIPS_WIDTH = 800;
+
+function clampClipsWidth(value: number) {
+  return Math.min(MAX_CLIPS_WIDTH, Math.max(MIN_CLIPS_WIDTH, value));
+}
+
+function readClipsWidth() {
+  try {
+    const stored = Number(localStorage.getItem(CLIPS_WIDTH_KEY));
+    if (!Number.isFinite(stored)) return DEFAULT_CLIPS_WIDTH;
+    return clampClipsWidth(stored);
+  } catch {
+    return DEFAULT_CLIPS_WIDTH;
+  }
+}
+
+function persistClipsWidth(value: number) {
+  try {
+    localStorage.setItem(CLIPS_WIDTH_KEY, String(value));
+  } catch {
+    // localStorage unavailable
+  }
+}
 function StatusDot({
   status,
   decidedBy,
@@ -56,6 +82,7 @@ export function StudioClipsPanel({
   onFilterChange,
   onSelect,
   onPlay,
+  onDecide,
   projectStatus,
   statusMessage,
 }: {
@@ -66,6 +93,7 @@ export function StudioClipsPanel({
   onFilterChange: (filter: ClipStatusFilter) => void;
   onSelect: (clipId: string) => void;
   onPlay: (clipId: string) => void;
+  onDecide?: (clipId: string, op: "select" | "reject") => void;
   projectStatus?: string;
   statusMessage?: string;
 }) {
@@ -76,6 +104,8 @@ export function StudioClipsPanel({
     [clips, filter],
   );
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
+  const [width, setWidth] = useState(readClipsWidth);
+  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
   const visibleGroups = useMemo(() => {
     const ids = new Set(visible.map((clip) => clip.id));
     return groups
@@ -104,8 +134,41 @@ export function StudioClipsPanel({
     });
   }
 
+  function stopRowClick(event: { stopPropagation: () => void }) {
+    event.stopPropagation();
+  }
+
+  function onResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    drag.current = { startX: event.clientX, startWidth: width };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function onResizePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!drag.current) return;
+    setWidth(clampClipsWidth(drag.current.startWidth + event.clientX - drag.current.startX));
+  }
+
+  function onResizePointerUp() {
+    if (!drag.current) return;
+    drag.current = null;
+    setWidth((current) => {
+      persistClipsWidth(current);
+      return current;
+    });
+  }
+
+  function resetClipsWidth() {
+    setWidth(DEFAULT_CLIPS_WIDTH);
+    persistClipsWidth(DEFAULT_CLIPS_WIDTH);
+  }
+
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-background/60 backdrop-blur-2xl" data-testid="studio-clips">
+    <aside
+      className="relative flex shrink-0 flex-col border-r border-border bg-background/60 backdrop-blur-2xl"
+      style={{ width }}
+      data-testid="studio-clips"
+    >
       <div className="border-b border-border p-4">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
@@ -165,7 +228,10 @@ export function StudioClipsPanel({
               groups={visibleGroups}
               clips={visible.map((clip) => ({ ...clip, index: 0 }))}
               selectedClipId={selectedClipId}
-              takeLabel={(clip) => takeLabelFromId(clip.id)}
+              takeLabel={(clip) => {
+                const full = visible.find((item) => item.id === clip.id);
+                return takeLabel(full ?? { id: clip.id, sourceStart: 0 }, clips);
+              }}
               recommendedId={(group) => group.recommendedClipId}
               expandedMap={expandedMap}
               onExpandedChange={setExpandedMap}
@@ -198,6 +264,32 @@ export function StudioClipsPanel({
                   {clip.id}
                 </span>
               )}
+              trailing={(clip) => {
+                const full = visible.find((item) => item.id === clip.id);
+                if (!full || !onDecide) return null;
+                const accepted = full.status === "selected";
+                return (
+                  <span className="flex shrink-0 items-center gap-1" onClick={stopRowClick} onDoubleClick={stopRowClick}>
+                    <button
+                      type="button"
+                      aria-label={`Accept ${full.id}`}
+                      aria-pressed={accepted}
+                      className={cn(
+                        "inline-flex size-7 items-center justify-center rounded-md border",
+                        accepted
+                          ? "border-emerald-500 bg-emerald-500 text-white"
+                          : "border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/15",
+                      )}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDecide(full.id, accepted ? "reject" : "select");
+                      }}
+                    >
+                      <Check className="size-4" strokeWidth={2.75} />
+                    </button>
+                  </span>
+                );
+              }}
               issueLabel={() => null}
               onPreviewClip={onSelect}
               onPlayClip={onPlay}
@@ -205,6 +297,16 @@ export function StudioClipsPanel({
           </TooltipProvider>
         </div>
       </ScrollArea>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize clip list"
+        className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize"
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onDoubleClick={resetClipsWidth}
+      />
     </aside>
   );
 }

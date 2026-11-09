@@ -55,6 +55,26 @@ describe("StudioClipsPanel", () => {
     expect(onFilterChange).toHaveBeenCalled();
   });
 
+  it("accepts a row without selecting it", async () => {
+    const onDecide = vi.fn();
+    const onSelect = vi.fn();
+    render(
+      <StudioClipsPanel
+        clips={[clip({ id: "c-0002", status: "undecided", text: "open take" })]}
+        groups={[{ id: "g-0001", label: "alpha beta", clipIds: ["c-0002"], recommendedClipId: "c-0002" }]}
+        selectedClipId={null}
+        filter="all"
+        onFilterChange={vi.fn()}
+        onSelect={onSelect}
+        onPlay={vi.fn()}
+        onDecide={onDecide}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Accept c-0002" }));
+    expect(onDecide).toHaveBeenCalledWith("c-0002", "select");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it("shows an empty list and keeps long text truncated", () => {
     const long = "alpha ".repeat(40);
     render(

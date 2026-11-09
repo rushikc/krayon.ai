@@ -17,12 +17,12 @@ export function ClipListPlayButton({
     <Button
       type="button"
       variant="ghost"
-      size="icon-xs"
-      className="shrink-0 text-muted-foreground hover:text-primary"
+      size="icon-sm"
+      className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
       onClick={onClick}
       aria-label="Play"
     >
-      <Play className="size-3.5" />
+        <Play className="size-4" />
     </Button>
   );
 }
@@ -79,8 +79,8 @@ export function SpeechClipRow({
           resolvedIssue
             ? "border-yellow-500/50 bg-yellow-500/15 text-yellow-100"
             : selected
-              ? "border-transparent bg-primary/15 text-primary"
-              : "border-transparent group-hover:bg-muted/60",
+              ? "border-primary/50 bg-primary/20 text-foreground"
+              : "border-transparent text-foreground group-hover:bg-muted/60",
         )}
       >
         {leading}
