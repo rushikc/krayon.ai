@@ -41,7 +41,6 @@ test("split with S, merge and trim through the API, and keep the result after re
   const clip = (await studioApi.project(slug!)).clips.find((item) => item.duration >= 3) ?? (await studioApi.project(slug!)).clips[0];
   await openStudio(page, slug!);
   await selectClip(page, clip.id);
-  await page.getByTestId("waveform-edit").click();
   await clickWaveform(page, 0.45);
   await page.keyboard.press("s");
   await page.getByRole("button", { name: /^Save/ }).click();
