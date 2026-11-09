@@ -102,6 +102,7 @@ Log files are gitignored — do not commit them.
 ## Docs
 
 - [Install guide](install.md)
+- [Testing and local run](docs/testing.md)
 - [UI design](docs/ui-design.md)
 - [FFmpeg & media processing](docs/ffmpeg-backend.md)
 - [Silence removal pipeline](docs/silence-removal.md)
@@ -110,6 +111,8 @@ Log files are gitignored — do not commit them.
 - [Studio](docs/studio.md)
 - [Studio CLI](docs/studio-cli.md)
 - [Reel generate/review pipeline](docs/reel-pipeline.md)
+- [Excalidraw diagram pipeline](docs/diagram-pipeline.md)
+- [Rushk visual style](docs/rushk/visual-style.md)
 - [Reel animation JSON](docs/reel-animation-json.md)
 - [End-to-end tests](test/README.md)
 

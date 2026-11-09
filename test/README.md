@@ -2,6 +2,8 @@
 
 Browser and API tests for Krayon Studio, the home pages, the reel workspace, and the legacy audio editor. They run against your **running dev servers** and the installed Google Chrome. Default Studio specs build a synthetic fixture (`e2e-fix-*`) instead of opening `real` or `test1`.
 
+The full operator runbook (all four processes, unit suites, diagram CLI, and this e2e suite) is [docs/testing.md](../docs/testing.md).
+
 ## Run
 
 ```bash

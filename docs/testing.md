@@ -15,7 +15,7 @@ They are separate. The browser should talk to Vite, not to the backends directly
 | Reel Fastify | `pnpm reel-backend` | 127.0.0.1:8788 | `GET /api/reel/health` | Gemini generate/review/fix, and the Excalidraw diagram CLI package |
 | Studio Fastify | `pnpm studio-backend` | 127.0.0.1:8789 | `GET /api/studio/health` | project store, ops, `pnpm krayon` CLI |
 
-Vite proxies (dev server only, [`vite.config.ts`](../vite.config.ts) `server.proxy`): `/api/reel` → 8788, `/api/studio` → 8789, other `/api` → 8000. `pnpm preview` does not use that proxy block.
+Vite proxies ([`vite.config.ts`](../vite.config.ts) `server.proxy`): `/api/reel` → 8788, `/api/studio` → 8789, other `/api` → 8000. This Vite version also applies that proxy to `pnpm preview`.
 
 All four: `pnpm dev` (same as `pnpm dev:all`). Stable no-reload stack: `pnpm fixed` (UI at http://localhost:5175, `KRAYON_FIXED=1`, no HMR).
 
@@ -177,13 +177,13 @@ Krayon is a local app. `pnpm build` is the production frontend compile check. Pl
 
 ```bash
 pnpm build                 # tsc && vite build → dist/ (Vite root is src/frontend)
-pnpm preview               # static preview of dist/; see the printed port
+pnpm preview               # dist/ on http://127.0.0.1:4173, same /api proxy as dev
 pnpm backend
 pnpm reel-backend:fixed    # or pnpm reel-backend
 pnpm studio-backend:fixed
 ```
 
-API proxies exist on `pnpm dev` / `pnpm frontend` only. `pnpm preview` serves the built files and does not forward `/api` unless you add a proxy in front of it. For a full UI against the backends, use `pnpm dev` (http://localhost:5174) or `pnpm fixed` (http://localhost:5175).
+`pnpm preview` prints `http://127.0.0.1:4173/` and, with the current Vite config, forwards `/api` to the same backends as dev (`GET /api/health` returns the Python `{ "status": "ok" }`). Playwright still targets `pnpm dev` (http://localhost:5174) or `pnpm fixed` (http://localhost:5175).
 
 ## 6. How the pipelines relate
 
@@ -198,3 +198,15 @@ API proxies exist on `pnpm dev` / `pnpm frontend` only. `pnpm preview` serves th
 - `src/studio-backend/krayon-studio.toml` — host, port, CORS, python_base
 - `src/reel-backend/krayon-reel.toml` — Gemini models, diagram `chrome_path`
 - Env: `KRAYON_CHROME_PATH`, `KRAYON_DIAGRAMS_DIR`, `KRAYON_STUDIO_URL`, `KRAYON_FIXED`, and the `E2E_*` table in [`test/README.md`](../test/README.md)
+
+## Last verified
+
+2026-11-07, against the working tree (not committed).
+
+- Docs: this file, plus pointers in `README.md`, `install.md`, `AGENTS.md`, `test/README.md`. `docs/diagram-pipeline.md` already described the read-only diagram HTTP routes.
+- Implemented: shared rushk `ReelWorkspace` at `/reel-animations/*` and `/studio/:slug/video`; Studio **2 Video** when ready with a selection; `canvasDraft` v2 `reelId`; `GET /api/reel/diagrams` and `GET .../cut-audio.wav`. The already-running `pnpm fixed` processes on 5175 / 8788 / 8789 do not hot-reload, so those routes 404 until that stack is restarted. A current `pnpm frontend` on 5174 was used for the browser smoke.
+- `pnpm studio:doctor` ok. Frontend vitest 212 passed (3 expected fail). Reel-backend 40 passed, 1 skipped (`live.test`, no Gemini key). Studio-backend 72 passed (3 expected fail). `pnpm test:backend` 138 passed, 1 xfailed. Diagram list/validate/build both examples exit 0. Uber step-01 1270×1308, Airbnb step-04 1831×1559, white corners, ink not on the right or bottom edge, full labels. `pnpm typecheck` and `pnpm lint` passed.
+- Browser http://localhost:5174: home tiles, `/reel-animations/_examples/uber-ttl` rushk frame (build hint, because the old reel server 404s `/api/reel/diagrams/meta`), `/studio/test1` with **2 Video** enabled and **Continue to visuals**, `/studio/test1/video` empty picker plus cut-audio row, `/audio` library. No Analyze was started on `test1`.
+- `pnpm test:e2e`: 46 passed, 1 skipped (delete-all), 1 failed then fixed. The failure was `reel.spec.ts`: an empty diagram reel forced `trackCount` to 1, so an applied box on track 1 was not drawn. That force was removed; the spec then passed.
+- `pnpm build` passed. `pnpm preview` on http://127.0.0.1:4173 proxied `GET /api/health` to Python.
+- Skipped: `pnpm test:e2e:slow`, live Gemini (`KRAYON_GEMINI_API_KEY` unset), analyze/render of user projects. `python3.12` is not on PATH; the backend venv reported Python 3.14.6 during pytest. A sandboxed first pass of reel Chrome launch and ffmpeg VideoToolbox failed; the same commands passed outside the sandbox.

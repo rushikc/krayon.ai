@@ -115,15 +115,17 @@ Optional env overrides: `KRAYON_FFMPEG`, `KRAYON_WHISPER_MODEL`, etc.
 
 ## Build for production
 
-```bash
-pnpm build
-# Frontend output: dist/
+Krayon stays on this machine. `pnpm build` is the frontend compile check. There is no Docker image or cloud host.
 
-# Backend runs as-is:
-pnpm backend
+```bash
+pnpm build                 # tsc && vite build → dist/ (Vite root is src/frontend)
+pnpm preview               # serves dist/; use the printed Local URL
+pnpm backend               # Python :8000
+pnpm reel-backend:fixed    # Fastify :8788, no watch
+pnpm studio-backend:fixed  # Fastify :8789, no watch
 ```
 
-Serve `dist/` with any static file server, keeping the API proxy pointed at localhost:8000.
+`pnpm preview` serves `dist/` at http://127.0.0.1:4173. This Vite version applies `server.proxy` there too (`/api` → :8000, `/api/reel` → :8788, `/api/studio` → :8789), so the three backends still have to be running. Day-to-day UI is `pnpm dev` (http://localhost:5174) or `pnpm fixed` (http://localhost:5175). See [docs/testing.md](docs/testing.md).
 
 ## Troubleshooting
 
