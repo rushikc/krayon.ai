@@ -148,6 +148,8 @@ export const studioCopy = {
   editing: "Editing",
   addCut: "Add cut at playhead",
   pressS: "Press S to cut",
+  zoomIn: "Zoom in",
+  zoomOut: "Zoom out",
   undoLastCut: "Undo last cut",
   saveCuts: (cuts: number) => `Save (${cuts} cuts → ${cuts + 1} clips)`,
   splitToast: (count: number) => `Split into ${count} clips`,
